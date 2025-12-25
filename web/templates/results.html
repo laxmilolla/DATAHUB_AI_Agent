@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Execution Results - AI Agent QA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 AI Agent QA - Results</h1>
+            <p class="subtitle"><a href="/">← Back to Home</a></p>
+        </header>
+
+        <main>
+            <div class="card">
+                <h2>Execution: <span id="execution-id">{{ execution_id }}</span></h2>
+                
+                <div id="results-content">
+                    <p class="loading">Loading results...</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Architecture 2: LLM-driven autonomous execution</p>
+        </footer>
+    </div>
+
+    <script>
+        const executionId = "{{ execution_id }}";
+        
+        async function loadResults() {
+            try {
+                const response = await fetch(`/api/executions/${executionId}/results`);
+                const results = await response.json();
+                
+                displayResults(results);
+            } catch (error) {
+                document.getElementById('results-content').innerHTML = 
+                    `<p class="error">Error loading results: ${error.message}</p>`;
+            }
+        }
+        
+        function displayResults(results) {
+            const container = document.getElementById('results-content');
+            
+            let html = `
+                <div class="results-header">
+                    <div class="status-badge status-${results.status}">${results.status}</div>
+                    <p><strong>Story:</strong> ${results.story}</p>
+                    ${results.duration ? `<p><strong>Duration:</strong> ${results.duration.toFixed(2)}s</p>` : ''}
+                </div>
+            `;
+            
+            if (results.summary) {
+                html += `
+                    <div class="summary">
+                        <h3>Summary</h3>
+                        <p>${results.summary}</p>
+                    </div>
+                `;
+            }
+            
+            if (results.error) {
+                html += `
+                    <div class="error-box">
+                        <h3>Error</h3>
+                        <pre>${results.error}</pre>
+                    </div>
+                `;
+            }
+            
+            if (results.actions_taken && results.actions_taken.length > 0) {
+                html += `
+                    <div class="actions">
+                        <h3>Actions Taken (${results.actions_taken.length})</h3>
+                        <div class="actions-list">
+                `;
+                
+                results.actions_taken.forEach((action, index) => {
+                    html += `
+                        <div class="action-item">
+                            <div class="action-header">
+                                <strong>${index + 1}. ${action.tool}</strong>
+                                <span class="iteration">Iteration ${action.iteration}</span>
+                            </div>
+                            <div class="action-input">
+                                <pre>${JSON.stringify(action.input, null, 2)}</pre>
+                            </div>
+                            <div class="action-result">
+                                <strong>Result:</strong>
+                                <pre>${JSON.stringify(action.result, null, 2)}</pre>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (results.screenshots && results.screenshots.length > 0) {
+                html += `
+                    <div class="screenshots">
+                        <h3>Screenshots (${results.screenshots.length})</h3>
+                        <div class="screenshots-grid">
+                `;
+                
+                results.screenshots.forEach((screenshot, index) => {
+                    const filename = screenshot.split('/').pop();
+                    html += `
+                        <div class="screenshot-item">
+                            <img src="/api/screenshots/${filename}" alt="Screenshot ${index + 1}">
+                            <p>${filename}</p>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        // Load results on page load
+        loadResults();
+    </script>
+</body>
+</html>
+

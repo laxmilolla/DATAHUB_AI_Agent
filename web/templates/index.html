@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent QA - Architecture 2</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 AI Agent QA</h1>
+            <p class="subtitle">Autonomous test execution powered by Bedrock Agent + MCP</p>
+        </header>
+
+        <main>
+            <div class="card">
+                <h2>Execute Test Scenario</h2>
+                <p class="info">
+                    Describe your test scenario in natural language. The AI agent will autonomously:
+                </p>
+                <ul class="features">
+                    <li>🎯 Understand the requirements</li>
+                    <li>🔍 Explore the application</li>
+                    <li>🎬 Execute actions in real-time</li>
+                    <li>🔄 Adapt to unexpected changes</li>
+                    <li>📸 Capture screenshots</li>
+                    <li>✅ Validate results</li>
+                </ul>
+
+                <form id="story-form">
+                    <label for="story">Test Scenario:</label>
+                    <textarea 
+                        id="story" 
+                        name="story" 
+                        rows="6" 
+                        placeholder="Example: Go to amazon.com and search for 'wireless headphones'. Find a product under $50 and take a screenshot of it."
+                        required
+                    ></textarea>
+
+                    <button type="submit" id="execute-btn">
+                        <span class="btn-text">Execute Test</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> Agent is working...
+                        </span>
+                    </button>
+                </form>
+
+                <div id="status" class="status" style="display: none;">
+                    <div class="status-content">
+                        <div class="status-header">
+                            <strong>Status:</strong> <span id="status-text">Starting...</span>
+                        </div>
+                        <div id="status-details" class="status-details"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Recent Executions</h2>
+                <div id="executions-list">
+                    <p class="loading">Loading...</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Architecture 2: LLM-driven autonomous execution | No pre-planned scripts</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
+
