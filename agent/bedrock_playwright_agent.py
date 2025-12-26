@@ -51,6 +51,7 @@ class BedrockPlaywrightAgent:
         self.current_url = ""
         self.discovered_elements = []  # Track newly discovered elements
         self.pre_click_screenshots = []  # Track pre-click validation screenshots
+        self.story = ""  # Initialize story for AI disambiguation
         
     async def start_browser(self):
         """Launch Playwright browser"""
@@ -757,6 +758,9 @@ Parent class: {parent_info}
     async def _llm_choose_element(self, candidates: List[Dict], selector: str) -> int:
         """Let LLM decide which element to click based on story context"""
         
+        # Get story context safely
+        story = getattr(self, 'story', '') or 'No specific story context available'
+        
         # Format candidates for LLM
         candidates_text = ""
         for i, candidate in enumerate(candidates):
@@ -764,7 +768,7 @@ Parent class: {parent_info}
         
         prompt = f"""I'm trying to click: {selector}
 
-The test story says: "{self.story}"
+The test story says: "{story}"
 
 I found {len(candidates)} matching elements on the page:
 {candidates_text}
@@ -1414,6 +1418,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         """
         AGENTIC LOOP - LLM makes real-time decisions
         """
+        # Store story for AI disambiguation
+        self.story = story
+        
         logger.info(f"Execution {self.execution_id} starting")
         logger.info(f"Story: {story}")
         
