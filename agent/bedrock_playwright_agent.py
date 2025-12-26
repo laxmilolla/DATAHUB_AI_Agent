@@ -229,13 +229,25 @@ class BedrockPlaywrightAgent:
                 if semantic_type and elem_type == semantic_type:
                     score += 15
                 
+                # Penalty: ID-based selectors (likely nested/hidden elements)
+                if elem.get("selector", "").startswith("#"):
+                    score -= 30
+                    logger.debug(f"  ⬇️ ID selector penalty for '{name}': {elem.get('selector')}")
+                
+                # Penalty: Specific selectors (button:, [role=) when query is generic text=
+                # Prefer simpler text= matches for AI discovery
+                if not semantic_type and element_description.startswith("text="):
+                    if elem.get("selector", "").startswith(("button:", "[role=")):
+                        score -= 15
+                        logger.debug(f"  ⬇️ Specific selector penalty for '{name}' (query is generic)")
+                
                 # Track best match
                 if score > best_score or (score == best_score and best_match and len(name) < len(best_match[0])):
                     best_score = score
                     best_match = (name, elem)
             
             # Return best match if found
-            if best_match and best_score >= 40:  # Minimum score threshold
+            if best_match and best_score >= 80:  # Minimum score threshold (raised to prevent false matches)
                 name, elem = best_match
                 base_selector = elem.get("selector")
                 
@@ -761,17 +773,14 @@ class BedrockPlaywrightAgent:
             try:
                 await self.page.wait_for_selector(selector, state='visible', timeout=10000)
             except Exception as e:
-                # If selector not found, try to extract text and use that
-                logger.info(f"  Selector not found, trying alternatives...")
-                # Extract text if it looks like a test-id or class selector referring to text
-                import re
-                text_match = re.search(r'([A-Z][a-z]+)', selector)
-                if text_match:
-                    fallback = f"text={text_match.group(1)}"
-                    logger.info(f"  Trying fallback: {fallback}")
-                    selector = fallback
+                # If registry gave us a bad ID selector that failed, try the original query
+                if selector.startswith("#") and not original_selector.startswith("#"):
+                    logger.info(f"  Registry ID selector failed, trying original: {original_selector}")
+                    selector = original_selector
                     await self.page.wait_for_selector(selector, state='visible', timeout=10000)
                 else:
+                    # No fallback - let it fail naturally for AI to handle
+                    logger.info(f"  Selector not found: {selector}")
                     raise e
             
             # PRE-CLICK VALIDATION: Verify element is visible and capture state
