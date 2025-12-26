@@ -695,25 +695,73 @@ class BedrockPlaywrightAgent:
             return validation_result
     
     async def _describe_element(self, element) -> str:
-        """Describe an element for LLM to understand its context"""
+        """Describe an element for LLM to understand its context and purpose"""
         try:
             tag = await element.evaluate("el => el.tagName")
             role = await element.get_attribute("role") or "none"
             aria_expanded = await element.get_attribute("aria-expanded")
             aria_selected = await element.get_attribute("aria-selected")
-            text = (await element.text_content() or "")[:50]
+            text = (await element.text_content() or "")[:80]  # Increased for more context
             
-            # Get location context
+            # Get element's own classes and data attributes
+            class_name = await element.get_attribute("class") or ""
+            data_attrs = await element.evaluate("""el => {
+                const attrs = {};
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('data-')) {
+                        attrs[attr.name] = attr.value;
+                    }
+                }
+                return JSON.stringify(attrs);
+            }""")
+            
+            # Get location context (sidebar vs main content)
             box = await element.bounding_box()
             if box:
-                location = "left sidebar" if box["x"] < 400 else "center" if box["x"] < 1000 else "right side"
-                location_detail = f"{location} (x={int(box['x'])}, y={int(box['y'])})"
+                x_pos = int(box['x'])
+                y_pos = int(box['y'])
+                
+                # Determine semantic location
+                if x_pos < 300:
+                    location = "LEFT SIDEBAR (filter panel)"
+                elif x_pos > 1100:
+                    location = "RIGHT SIDEBAR"
+                else:
+                    # Main content area - differentiate tab area vs data table
+                    if y_pos < 400:
+                        location = "CENTER TOP (tab bar / header area)"
+                    else:
+                        location = "CENTER MAIN (data table area)"
+                
+                location_detail = f"{location} at x={x_pos}, y={y_pos}"
             else:
-                location_detail = "unknown location"
+                location_detail = "HIDDEN/OFF-SCREEN"
             
-            # Get parent context
-            parent_class = await element.evaluate("el => el.parentElement?.className || ''")
-            parent_info = parent_class[:50] if parent_class else "none"
+            # Detect element type/purpose
+            element_type = "unknown"
+            if aria_expanded is not None:
+                element_type = "FILTER ACCORDION/DROPDOWN (collapsible section)"
+            elif role == "tab":
+                element_type = "DATA TABLE TAB (switches table view)"
+            elif "filter" in class_name.lower() or "filter" in data_attrs.lower():
+                element_type = "FILTER CONTROL"
+            elif "column" in class_name.lower() or "header" in class_name.lower():
+                element_type = "TABLE COLUMN HEADER"
+            elif tag == "BUTTON":
+                element_type = "BUTTON"
+            elif tag == "A":
+                element_type = "LINK"
+            
+            # Get parent context for additional hints
+            parent_info = await element.evaluate("""el => {
+                const parent = el.parentElement;
+                if (!parent) return 'no parent';
+                const classes = parent.className || '';
+                if (classes.includes('sidebar') || classes.includes('filter')) return 'inside sidebar/filter';
+                if (classes.includes('tab')) return 'inside tab bar';
+                if (classes.includes('table') || classes.includes('grid')) return 'inside data table';
+                return classes.slice(0, 50) || 'no class';
+            }""")
             
             # Check if it's interactive
             is_button = tag == "BUTTON"
@@ -721,14 +769,16 @@ class BedrockPlaywrightAgent:
             has_click_handler = await element.evaluate("el => typeof el.onclick === 'function' || el.hasAttribute('onclick')")
             
             description = f"""
-Tag: <{tag.lower()}>
-Role: {role}
-Text: "{text}"
-Location: {location_detail}
-Expandable: {"yes (aria-expanded=" + aria_expanded + ")" if aria_expanded else "no"}
-Selected: {"yes" if aria_selected == "true" else "no" if aria_selected else "N/A"}
-Interactive: {"button" if is_button else "link" if is_link else "has click handler" if has_click_handler else "possibly not interactive"}
-Parent class: {parent_info}
+TYPE: {element_type}
+TAG: <{tag.lower()}>
+ROLE: {role}
+TEXT: "{text}"
+LOCATION: {location_detail}
+EXPANDABLE: {"YES (aria-expanded=" + aria_expanded + ")" if aria_expanded else "no"}
+SELECTED: {"YES (active tab)" if aria_selected == "true" else "no"}
+CLASSES: {class_name[:60] or "none"}
+PARENT: {parent_info}
+INTERACTIVE: {"button" if is_button else "link" if is_link else "has onclick" if has_click_handler else "maybe not clickable"}
 """
             return description.strip()
         except Exception as e:
@@ -879,78 +929,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 selector = registry_selector
                 logger.info(f"  📋 Using selector from registry")
             
-            # CONTEXT-AWARE SELECTOR: For text= selectors, use story context to determine priority
-            if selector.startswith("text="):
-                text_query = selector.replace("text=", "")
-                logger.info(f"  🎯 Text selector detected: '{text_query}'")
-                
-                # Analyze story context to determine what type of element we're looking for
-                story_lower = self.story.lower() if self.story else ""
-                
-                # Detect context clues from the story
-                is_sidebar_filter = any(keyword in story_lower for keyword in [
-                    "sidebar", "side filter", "filter panel", "left panel", "right panel",
-                    "filter section"
-                ])
-                is_expandable_action = any(keyword in story_lower for keyword in [
-                    "expand", "open", "dropdown", "accordion", "click on", "nested"
-                ])
-                is_tab_action = any(keyword in story_lower for keyword in [
-                    " tab", "switch to", "select tab", "click.*tab"
-                ])
-                is_data_table = any(keyword in story_lower for keyword in [
-                    "data table", "table tab", "in the table"
-                ])
-                
-                # Choose priority based on story context
-                if is_sidebar_filter and is_expandable_action:
-                    # Story mentions sidebar/filter + expand → Prioritize accordions
-                    logger.info(f"  📖 Context: Sidebar filter action detected")
-                    clickable_prefixes = [
-                        ("[aria-expanded]", "accordions/expandable"),
-                        ("button", "buttons"),
-                        ("[role='button']", "ARIA buttons"),
-                    ]
-                elif is_tab_action or is_data_table:
-                    # Story mentions tab or data table → Prioritize tabs
-                    logger.info(f"  📖 Context: Tab/data table action detected")
-                    clickable_prefixes = [
-                        ("[role='tab']", "tabs"),
-                        ("button", "buttons"),
-                        ("[role='button']", "ARIA buttons"),
-                    ]
-                else:
-                    # Generic click action → Use standard priority
-                    logger.info(f"  📖 Context: Generic click action")
-                    clickable_prefixes = [
-                        ("button", "buttons"),
-                        ("a", "links"),
-                        ("[role='button']", "ARIA buttons"),
-                        ("[role='tab']", "tabs"),
-                        ("[aria-expanded]", "accordions/expandable"),
-                    ]
-                
-                enhanced_selector = None
-                for prefix, desc in clickable_prefixes:
-                    try:
-                        test_selector = f"{prefix}:has-text('{text_query}')"
-                        count = await self.page.locator(test_selector).count()
-                        if count > 0:
-                            logger.info(f"  ✅ Found {count} {desc} matching '{text_query}'")
-                            enhanced_selector = test_selector
-                            break
-                    except Exception as e:
-                        # Syntax issues with some selectors, continue
-                        continue
-                
-                # Use enhanced selector if found, otherwise keep generic text=
-                if enhanced_selector:
-                    selector = enhanced_selector
-                    logger.info(f"  🎯 Using context-aware selector: {selector}")
-                else:
-                    logger.info(f"  ⚠️ No clickable elements found, using generic text selector")
-            
-            # AI DISAMBIGUATION: If multiple elements match, let LLM choose
+            # AI DISAMBIGUATION: If multiple elements match, let LLM choose based on rich context
+            # The enhanced _describe_element function provides location, type, and filter detection
+            # This allows the LLM to match story requirements ("sidebar filter") to actual elements
             chosen_locator = None  # Track if we have a specific locator from AI disambiguation
             try:
                 all_matches = await self.page.locator(selector).all()
@@ -1614,14 +1595,14 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         
         system_prompt = """You are a QA automation agent. Use browser tools to execute tests.
 
-IMPORTANT SELECTOR GUIDELINES:
-- You can use simple text= selectors - the system will intelligently enhance them based on context
-- The system analyzes your test story to understand whether you're clicking:
-  * Sidebar filters/accordions (story mentions "sidebar", "filter panel", "expand")
-  * Data table tabs (story mentions "tab", "data table")
-  * Generic buttons/links (other cases)
-- Be specific in your test stories: mention "sidebar filter", "tab", "expand", etc. for better accuracy
-- If you need more control, use specific selectors: button:has-text("X"), [role="tab"]:has-text("X")
+SELECTOR STRATEGY:
+- Use simple text= selectors - when multiple elements match, you'll see rich descriptions of each
+- Descriptions include: location (sidebar vs center), type (filter vs tab), and attributes
+- Match your test story keywords to element descriptions:
+  * Story says "sidebar filter" → Choose element with LOCATION: "LEFT SIDEBAR (filter panel)"
+  * Story says "tab" → Choose element with TYPE: "DATA TABLE TAB"
+  * Story says "expand" → Choose element with EXPANDABLE: "YES"
+- Be specific in test stories about LOCATION and PURPOSE for accurate element matching
 
 After navigating, use browser_snapshot() to see the page.
 Use browser_evaluate() to find selectors when needed.
