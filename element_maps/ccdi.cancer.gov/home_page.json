@@ -1,0 +1,519 @@
+{
+  "elements": {
+    "ADD ALL FILTERED FILES button": {
+      "alternatives": [],
+      "description": "Button: ADD ALL FILTERED FILES",
+      "selector": "button:has-text('ADD ALL FILTERED FILES')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "ADD SELECTED FILES button": {
+      "alternatives": [],
+      "description": "Button: ADD SELECTED FILES",
+      "selector": "button:has-text('ADD SELECTED FILES')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "About CCDI Hub link": {
+      "alternatives": [
+        "a:has-text('About CCDI Hub')"
+      ],
+      "description": "Link to About CCDI Hub",
+      "href": "/about",
+      "selector": "a[href='/about']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "About CCDI link": {
+      "alternatives": [
+        "a:has-text('About CCDI')"
+      ],
+      "description": "Link to About CCDI",
+      "href": "https://www.cancer.gov/research/areas/childhood/childhood-cancer-data-initiative",
+      "selector": "a[href='https://www.cancer.gov/research/areas/childhood/childhood-cancer-data-initiative']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "About button": {
+      "alternatives": [],
+      "description": "Button: About",
+      "selector": "button:has-text('About')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Accessibility link": {
+      "alternatives": [
+        "a:has-text('Accessibility')"
+      ],
+      "description": "Link to Accessibility",
+      "href": "https://www.cancer.gov/policies/accessibility",
+      "selector": "a[href='https://www.cancer.gov/policies/accessibility']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Age at Diagnosis (days) checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Age at Diagnosis (days)",
+      "selector": "#dropdownListItemCheckbox-7",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-7"
+    },
+    "Age at Last Known Survival Status (days) checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Age at Last Known Survival Status (days)",
+      "selector": "#dropdownListItemCheckbox-13",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-13"
+    },
+    "Age at Treatment Start (days) checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Age at Treatment Start (days)",
+      "selector": "#dropdownListItemCheckbox-10",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-10"
+    },
+    "COLLAPSE VIEW button": {
+      "alternatives": [],
+      "description": "Button: COLLAPSE VIEW",
+      "selector": "button:has-text('COLLAPSE VIEW')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "CREATE COHORT button": {
+      "alternatives": [],
+      "description": "Button: CREATE COHORT",
+      "selector": "button:has-text('CREATE COHORT')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Cohort Analyzer link": {
+      "alternatives": [
+        "a:has-text('Cohort Analyzer')"
+      ],
+      "description": "Link to Cohort Analyzer",
+      "href": "/cohortAnalyzer",
+      "selector": "a[href='/cohortAnalyzer']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Contact Us link": {
+      "alternatives": [
+        "a:has-text('Contact Us')"
+      ],
+      "description": "Link to Contact Us",
+      "href": "mailto:NCIChildhoodCancerDataInitiative@mail.nih.gov",
+      "selector": "a[href='mailto:NCIChildhoodCancerDataInitiative@mail.nih.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Data table 1": {
+      "alternatives": [
+        "table"
+      ],
+      "description": "Data table",
+      "selector": "table.MuiTable-root-1558",
+      "source": "initial_parse",
+      "type": "table",
+      "usage_count": 0
+    },
+    "Diagnosis Anatomic Site checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Diagnosis Anatomic Site",
+      "selector": "#dropdownListItemCheckbox-5",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-5"
+    },
+    "Diagnosis Category checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Diagnosis Category",
+      "selector": "#dropdownListItemCheckbox-6",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-6"
+    },
+    "Diagnosis checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Diagnosis",
+      "selector": "#dropdownListItemCheckbox-4",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-4"
+    },
+    "Disclaimer link": {
+      "alternatives": [
+        "a:has-text('Disclaimer')"
+      ],
+      "description": "Link to Disclaimer",
+      "href": "https://www.cancer.gov/policies/disclaimer",
+      "selector": "a[href='https://www.cancer.gov/policies/disclaimer']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Enter your email address input": {
+      "alternatives": [
+        "input[name='email']"
+      ],
+      "description": "Input field for Enter your email address input",
+      "input_type": "email",
+      "selector": "#email_mobile",
+      "source": "initial_parse",
+      "type": "input",
+      "usage_count": 0
+    },
+    "Explore link": {
+      "alternatives": [
+        "a:has-text('Explore')"
+      ],
+      "description": "Link to Explore",
+      "href": "/explore",
+      "selector": "a[href='/explore']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "FOIA link": {
+      "alternatives": [
+        "a:has-text('FOIA')"
+      ],
+      "description": "Link to FOIA",
+      "href": "https://www.cancer.gov/policies/foia",
+      "selector": "a[href='https://www.cancer.gov/policies/foia']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Files(1,238,181) button": {
+      "alternatives": [],
+      "description": "Button: Files(1,238,181)",
+      "selector": "button:has-text('Files(1,238,181)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "First Event checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for First Event",
+      "selector": "#dropdownListItemCheckbox-11",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-11"
+    },
+    "Go to cart > link": {
+      "alternatives": [
+        "a:has-text('Go to cart >')"
+      ],
+      "description": "Link to Go to cart >",
+      "href": "/fileCentricCart",
+      "selector": "a[href='/fileCentricCart']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Home link": {
+      "alternatives": [
+        "a:has-text('Home')"
+      ],
+      "description": "Link to Home",
+      "href": "/home",
+      "selector": "a[href='/home']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Last Known Survival Status checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Last Known Survival Status",
+      "selector": "#dropdownListItemCheckbox-12",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-12"
+    },
+    "MY FILES link": {
+      "alternatives": [
+        "a:has-text('MY FILES')"
+      ],
+      "description": "Link to MY FILES",
+      "href": "/fileCentricCart",
+      "selector": "a[href='/fileCentricCart']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "MY FILES0Files link": {
+      "alternatives": [
+        "a:has-text('MY FILES0Files')"
+      ],
+      "description": "Link to MY FILES0Files",
+      "href": "/fileCentricCart",
+      "selector": "a[href='/fileCentricCart']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "NCIChildhoodCancerDataInitiative@mail.nih.gov link": {
+      "alternatives": [
+        "a:has-text('NCIChildhoodCancerDataInitiative@mail.nih.gov')"
+      ],
+      "description": "Link to NCIChildhoodCancerDataInitiative@mail.nih.gov",
+      "href": "mailto:NCIChildhoodCancerDataInitiative@mail.nih.gov",
+      "selector": "a[href='mailto:NCIChildhoodCancerDataInitiative@mail.nih.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "National Cancer Institute link": {
+      "alternatives": [
+        "a:has-text('National Cancer Institute')"
+      ],
+      "description": "Link to National Cancer Institute",
+      "href": "https://www.cancer.gov",
+      "selector": "a[href='https://www.cancer.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "National Institutes of Health link": {
+      "alternatives": [
+        "a:has-text('National Institutes of Health')"
+      ],
+      "description": "Link to National Institutes of Health",
+      "href": "https://www.nih.gov",
+      "selector": "a[href='https://www.nih.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "News link": {
+      "alternatives": [
+        "a:has-text('News')"
+      ],
+      "description": "Link to News",
+      "href": "/news",
+      "selector": "a[href='/news']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Participant ID checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Participant ID",
+      "selector": "#dropdownListItemCheckbox-0",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-0"
+    },
+    "Participants(59,795) button": {
+      "alternatives": [],
+      "description": "Button: Participants(59,795)",
+      "selector": "button:has-text('Participants(59,795)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Policies button": {
+      "alternatives": [],
+      "description": "Button: Policies",
+      "selector": "button:has-text('Policies')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Privacy & Security link": {
+      "alternatives": [
+        "a:has-text('Privacy & Security')"
+      ],
+      "description": "Link to Privacy & Security",
+      "href": "https://www.cancer.gov/policies/privacy-security",
+      "selector": "a[href='https://www.cancer.gov/policies/privacy-security']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Race checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Race",
+      "selector": "#dropdownListItemCheckbox-3",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-3"
+    },
+    "Release Notes link": {
+      "alternatives": [
+        "a:has-text('Release Notes')"
+      ],
+      "description": "Link to Release Notes",
+      "href": "/release-notes",
+      "selector": "a[href='/release-notes']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Samples(68,140) button": {
+      "alternatives": [],
+      "description": "Button: Samples(68,140)",
+      "selector": "button:has-text('Samples(68,140)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Select All checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Select All",
+      "selector": "#dropdownListItem-all",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItem-all"
+    },
+    "Sex at Birth checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Sex at Birth",
+      "selector": "#dropdownListItemCheckbox-2",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-2"
+    },
+    "Sign up button": {
+      "alternatives": [],
+      "description": "Button: Sign up",
+      "selector": "button:has-text('Sign up')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Studies link": {
+      "alternatives": [
+        "a:has-text('Studies')"
+      ],
+      "description": "Link to Studies",
+      "href": "/studies",
+      "selector": "a[href='/studies']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Studies(40) button": {
+      "alternatives": [],
+      "description": "Button: Studies(40)",
+      "selector": "button:has-text('Studies(40)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Study ID checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Study ID",
+      "selector": "#dropdownListItemCheckbox-1",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-1"
+    },
+    "Treatment Agent checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Treatment Agent",
+      "selector": "#dropdownListItemCheckbox-8",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-8"
+    },
+    "Treatment Type checkbox": {
+      "alternatives": [],
+      "description": "Checkbox for Treatment Type",
+      "selector": "#dropdownListItemCheckbox-9",
+      "source": "initial_parse",
+      "type": "checkbox",
+      "usage_count": 0,
+      "value": "dropdownListItemCheckbox-9"
+    },
+    "U.S. Department of Health and Human Services link": {
+      "alternatives": [
+        "a:has-text('U.S. Department of Health and Human Services')"
+      ],
+      "description": "Link to U.S. Department of Health and Human Services",
+      "href": "https://www.hhs.gov",
+      "selector": "a[href='https://www.hhs.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "USA.gov link": {
+      "alternatives": [
+        "a:has-text('USA.gov')"
+      ],
+      "description": "Link to USA.gov",
+      "href": "https://www.usa.gov",
+      "selector": "a[href='https://www.usa.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "VIEW ALL COHORTS(0) button": {
+      "alternatives": [],
+      "description": "Button: VIEW ALL COHORTS(0)",
+      "selector": "button:has-text('VIEW ALL COHORTS(0)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Vulnerability Disclosure link": {
+      "alternatives": [
+        "a:has-text('Vulnerability Disclosure')"
+      ],
+      "description": "Link to Vulnerability Disclosure",
+      "href": "https://www.hhs.gov/vulnerability-disclosure-policy/index.html",
+      "selector": "a[href='https://www.hhs.gov/vulnerability-disclosure-policy/index.html']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "search input": {
+      "alternatives": [
+        "input[placeholder='search']"
+      ],
+      "description": "Input field for search input",
+      "input_type": "search",
+      "selector": "#search_mobile",
+      "source": "initial_parse",
+      "type": "input",
+      "usage_count": 0
+    }
+  },
+  "page": "home",
+  "statistics": {
+    "discovered_elements": 0,
+    "parsed_elements": 52,
+    "total_elements": 52
+  },
+  "timestamp": "2025-12-26T20:17:29.782347Z",
+  "url": "https://ccdi.cancer.gov/explore",
+  "version": "1.0",
+  "last_updated": "2025-12-26T20:17:37.033925Z"
+}
