@@ -879,19 +879,56 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 selector = registry_selector
                 logger.info(f"  📋 Using selector from registry")
             
-            # ENHANCED SELECTOR: For text= selectors, try clickable elements first
+            # CONTEXT-AWARE SELECTOR: For text= selectors, use story context to determine priority
             if selector.startswith("text="):
                 text_query = selector.replace("text=", "")
-                logger.info(f"  🎯 Text selector detected, trying clickable elements first for: '{text_query}'")
+                logger.info(f"  🎯 Text selector detected: '{text_query}'")
                 
-                # Try interactive element types in priority order
-                clickable_prefixes = [
-                    ("button", "buttons"),
-                    ("a", "links"),
-                    ("[role='button']", "ARIA buttons"),
-                    ("[role='tab']", "tabs"),
-                    ("[aria-expanded]", "accordions/expandable"),
-                ]
+                # Analyze story context to determine what type of element we're looking for
+                story_lower = self.story.lower() if self.story else ""
+                
+                # Detect context clues from the story
+                is_sidebar_filter = any(keyword in story_lower for keyword in [
+                    "sidebar", "side filter", "filter panel", "left panel", "right panel",
+                    "filter section"
+                ])
+                is_expandable_action = any(keyword in story_lower for keyword in [
+                    "expand", "open", "dropdown", "accordion", "click on", "nested"
+                ])
+                is_tab_action = any(keyword in story_lower for keyword in [
+                    " tab", "switch to", "select tab", "click.*tab"
+                ])
+                is_data_table = any(keyword in story_lower for keyword in [
+                    "data table", "table tab", "in the table"
+                ])
+                
+                # Choose priority based on story context
+                if is_sidebar_filter and is_expandable_action:
+                    # Story mentions sidebar/filter + expand → Prioritize accordions
+                    logger.info(f"  📖 Context: Sidebar filter action detected")
+                    clickable_prefixes = [
+                        ("[aria-expanded]", "accordions/expandable"),
+                        ("button", "buttons"),
+                        ("[role='button']", "ARIA buttons"),
+                    ]
+                elif is_tab_action or is_data_table:
+                    # Story mentions tab or data table → Prioritize tabs
+                    logger.info(f"  📖 Context: Tab/data table action detected")
+                    clickable_prefixes = [
+                        ("[role='tab']", "tabs"),
+                        ("button", "buttons"),
+                        ("[role='button']", "ARIA buttons"),
+                    ]
+                else:
+                    # Generic click action → Use standard priority
+                    logger.info(f"  📖 Context: Generic click action")
+                    clickable_prefixes = [
+                        ("button", "buttons"),
+                        ("a", "links"),
+                        ("[role='button']", "ARIA buttons"),
+                        ("[role='tab']", "tabs"),
+                        ("[aria-expanded]", "accordions/expandable"),
+                    ]
                 
                 enhanced_selector = None
                 for prefix, desc in clickable_prefixes:
@@ -909,7 +946,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # Use enhanced selector if found, otherwise keep generic text=
                 if enhanced_selector:
                     selector = enhanced_selector
-                    logger.info(f"  🎯 Using enhanced clickable selector: {selector}")
+                    logger.info(f"  🎯 Using context-aware selector: {selector}")
                 else:
                     logger.info(f"  ⚠️ No clickable elements found, using generic text selector")
             
@@ -1578,11 +1615,13 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         system_prompt = """You are a QA automation agent. Use browser tools to execute tests.
 
 IMPORTANT SELECTOR GUIDELINES:
-- When clicking buttons/links, prefer specific selectors: button:has-text("X"), a:has-text("X")
-- For tabs, use: [role="tab"]:has-text("X")
-- For accordions/expandable sections, target elements with aria-expanded attribute
-- Avoid generic text= selectors for interactive elements - they may match non-clickable text
-- The system will automatically enhance text= selectors to find clickable elements
+- You can use simple text= selectors - the system will intelligently enhance them based on context
+- The system analyzes your test story to understand whether you're clicking:
+  * Sidebar filters/accordions (story mentions "sidebar", "filter panel", "expand")
+  * Data table tabs (story mentions "tab", "data table")
+  * Generic buttons/links (other cases)
+- Be specific in your test stories: mention "sidebar filter", "tab", "expand", etc. for better accuracy
+- If you need more control, use specific selectors: button:has-text("X"), [role="tab"]:has-text("X")
 
 After navigating, use browser_snapshot() to see the page.
 Use browser_evaluate() to find selectors when needed.
