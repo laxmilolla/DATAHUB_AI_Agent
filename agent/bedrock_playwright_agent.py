@@ -902,7 +902,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     logger.info(f"  🎯 Using element {best_index} of {len(all_matches)}")
                     
                     # Get the chosen element's nth position
-                    selector = f"({selector}) >> nth={best_index}"
+                    selector = f"{selector} >> nth={best_index}"
                     
             except Exception as e:
                 # If we can't check for multiple matches, continue with original selector
