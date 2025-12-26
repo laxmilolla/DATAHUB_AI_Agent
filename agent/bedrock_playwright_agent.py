@@ -879,6 +879,40 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 selector = registry_selector
                 logger.info(f"  📋 Using selector from registry")
             
+            # ENHANCED SELECTOR: For text= selectors, try clickable elements first
+            if selector.startswith("text="):
+                text_query = selector.replace("text=", "")
+                logger.info(f"  🎯 Text selector detected, trying clickable elements first for: '{text_query}'")
+                
+                # Try interactive element types in priority order
+                clickable_prefixes = [
+                    ("button", "buttons"),
+                    ("a", "links"),
+                    ("[role='button']", "ARIA buttons"),
+                    ("[role='tab']", "tabs"),
+                    ("[aria-expanded]", "accordions/expandable"),
+                ]
+                
+                enhanced_selector = None
+                for prefix, desc in clickable_prefixes:
+                    try:
+                        test_selector = f"{prefix}:has-text('{text_query}')"
+                        count = await self.page.locator(test_selector).count()
+                        if count > 0:
+                            logger.info(f"  ✅ Found {count} {desc} matching '{text_query}'")
+                            enhanced_selector = test_selector
+                            break
+                    except Exception as e:
+                        # Syntax issues with some selectors, continue
+                        continue
+                
+                # Use enhanced selector if found, otherwise keep generic text=
+                if enhanced_selector:
+                    selector = enhanced_selector
+                    logger.info(f"  🎯 Using enhanced clickable selector: {selector}")
+                else:
+                    logger.info(f"  ⚠️ No clickable elements found, using generic text selector")
+            
             # AI DISAMBIGUATION: If multiple elements match, let LLM choose
             chosen_locator = None  # Track if we have a specific locator from AI disambiguation
             try:
@@ -1033,6 +1067,25 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             except:
                 pass
             
+            # ACCORDION DETECTION: Check if element is an accordion/expandable
+            is_accordion = False
+            initial_aria_expanded = None
+            accordion_locator = None
+            try:
+                # Check if the element or its clickable parent has aria-expanded
+                if preserved_locator:
+                    accordion_locator = preserved_locator
+                else:
+                    accordion_locator = self.page.locator(selector)
+                
+                initial_aria_expanded = await accordion_locator.get_attribute("aria-expanded")
+                if initial_aria_expanded is not None:
+                    is_accordion = True
+                    logger.info(f"  🎯 Accordion detected: aria-expanded={initial_aria_expanded}")
+            except Exception as e:
+                # Not an accordion or can't determine
+                pass
+            
             # Capture initial state for generic validation
             initial_text_count = 0
             initial_selected_count = 0
@@ -1135,21 +1188,39 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     url_changed = new_url != initial_url
                     dom_grew = len(new_html) > len(initial_html) * 1.05  # 5% growth
                     
-                    # Check for dropdown/accordion expansion using Playwright locator
+                    # ACCORDION VALIDATION: Check if accordion expanded
                     aria_expanded = False
+                    accordion_opened = False
                     try:
-                        if preserved_locator and await preserved_locator.count() > 0:
-                            attr = await preserved_locator.get_attribute('aria-expanded')
-                            if attr == 'true':
+                        if is_accordion and accordion_locator:
+                            # Get current aria-expanded state
+                            current_aria_expanded = await accordion_locator.get_attribute('aria-expanded')
+                            
+                            if current_aria_expanded == 'true':
                                 aria_expanded = True
+                                
+                                # Check if accordion actually opened (state changed from false to true)
+                                if initial_aria_expanded == 'false' and current_aria_expanded == 'true':
+                                    accordion_opened = True
+                                    logger.info(f"  ✅ Accordion expanded: {initial_aria_expanded} → {current_aria_expanded}")
+                                elif initial_aria_expanded == 'true' and current_aria_expanded == 'false':
+                                    logger.info(f"  ℹ️ Accordion collapsed: {initial_aria_expanded} → {current_aria_expanded}")
                             else:
-                                # Check parent elements
-                                parent_locator = preserved_locator.locator('..')
-                                if await parent_locator.count() > 0:
-                                    attr = await parent_locator.get_attribute('aria-expanded')
-                                    aria_expanded = (attr == 'true')
-                    except:
-                        pass
+                                logger.warning(f"  ⚠️ Accordion did NOT expand: aria-expanded still {current_aria_expanded}")
+                        else:
+                            # Generic check for any aria-expanded elements
+                            if preserved_locator and await preserved_locator.count() > 0:
+                                attr = await preserved_locator.get_attribute('aria-expanded')
+                                if attr == 'true':
+                                    aria_expanded = True
+                                else:
+                                    # Check parent elements
+                                    parent_locator = preserved_locator.locator('..')
+                                    if await parent_locator.count() > 0:
+                                        attr = await parent_locator.get_attribute('aria-expanded')
+                                        aria_expanded = (attr == 'true')
+                    except Exception as e:
+                        logger.debug(f"  Could not check aria-expanded: {e}")
                     
                     # Generic check: Did any element get selected/activated?
                     state_changed = False
@@ -1183,17 +1254,18 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     # For strategy 1: require strong evidence
                     # For strategy 2+: allow weaker evidence since element might be tricky
                     if i == 0:
-                        # Strategy 1: Require URL change OR significant DOM growth OR state change
-                        click_succeeded = url_changed or dom_grew or state_changed or aria_expanded
+                        # Strategy 1: Require URL change OR significant DOM growth OR state change OR accordion opened
+                        click_succeeded = url_changed or dom_grew or state_changed or aria_expanded or accordion_opened
                     else:
                         # Strategy 2+: Allow DOM change as fallback
-                        click_succeeded = url_changed or dom_grew or aria_expanded or state_changed or dom_changed
+                        click_succeeded = url_changed or dom_grew or aria_expanded or accordion_opened or state_changed or dom_changed
                     
                     if click_succeeded:
                         reasons = []
                         if url_changed: reasons.append("page navigated")
                         if dom_grew: reasons.append(f"content expanded ({len(new_html) - len(initial_html)} bytes)")
-                        if aria_expanded: reasons.append("dropdown/section expanded")
+                        if accordion_opened: reasons.append("accordion expanded (aria-expanded: false→true)")
+                        elif aria_expanded: reasons.append("dropdown/section expanded")
                         if state_changed: reasons.append("element state changed")
                         if dom_changed and not reasons: reasons.append("DOM changed")
                         
@@ -1504,8 +1576,16 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         }
         
         system_prompt = """You are a QA automation agent. Use browser tools to execute tests.
+
+IMPORTANT SELECTOR GUIDELINES:
+- When clicking buttons/links, prefer specific selectors: button:has-text("X"), a:has-text("X")
+- For tabs, use: [role="tab"]:has-text("X")
+- For accordions/expandable sections, target elements with aria-expanded attribute
+- Avoid generic text= selectors for interactive elements - they may match non-clickable text
+- The system will automatically enhance text= selectors to find clickable elements
+
 After navigating, use browser_snapshot() to see the page.
-Use browser_evaluate() to find selectors.
+Use browser_evaluate() to find selectors when needed.
 Take screenshots at important steps.
 Be adaptive and methodical."""
         
