@@ -883,15 +883,21 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             try:
                 all_matches = await self.page.locator(selector).all()
                 
-                if len(all_matches) > 1:
-                    logger.info(f"  🔍 Found {len(all_matches)} matches for '{selector}', asking LLM to choose...")
+                # Filter to only VISIBLE elements to avoid hidden elements
+                visible_matches = []
+                for i, match in enumerate(all_matches):
+                    if await match.is_visible():
+                        visible_matches.append((i, match))  # Keep original index
+                
+                if len(visible_matches) > 1:
+                    logger.info(f"  🔍 Found {len(visible_matches)} visible matches for '{selector}' (of {len(all_matches)} total), asking LLM to choose...")
                     
-                    # Describe each candidate for the LLM
+                    # Describe each VISIBLE candidate for the LLM
                     candidates = []
-                    for i, match in enumerate(all_matches):
+                    for original_index, match in visible_matches:
                         description = await self._describe_element(match)
                         candidates.append({
-                            "index": i,
+                            "index": original_index,  # Use original index for nth selector
                             "description": description
                         })
                     
@@ -899,7 +905,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     best_index = await self._llm_choose_element(candidates, selector)
                     
                     # Use LLM's choice by refining the selector
-                    logger.info(f"  🎯 Using element {best_index} of {len(all_matches)}")
+                    logger.info(f"  🎯 Using element {best_index} of {len(all_matches)} (visible elements only)")
                     
                     # Get the chosen element's nth position
                     selector = f"{selector} >> nth={best_index}"
