@@ -40,7 +40,9 @@ class BedrockPlaywrightAgent:
         
         # State
         self.execution_id = f"exec_{uuid.uuid4().hex[:8]}"
-        self.screenshots_dir = Path('storage/screenshots')
+        # Use absolute path to project root to avoid issues when Flask runs from different directories
+        project_root = Path(__file__).parent.parent
+        self.screenshots_dir = project_root / 'storage' / 'screenshots'
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_counter = 0
         
