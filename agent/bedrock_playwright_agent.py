@@ -880,64 +880,121 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 logger.info(f"  📋 Using selector from registry")
             
             # AI DISAMBIGUATION: If multiple elements match, let LLM choose
+            chosen_locator = None  # Track if we have a specific locator from AI disambiguation
             try:
                 all_matches = await self.page.locator(selector).all()
                 
                 # Filter to only VISIBLE elements to avoid hidden elements
                 visible_matches = []
-                for i, match in enumerate(all_matches):
+                for match in all_matches:
                     if await match.is_visible():
-                        visible_matches.append((i, match))  # Keep original index
+                        visible_matches.append(match)  # Store visible elements only
                 
                 if len(visible_matches) > 1:
                     logger.info(f"  🔍 Found {len(visible_matches)} visible matches for '{selector}' (of {len(all_matches)} total), asking LLM to choose...")
                     
                     # Describe each VISIBLE candidate for the LLM
                     candidates = []
-                    for original_index, match in visible_matches:
+                    for i, match in enumerate(visible_matches):
                         description = await self._describe_element(match)
                         candidates.append({
-                            "index": original_index,  # Use original index for nth selector
+                            "index": i,  # Use index in visible list
                             "description": description
                         })
                     
                     # Ask LLM to choose based on story context
                     best_index = await self._llm_choose_element(candidates, selector)
                     
-                    # Use LLM's choice by refining the selector
-                    logger.info(f"  🎯 Using element {best_index} of {len(all_matches)} (visible elements only)")
-                    
-                    # Get the chosen element's nth position
-                    selector = f"{selector} >> nth={best_index}"
+                    # Use the chosen visible element directly (bypasses nth= indexing issues)
+                    logger.info(f"  🎯 Using visible element {best_index} of {len(visible_matches)}")
+                    chosen_locator = visible_matches[best_index]
                     
             except Exception as e:
                 # If we can't check for multiple matches, continue with original selector
                 logger.warning(f"  ⚠️ Could not check for multiple matches: {e}")
             
-            # Smart retry strategy for complex UI elements (dropdowns, accordions, etc.)
-            strategies = [
-                {"desc": "direct click", "method": lambda: self.page.click(selector)},
-                {"desc": "clickable parent/sibling", "method": lambda: self._click_parent_or_sibling(selector)},
-                {"desc": "force click", "method": lambda: self.page.click(selector, force=True)},
-            ]
-            
-            # Try to find the element - be forgiving with selectors
-            try:
-                await self.page.wait_for_selector(selector, state='visible', timeout=10000)
-            except Exception as e:
-                # If registry gave us a bad ID selector that failed, try the original query
-                if selector.startswith("#") and not original_selector.startswith("#"):
-                    logger.info(f"  Registry ID selector failed, trying original: {original_selector}")
-                    selector = original_selector
+            # If we have a chosen locator from AI disambiguation, use it directly
+            if chosen_locator:
+                # Use the specific locator element instead of selector string
+                # Smart retry strategy using the chosen locator
+                strategies = [
+                    {"desc": "direct click", "method": lambda: chosen_locator.click()},
+                    {"desc": "exact coordinates", "method": lambda: chosen_locator.click()},
+                    {"desc": "force click", "method": lambda: chosen_locator.click(force=True)},
+                ]
+                
+                # Use chosen locator for validation (already visible, we filtered for it)
+                element_name = original_selector.replace("text=", "").replace("_", " ")
+                
+                # Directly validate the chosen locator with screenshot
+                try:
+                    # Scroll into view and highlight
+                    await chosen_locator.scroll_into_view_if_needed()
+                    await self.page.wait_for_timeout(500)
+                    await chosen_locator.evaluate("el => el.style.outline = '5px solid red'")
+                    await chosen_locator.evaluate("el => el.style.outlineOffset = '2px'")
+                    await self.page.wait_for_timeout(1000)
+                    
+                    # Take screenshot
+                    self.screenshot_counter += 1
+                    safe_name = self._sanitize_filename(element_name)
+                    filename = f"{self.screenshot_counter:03d}_pre_click_{safe_name}.png"
+                    filepath = self.screenshots_dir / filename
+                    await self.page.screenshot(path=str(filepath), full_page=False)
+                    
+                    screenshot_taken = filepath.exists()
+                    screenshot_size = filepath.stat().st_size if screenshot_taken else 0
+                    
+                    # Remove highlight
+                    await self.page.wait_for_timeout(200)
+                    await chosen_locator.evaluate("el => el.style.outline = ''")
+                    await chosen_locator.evaluate("el => el.style.outlineOffset = ''")
+                    
+                    logger.info(f"  ✅ Pre-validation: Element visible and highlighted in screenshot: {filename} ({screenshot_size} bytes)")
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Could not capture pre-click screenshot: {e}")
+                    screenshot_taken = False
+                    filename = None
+                    screenshot_size = None
+                
+                validation_result = {
+                    "exists": True,
+                    "visible": await chosen_locator.is_visible(),
+                    "enabled": await chosen_locator.is_enabled(),
+                    "text_content": await chosen_locator.text_content() or "",
+                    "location": {},
+                    "screenshot_taken": screenshot_taken,
+                    "screenshot_file": filename,
+                    "screenshot_size": screenshot_size,
+                    "locator": chosen_locator
+                }
+                pre_validation = validation_result
+            else:
+                # Normal selector-based flow
+                # Smart retry strategy for complex UI elements (dropdowns, accordions, etc.)
+                strategies = [
+                    {"desc": "direct click", "method": lambda: self.page.click(selector)},
+                    {"desc": "clickable parent/sibling", "method": lambda: self._click_parent_or_sibling(selector)},
+                    {"desc": "force click", "method": lambda: self.page.click(selector, force=True)},
+                ]
+                
+                # Try to find the element - be forgiving with selectors
+                try:
                     await self.page.wait_for_selector(selector, state='visible', timeout=10000)
-                else:
-                    # No fallback - let it fail naturally for AI to handle
-                    logger.info(f"  Selector not found: {selector}")
-                    raise e
-            
-            # PRE-CLICK VALIDATION: Verify element is visible and capture state
-            element_name = original_selector.replace("text=", "").replace("_", " ")
-            pre_validation = await self._validate_element_visibility(selector, element_name)
+                except Exception as e:
+                    # If registry gave us a bad ID selector that failed, try the original query
+                    if selector.startswith("#") and not original_selector.startswith("#"):
+                        logger.info(f"  Registry ID selector failed, trying original: {original_selector}")
+                        selector = original_selector
+                        await self.page.wait_for_selector(selector, state='visible', timeout=10000)
+                    else:
+                        # No fallback - let it fail naturally for AI to handle
+                        logger.info(f"  Selector not found: {selector}")
+                        raise e
+                
+                # PRE-CLICK VALIDATION: Verify element is visible and capture state
+                element_name = original_selector.replace("text=", "").replace("_", " ")
+                pre_validation = await self._validate_element_visibility(selector, element_name)
             
             if not pre_validation["exists"]:
                 logger.error(f"  ❌ Pre-validation failed: Element does not exist")
