@@ -74,3 +74,4 @@ echo "1. Edit .env and add your AWS credentials"
 echo "2. Run: ./scripts/start.sh"
 echo
 
+

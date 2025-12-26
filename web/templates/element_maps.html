@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Element Map Manager - AI Agent QA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .container {
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .section h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #34495e;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+            margin-left: 10px;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        .results {
+            display: none;
+            margin-top: 25px;
+        }
+        
+        .results.show {
+            display: block;
+        }
+        
+        .element-card {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        
+        .element-card h4 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+        
+        .element-card .type {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        
+        .element-card .selector {
+            background: #ecf0f1;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin: 10px 0;
+            color: #e74c3c;
+        }
+        
+        .element-card .alternatives {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 8px;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .stat-box {
+            flex: 1;
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .stat-box .number {
+            font-size: 32px;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-box .label {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        
+        .existing-maps {
+            margin-top: 30px;
+        }
+        
+        .map-item {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .map-item:hover {
+            background: #e9ecef;
+        }
+        
+        .map-info h4 {
+            margin: 0 0 5px 0;
+        }
+        
+        .map-info p {
+            margin: 0;
+            font-size: 13px;
+            color: #6c757d;
+        }
+        
+        .version-badge {
+            background: #28a745;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+        
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        
+        .nav-links a {
+            color: #3498db;
+            text-decoration: none;
+            margin-right: 20px;
+            font-weight: 500;
+        }
+        
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav-links">
+            <a href="/">← Back to Home</a>
+            <a href="#existing-maps">View Existing Maps</a>
+        </div>
+        
+        <h1>📋 Element Map Manager</h1>
+        <p>Parse HTML from browser inspect to create element maps for test automation</p>
+        
+        <div id="message"></div>
+        
+        <!-- Parse HTML Section -->
+        <div class="section">
+            <h2>Parse HTML</h2>
+            
+            <div class="form-group">
+                <label for="pageUrl">Page URL *</label>
+                <input type="text" id="pageUrl" placeholder="https://caninecommons.cancer.gov/#/explore">
+            </div>
+            
+            <div class="form-group">
+                <label for="htmlContent">HTML Content * (Right-click → Inspect → Copy outerHTML)</label>
+                <textarea id="htmlContent" placeholder="Paste HTML here..."></textarea>
+            </div>
+            
+            <button class="btn btn-primary" onclick="parseHTML()">🔍 Parse HTML</button>
+            
+            <div id="results" class="results">
+                <h3>Parsed Elements</h3>
+                
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="number" id="totalElements">0</div>
+                        <div class="label">Total Elements</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number" id="buttonCount">0</div>
+                        <div class="label">Buttons</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number" id="accordionCount">0</div>
+                        <div class="label">Accordions</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="number" id="checkboxCount">0</div>
+                        <div class="label">Checkboxes</div>
+                    </div>
+                </div>
+                
+                <div id="elementList"></div>
+                
+                <button class="btn btn-success" onclick="saveToRegistry()">💾 Save to Registry</button>
+            </div>
+        </div>
+        
+        <!-- Existing Maps Section -->
+        <div class="section" id="existing-maps">
+            <h2>Existing Element Maps</h2>
+            <div id="existingMaps" class="existing-maps">
+                <div class="loading">Loading maps...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentElementMap = null;
+        
+        async function parseHTML() {
+            const url = document.getElementById('pageUrl').value.trim();
+            const html = document.getElementById('htmlContent').value.trim();
+            
+            if (!url || !html) {
+                showMessage('Please provide both URL and HTML content', 'error');
+                return;
+            }
+            
+            showMessage('Parsing HTML...', 'info');
+            
+            try {
+                const response = await fetch('/api/parse-html', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url, html })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    showMessage('Error: ' + data.error, 'error');
+                    return;
+                }
+                
+                currentElementMap = data.element_map;
+                displayParsedElements(data.element_map);
+                showMessage('Successfully parsed ' + Object.keys(data.element_map.elements).length + ' elements!', 'success');
+                
+            } catch (error) {
+                showMessage('Error parsing HTML: ' + error.message, 'error');
+            }
+        }
+        
+        function displayParsedElements(elementMap) {
+            const elements = elementMap.elements;
+            const elementList = document.getElementById('elementList');
+            
+            // Update stats
+            const totalElements = Object.keys(elements).length;
+            const buttonCount = Object.values(elements).filter(e => e.type === 'button').length;
+            const accordionCount = Object.values(elements).filter(e => e.type === 'accordion').length;
+            const checkboxCount = Object.values(elements).filter(e => e.type === 'checkbox').length;
+            
+            document.getElementById('totalElements').textContent = totalElements;
+            document.getElementById('buttonCount').textContent = buttonCount;
+            document.getElementById('accordionCount').textContent = accordionCount;
+            document.getElementById('checkboxCount').textContent = checkboxCount;
+            
+            // Display elements
+            let html = '';
+            for (const [name, elem] of Object.entries(elements)) {
+                html += `
+                    <div class="element-card">
+                        <h4>${name}</h4>
+                        <span class="type">${elem.type}</span>
+                        <div class="selector">${elem.selector}</div>
+                        ${elem.description ? `<p>${elem.description}</p>` : ''}
+                        ${elem.alternatives && elem.alternatives.length > 0 ? 
+                            `<div class="alternatives">Alternatives: ${elem.alternatives.join(', ')}</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            elementList.innerHTML = html;
+            document.getElementById('results').classList.add('show');
+        }
+        
+        async function saveToRegistry() {
+            if (!currentElementMap) {
+                showMessage('No element map to save', 'error');
+                return;
+            }
+            
+            showMessage('Saving to registry...', 'info');
+            
+            try {
+                const response = await fetch('/api/save-element-map', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ element_map: currentElementMap })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    showMessage('Error: ' + data.error, 'error');
+                    return;
+                }
+                
+                showMessage(`✅ Saved successfully! Domain: ${data.domain}, Page: ${data.page}`, 'success');
+                loadExistingMaps(); // Refresh the list
+                
+            } catch (error) {
+                showMessage('Error saving: ' + error.message, 'error');
+            }
+        }
+        
+        async function loadExistingMaps() {
+            try {
+                const response = await fetch('/api/element-maps/list');
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('existingMaps').innerHTML = 
+                        '<p class="alert alert-error">' + data.error + '</p>';
+                    return;
+                }
+                
+                if (data.maps.length === 0) {
+                    document.getElementById('existingMaps').innerHTML = 
+                        '<p>No element maps found. Parse some HTML above to create your first map!</p>';
+                    return;
+                }
+                
+                let html = '';
+                for (const map of data.maps) {
+                    html += `
+                        <div class="map-item">
+                            <div class="map-info">
+                                <h4>${map.domain} - ${map.page}</h4>
+                                <p>Elements: ${map.total_elements} | Updated: ${new Date(map.last_updated).toLocaleString()}</p>
+                                <p><small>${map.url}</small></p>
+                            </div>
+                            <span class="version-badge">v${map.version}</span>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('existingMaps').innerHTML = html;
+                
+            } catch (error) {
+                document.getElementById('existingMaps').innerHTML = 
+                    '<p class="alert alert-error">Error loading maps: ' + error.message + '</p>';
+            }
+        }
+        
+        function showMessage(msg, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Load existing maps on page load
+        loadExistingMaps();
+    </script>
+</body>
+</html>

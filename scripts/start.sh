@@ -45,3 +45,4 @@ cd "$PROJECT_ROOT"
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 python -m api.app
 
+
