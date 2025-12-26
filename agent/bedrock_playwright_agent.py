@@ -693,6 +693,117 @@ class BedrockPlaywrightAgent:
             validation_result["verdict"] = "ERROR"
             return validation_result
     
+    async def _describe_element(self, element) -> str:
+        """Describe an element for LLM to understand its context"""
+        try:
+            tag = await element.evaluate("el => el.tagName")
+            role = await element.get_attribute("role") or "none"
+            aria_expanded = await element.get_attribute("aria-expanded")
+            aria_selected = await element.get_attribute("aria-selected")
+            text = (await element.text_content() or "")[:50]
+            
+            # Get location context
+            box = await element.bounding_box()
+            if box:
+                location = "left sidebar" if box["x"] < 400 else "center" if box["x"] < 1000 else "right side"
+                location_detail = f"{location} (x={int(box['x'])}, y={int(box['y'])})"
+            else:
+                location_detail = "unknown location"
+            
+            # Get parent context
+            parent_class = await element.evaluate("el => el.parentElement?.className || ''")
+            parent_info = parent_class[:50] if parent_class else "none"
+            
+            # Check if it's interactive
+            is_button = tag == "BUTTON"
+            is_link = tag == "A"
+            has_click_handler = await element.evaluate("el => typeof el.onclick === 'function' || el.hasAttribute('onclick')")
+            
+            description = f"""
+Tag: <{tag.lower()}>
+Role: {role}
+Text: "{text}"
+Location: {location_detail}
+Expandable: {"yes (aria-expanded=" + aria_expanded + ")" if aria_expanded else "no"}
+Selected: {"yes" if aria_selected == "true" else "no" if aria_selected else "N/A"}
+Interactive: {"button" if is_button else "link" if is_link else "has click handler" if has_click_handler else "possibly not interactive"}
+Parent class: {parent_info}
+"""
+            return description.strip()
+        except Exception as e:
+            return f"Error describing element: {e}"
+    
+    async def _call_llm_simple(self, prompt: str, max_tokens: int = 100) -> str:
+        """Quick LLM call for simple decisions (no tools)"""
+        try:
+            response = self.bedrock.invoke_model(
+                modelId=self.model_id,
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": max_tokens,
+                    "messages": [{
+                        "role": "user",
+                        "content": prompt
+                    }]
+                })
+            )
+            
+            result = json.loads(response['body'].read())
+            return result['content'][0]['text']
+        except Exception as e:
+            logger.error(f"  ❌ LLM call failed: {e}")
+            return "0"  # Default to first element
+    
+    async def _llm_choose_element(self, candidates: List[Dict], selector: str) -> int:
+        """Let LLM decide which element to click based on story context"""
+        
+        # Format candidates for LLM
+        candidates_text = ""
+        for i, candidate in enumerate(candidates):
+            candidates_text += f"\n--- Element {i} ---\n{candidate['description']}\n"
+        
+        prompt = f"""I'm trying to click: {selector}
+
+The test story says: "{self.story}"
+
+I found {len(candidates)} matching elements on the page:
+{candidates_text}
+
+Based on the story context, which element should I click?
+
+Consider these rules:
+- If story mentions "sidebar" or "side filter" → prefer elements in left sidebar (x < 400)
+- If story mentions "expand" → prefer elements with aria-expanded attribute
+- If story mentions "filter" or "dropdown" → prefer elements with role="button" in filter panels
+- If story mentions "tab" → prefer elements with role="tab"
+- Always prefer interactive elements (buttons, links) over static text/displays
+- Avoid elements that are just displays or counters
+
+Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
+"""
+        
+        response = await self._call_llm_simple(prompt, max_tokens=10)
+        
+        # Parse response
+        try:
+            # Extract just the number
+            import re
+            match = re.search(r'\b(\d+)\b', response)
+            if match:
+                chosen = int(match.group(1))
+                if 0 <= chosen < len(candidates):
+                    logger.info(f"  🤖 LLM chose element {chosen} based on story context")
+                    return chosen
+                else:
+                    logger.warning(f"  ⚠️ LLM chose {chosen} but valid range is 0-{len(candidates)-1}, using 0")
+                    return 0
+            else:
+                logger.warning(f"  ⚠️ LLM response unclear: '{response}', using element 0")
+                return 0
+        except Exception as e:
+            logger.warning(f"  ⚠️ Could not parse LLM response: {e}, using element 0")
+            return 0
+    
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """Execute tool - Direct Playwright calls!"""
         
@@ -763,6 +874,35 @@ class BedrockPlaywrightAgent:
             if registry_selector:
                 selector = registry_selector
                 logger.info(f"  📋 Using selector from registry")
+            
+            # AI DISAMBIGUATION: If multiple elements match, let LLM choose
+            try:
+                all_matches = await self.page.locator(selector).all()
+                
+                if len(all_matches) > 1:
+                    logger.info(f"  🔍 Found {len(all_matches)} matches for '{selector}', asking LLM to choose...")
+                    
+                    # Describe each candidate for the LLM
+                    candidates = []
+                    for i, match in enumerate(all_matches):
+                        description = await self._describe_element(match)
+                        candidates.append({
+                            "index": i,
+                            "description": description
+                        })
+                    
+                    # Ask LLM to choose based on story context
+                    best_index = await self._llm_choose_element(candidates, selector)
+                    
+                    # Use LLM's choice by refining the selector
+                    logger.info(f"  🎯 Using element {best_index} of {len(all_matches)}")
+                    
+                    # Get the chosen element's nth position
+                    selector = f"({selector}) >> nth={best_index}"
+                    
+            except Exception as e:
+                # If we can't check for multiple matches, continue with original selector
+                logger.warning(f"  ⚠️ Could not check for multiple matches: {e}")
             
             # Smart retry strategy for complex UI elements (dropdowns, accordions, etc.)
             strategies = [
