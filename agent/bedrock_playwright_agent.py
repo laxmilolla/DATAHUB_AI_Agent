@@ -1234,6 +1234,23 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         if re.search(pattern, story_lower):
                             is_tab_click = True
                             logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                            
+                            # Capture initial tab state for validation
+                            if not initial_tab_state:
+                                try:
+                                    selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
+                                    initial_tab_state = {
+                                        "selected_tab": selected_tab.strip() if selected_tab else None,
+                                        "target_element": original_selector
+                                    }
+                                    logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
+                                except:
+                                    # If no semantic tabs, still set state to enable validation
+                                    initial_tab_state = {
+                                        "selected_tab": None,
+                                        "target_element": original_selector
+                                    }
+                                    logger.info(f"  🎯 Tab state captured (no semantic tabs found, will use DOM-based validation)")
                 
                 # Validate the chosen locator with screenshot
                 try:
@@ -1382,7 +1399,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 }
                                 logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
                             except:
-                                pass
+                                # If no semantic tabs, still set state to enable validation
+                                initial_tab_state = {
+                                    "selected_tab": None,
+                                    "target_element": original_selector
+                                }
+                                logger.info(f"  🎯 Tab state captured (no semantic tabs found, will use DOM-based validation)")
             
             # Capture initial state (for verification)
             initial_html = await self.page.content()
@@ -1742,12 +1764,54 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                     except Exception as e:
                                         logger.warning(f"  ⚠️ Could not capture tab content: {e}")
                                 else:
-                                    logger.warning(f"  ⚠️ Tab validation: current tab still '{new_selected_tab}', expected change from '{initial_tab_state.get('selected_tab')}'")
-                                    # Override click_succeeded if tab didn't actually switch
-                                    if not url_changed and not dom_grew:
-                                        click_succeeded = False
-                                        logger.error(f"  ❌ Tab switch FAILED - page content unchanged")
-                                        continue  # Try next strategy
+                                    # No semantic tabs or no change detected
+                                    # If both initial and current are None, this is a non-semantic tab - use DOM changes
+                                    if initial_tab_state.get('selected_tab') is None and new_selected_tab is None:
+                                        # Non-semantic tabs: rely on DOM changes as validation
+                                        if dom_changed or dom_grew:
+                                            tab_switch_verified = True
+                                            logger.info(f"  ✅ Tab switch verified (non-semantic tabs, DOM changed)")
+                                            reasons.append(f"tab content changed")
+                                            
+                                            # SCROLL TO CONTENT AREA: After tab switch, scroll down to show data table
+                                            try:
+                                                logger.info(f"  📊 Scrolling to tab content area...")
+                                                # Wait for content to load (data tables can be slow)
+                                                await self.page.wait_for_timeout(2000)
+                                                
+                                                # Scroll down to show the content area (data table is usually below tabs)
+                                                await self.page.evaluate("window.scrollBy(0, 400)")
+                                                await self.page.wait_for_timeout(500)  # Let scroll animation complete
+                                                
+                                                # Take additional screenshot showing the content
+                                                self.screenshot_counter += 1
+                                                element_name = original_selector.replace("text=", "").replace("_", " ")
+                                                safe_name = self._sanitize_filename(f"{element_name}_content")
+                                                filename = f"{self.screenshot_counter:03d}_tab_content_{safe_name}.png"
+                                                filepath = self.screenshots_dir / filename
+                                                await self.page.screenshot(path=str(filepath), full_page=False)
+                                                
+                                                screenshot_size = filepath.stat().st_size if filepath.exists() else 0
+                                                logger.info(f"  📊 Tab content screenshot: {filename} ({screenshot_size} bytes)")
+                                                
+                                                # Store for results
+                                                screenshot_msg = f"✅ Tab content screenshot: {filename} ({screenshot_size} bytes)"
+                                                self.pre_click_screenshots.append(screenshot_msg)
+                                                
+                                            except Exception as e:
+                                                logger.warning(f"  ⚠️ Could not capture tab content: {e}")
+                                        else:
+                                            logger.warning(f"  ⚠️ Tab validation: DOM unchanged for non-semantic tab")
+                                            click_succeeded = False
+                                            logger.error(f"  ❌ Tab switch FAILED - page content unchanged")
+                                            continue  # Try next strategy
+                                    else:
+                                        logger.warning(f"  ⚠️ Tab validation: current tab still '{new_selected_tab}', expected change from '{initial_tab_state.get('selected_tab')}'")
+                                        # Override click_succeeded if tab didn't actually switch
+                                        if not url_changed and not dom_grew:
+                                            click_succeeded = False
+                                            logger.error(f"  ❌ Tab switch FAILED - page content unchanged")
+                                            continue  # Try next strategy
                             except Exception as e:
                                 logger.warning(f"  ⚠️ Tab validation error: {e}")
                         
