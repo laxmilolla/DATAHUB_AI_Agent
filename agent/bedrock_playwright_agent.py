@@ -882,9 +882,10 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         This is what will be saved to registry and used in generated Playwright code
         
         Priority (Manual QA approach - short, semantic, stable):
-        1. role + aria attributes + text (BEST - semantic and stable)
-        2. data-testid or stable id (EXCELLENT - purpose-built for testing)
-        3. Simple text selector (GOOD - stable, no CSS dependence)
+        1. Form controls: input[type='checkbox'][id*='X'] or label:has-text('X') input (BEST for checkboxes)
+        2. role + aria attributes + text (BEST - semantic and stable)
+        3. data-testid or stable id (EXCELLENT - purpose-built for testing)
+        4. Simple text selector (GOOD - stable, no CSS dependence)
         
         AVOID: CSS classes (especially Material-UI dynamic classes like Mui*-root-1234)
         """
@@ -900,8 +901,33 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 name: el.getAttribute('name'),
                 id: el.id,
                 dataTestId: el.getAttribute('data-testid'),
-                text: el.textContent.trim().substring(0, 50)
+                text: el.textContent.trim().substring(0, 50),
+                value: el.value || ''
             })""")
+            
+            # Strategy 0: Form controls (checkbox, radio) - HIGHEST PRIORITY
+            if props['tag'] == 'input' and props['type'] in ['checkbox', 'radio']:
+                # For checkboxes/radios, use id if available, otherwise name
+                if props['id']:
+                    # Use partial ID match to handle dynamic suffixes
+                    # Extract the meaningful part of the ID (before any numbers)
+                    import re
+                    id_base = re.sub(r'[-_]\d+$', '', props['id'])  # Remove trailing numbers
+                    # If there's text content in the ID, use that
+                    id_parts = [p for p in re.split(r'[-_]', id_base) if p and not p.isdigit()]
+                    if id_parts:
+                        search_term = id_parts[-1]  # Use the last meaningful part
+                        return f"input[type='{props['type']}'][id*='{search_term}' i]"
+                elif props['name']:
+                    return f"input[type='{props['type']}'][name='{props['name']}']"
+                elif props['ariaLabel']:
+                    return f"input[type='{props['type']}'][aria-label='{props['ariaLabel']}']"
+                elif props['value']:
+                    return f"input[type='{props['type']}'][value='{props['value']}']"
+                else:
+                    # Last resort: find by label text (if the clicked element was a label)
+                    # This won't work directly, but will be better than nothing
+                    return f"input[type='{props['type']}']"
             
             # Strategy 1: Role + aria + text (BEST - like manual XPath: //button[@role='button' and contains(text(), 'X')])
             if props['role'] and props['text']:
