@@ -1228,27 +1228,42 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     element_name_lower = element_name.lower().strip()
                     # Look for pattern like "click on the [element] tab"
                     if element_name_lower and element_name_lower in story_lower:
-                        # Check for NEGATIVE keywords (sidebar/filter) - NOT a tab
-                        negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
-                        has_negative_keyword = any(keyword in story_lower for keyword in negative_keywords)
+                        import re
                         
-                        if has_negative_keyword:
-                            logger.info(f"  ⛔ NOT a tab (story mentions filter/sidebar context)")
-                        else:
-                            # Check for POSITIVE keywords (table tab) - IS a tab
-                            positive_keywords = ['table tab', 'data table tab', 'tab in table', 'table with tabs']
-                            has_positive_keyword = any(keyword in story_lower for keyword in positive_keywords)
+                        # Find all mentions of the element name and extract context (±80 chars)
+                        element_positions = [m.start() for m in re.finditer(re.escape(element_name_lower), story_lower)]
+                        
+                        for pos in element_positions:
+                            # Extract context window around this mention
+                            context_start = max(0, pos - 80)
+                            context_end = min(len(story_lower), pos + len(element_name_lower) + 80)
+                            context = story_lower[context_start:context_end]
+                            
+                            # Check for NEGATIVE keywords (sidebar/filter) in this context
+                            negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
+                            has_negative_keyword = any(keyword in context for keyword in negative_keywords)
+                            
+                            if has_negative_keyword:
+                                logger.info(f"  ⛔ NOT a tab (nearby context mentions filter/sidebar: '{context[max(0,pos-context_start-20):pos-context_start+len(element_name_lower)+20]}')")
+                                continue  # Skip this mention, check next one
+                            
+                            # Check for POSITIVE keywords (table tab) in this context
+                            positive_keywords = ['data table', 'table tab', 'tab in table', 'table with tabs', 'in the table']
+                            has_positive_keyword = any(keyword in context for keyword in positive_keywords)
                             
                             if has_positive_keyword:
                                 is_tab_click = True
-                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' in table/tab context)")
-                            # Original logic: check proximity of element name to "tab" word
-                            elif 'tab' in story_lower:
-                                import re
+                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near table/tab keywords)")
+                                break  # Found a tab mention, stop searching
+                            
+                            # Check proximity of "tab" word in this context
+                            if 'tab' in context:
+                                # Check if "tab" is within 50 chars of element name in this context
                                 pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                                if re.search(pattern, story_lower):
+                                if re.search(pattern, context):
                                     is_tab_click = True
-                                    logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                                    logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near 'tab' in context)")
+                                    break  # Found a tab mention, stop searching
                         
                         # Capture initial tab state for validation if tab detected
                         if is_tab_click and not initial_tab_state:
@@ -1397,27 +1412,42 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 element_name_lower = element_name.lower().strip()
                 # Look for pattern like "click on the [element] tab"
                 if element_name_lower and element_name_lower in story_lower:
-                    # Check for NEGATIVE keywords (sidebar/filter) - NOT a tab
-                    negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
-                    has_negative_keyword = any(keyword in story_lower for keyword in negative_keywords)
+                    import re
                     
-                    if has_negative_keyword:
-                        logger.info(f"  ⛔ NOT a tab (story mentions filter/sidebar context)")
-                    else:
-                        # Check for POSITIVE keywords (table tab) - IS a tab
-                        positive_keywords = ['table tab', 'data table tab', 'tab in table', 'table with tabs']
-                        has_positive_keyword = any(keyword in story_lower for keyword in positive_keywords)
+                    # Find all mentions of the element name and extract context (±80 chars)
+                    element_positions = [m.start() for m in re.finditer(re.escape(element_name_lower), story_lower)]
+                    
+                    for pos in element_positions:
+                        # Extract context window around this mention
+                        context_start = max(0, pos - 80)
+                        context_end = min(len(story_lower), pos + len(element_name_lower) + 80)
+                        context = story_lower[context_start:context_end]
+                        
+                        # Check for NEGATIVE keywords (sidebar/filter) in this context
+                        negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
+                        has_negative_keyword = any(keyword in context for keyword in negative_keywords)
+                        
+                        if has_negative_keyword:
+                            logger.info(f"  ⛔ NOT a tab (nearby context mentions filter/sidebar: '{context[max(0,pos-context_start-20):pos-context_start+len(element_name_lower)+20]}')")
+                            continue  # Skip this mention, check next one
+                        
+                        # Check for POSITIVE keywords (table tab) in this context
+                        positive_keywords = ['data table', 'table tab', 'tab in table', 'table with tabs', 'in the table']
+                        has_positive_keyword = any(keyword in context for keyword in positive_keywords)
                         
                         if has_positive_keyword:
                             is_tab_click = True
-                            logger.info(f"  🎯 Tab detected (by story context: '{element_name}' in table/tab context)")
-                        # Original logic: check proximity of element name to "tab" word
-                        elif 'tab' in story_lower:
-                            import re
+                            logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near table/tab keywords)")
+                            break  # Found a tab mention, stop searching
+                        
+                        # Check proximity of "tab" word in this context
+                        if 'tab' in context:
+                            # Check if "tab" is within 50 chars of element name in this context
                             pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                            if re.search(pattern, story_lower):
+                            if re.search(pattern, context):
                                 is_tab_click = True
-                                logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near 'tab' in context)")
+                                break  # Found a tab mention, stop searching
                     
                     # Capture initial tab state for validation if tab detected
                     if is_tab_click and not initial_tab_state:
