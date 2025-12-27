@@ -878,13 +878,15 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
     
     async def _generate_final_selector(self, element) -> str:
         """
-        Generate a robust final selector from an element
+        Generate a robust final selector from an element (like a manual QA engineer would write)
         This is what will be saved to registry and used in generated Playwright code
         
-        Priority:
-        1. role + aria attributes + text (best for accessibility)
-        2. data-testid or id (if unique)
-        3. CSS classes + text (less brittle than full structure)
+        Priority (Manual QA approach - short, semantic, stable):
+        1. role + aria attributes + text (BEST - semantic and stable)
+        2. data-testid or stable id (EXCELLENT - purpose-built for testing)
+        3. Simple text selector (GOOD - stable, no CSS dependence)
+        
+        AVOID: CSS classes (especially Material-UI dynamic classes like Mui*-root-1234)
         """
         try:
             # Get element properties
@@ -894,13 +896,14 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 ariaExpanded: el.getAttribute('aria-expanded'),
                 ariaSelected: el.getAttribute('aria-selected'),
                 ariaLabel: el.getAttribute('aria-label'),
+                type: el.getAttribute('type'),
+                name: el.getAttribute('name'),
                 id: el.id,
                 dataTestId: el.getAttribute('data-testid'),
-                classes: Array.from(el.classList),
                 text: el.textContent.trim().substring(0, 50)
             })""")
             
-            # Strategy 1: Role + aria + text (most robust)
+            # Strategy 1: Role + aria + text (BEST - like manual XPath: //button[@role='button' and contains(text(), 'X')])
             if props['role'] and props['text']:
                 if props['ariaExpanded'] is not None:
                     return f"{props['tag']}[role='{props['role']}'][aria-expanded]:has-text('{props['text']}')"
@@ -909,28 +912,31 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 else:
                     return f"{props['tag']}[role='{props['role']}']:has-text('{props['text']}')"
             
-            # Strategy 2: data-testid or unique id
+            # Strategy 2: data-testid (EXCELLENT - purpose-built for testing)
             if props['dataTestId']:
                 return f"[data-testid='{props['dataTestId']}']"
-            if props['id'] and not props['id'].startswith('dropdown') and not props['id'].startswith('checkbox'):
-                return f"#{props['id']}"
             
-            # Strategy 3: Tag + classes + text
-            if props['classes'] and props['text']:
-                # Use first few meaningful classes
-                useful_classes = [c for c in props['classes'] if not c.startswith('jss') and len(c) > 2][:2]
-                if useful_classes:
-                    class_selector = '.'.join(useful_classes)
-                    return f"{props['tag']}.{class_selector}:has-text('{props['text']}')"
+            # Strategy 3: name attribute (GOOD for form elements)
+            if props['name'] and props['tag'] in ['input', 'select', 'textarea', 'button']:
+                return f"{props['tag']}[name='{props['name']}']"
             
-            # Fallback: Just text
+            # Strategy 4: Stable id (not dynamic)
+            if props['id'] and not props['id'].startswith(('dropdown', 'checkbox', 'mui-', 'Mui')):
+                # Check if ID looks stable (no numbers at the end)
+                import re
+                if not re.search(r'-\d+$', props['id']):
+                    return f"#{props['id']}"
+            
+            # Strategy 5: Simple text selector (STABLE - no CSS classes)
+            # This is what checkboxes, labels, and simple elements should use
             if props['text']:
                 return f"text={props['text']}"
             
-            # Last resort: tag + role
+            # Last resort: tag + role (if has role but no text)
             if props['role']:
                 return f"{props['tag']}[role='{props['role']}']"
             
+            # Could not generate a good selector
             return None
             
         except Exception as e:
@@ -1021,16 +1027,33 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             
             # Check element registry first for known good selectors
             registry_selector = self._check_element_registry(selector)
+            optimized_selector_used = False
             if registry_selector:
                 selector = registry_selector
+                optimized_selector_used = True
                 logger.info(f"  📋 Using selector from registry")
             
             # SMART AI DISAMBIGUATION: Always check element context, even for single matches
             # Verify element type matches story intent (accordion vs tab vs button)
             # Check parent if direct match isn't interactive or appropriate
             chosen_locator = None  # Track if we have a specific locator from AI disambiguation
+            
+            # TRY optimized selector first, with fallback to original query if it fails
             try:
                 all_matches = await self.page.locator(selector).all()
+            except Exception as selector_error:
+                # Optimized selector failed, fall back to original query
+                if optimized_selector_used and selector != original_selector:
+                    logger.warning(f"  ⚠️ Optimized selector failed: {selector_error}")
+                    logger.info(f"  ⚙️ Falling back to original query: {original_selector}")
+                    selector = original_selector
+                    optimized_selector_used = False
+                    all_matches = await self.page.locator(selector).all()
+                else:
+                    raise selector_error
+            
+            # Continue with normal logic
+            try:
                 
                 # Filter to only VISIBLE elements to avoid hidden elements
                 visible_matches = []
@@ -1239,8 +1262,15 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 try:
                     await self.page.wait_for_selector(selector, state='visible', timeout=10000)
                 except Exception as e:
+                    # FALLBACK: If optimized selector failed, try original query
+                    if optimized_selector_used and selector != original_selector:
+                        logger.warning(f"  ⚠️ Optimized selector not found (likely dynamic CSS classes)")
+                        logger.info(f"  ⚙️ Falling back to original query + discovery method: {original_selector}")
+                        selector = original_selector
+                        optimized_selector_used = False
+                        await self.page.wait_for_selector(selector, state='visible', timeout=10000)
                     # If registry gave us a bad ID selector that failed, try the original query
-                    if selector.startswith("#") and not original_selector.startswith("#"):
+                    elif selector.startswith("#") and not original_selector.startswith("#"):
                         logger.info(f"  Registry ID selector failed, trying original: {original_selector}")
                         selector = original_selector
                         await self.page.wait_for_selector(selector, state='visible', timeout=10000)
