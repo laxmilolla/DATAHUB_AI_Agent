@@ -1602,11 +1602,65 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                     tab_switch_verified = True
                                     logger.info(f"  ✅ Tab switched: '{initial_tab_state.get('selected_tab')}' → '{new_selected_tab}'")
                                     reasons.append(f"tab switched to '{new_selected_tab}'")
+                                    
+                                    # SCROLL TO CONTENT AREA: After tab switch, scroll down to show data table
+                                    try:
+                                        logger.info(f"  📊 Scrolling to tab content area...")
+                                        # Wait for content to load (data tables can be slow)
+                                        await self.page.wait_for_timeout(2000)
+                                        
+                                        # Scroll down to show the content area (data table is usually below tabs)
+                                        await self.page.evaluate("window.scrollBy(0, 400)")
+                                        await self.page.wait_for_timeout(500)  # Let scroll animation complete
+                                        
+                                        # Take additional screenshot showing the content
+                                        self.screenshot_counter += 1
+                                        safe_name = self._sanitize_filename(f"{new_selected_tab}_content")
+                                        filename = f"{self.screenshot_counter:03d}_tab_content_{safe_name}.png"
+                                        filepath = self.screenshots_dir / filename
+                                        await self.page.screenshot(path=str(filepath), full_page=False)
+                                        
+                                        screenshot_size = filepath.stat().st_size if filepath.exists() else 0
+                                        logger.info(f"  📊 Tab content screenshot: {filename} ({screenshot_size} bytes)")
+                                        
+                                        # Store for results
+                                        screenshot_msg = f"✅ Tab content screenshot: {filename} ({screenshot_size} bytes)"
+                                        self.pre_click_screenshots.append(screenshot_msg)
+                                        
+                                    except Exception as e:
+                                        logger.warning(f"  ⚠️ Could not capture tab content: {e}")
                                 elif clicked_text and new_selected_tab and clicked_text in new_selected_tab:
                                     # Clicked text appears in selected tab (handles dynamic counts)
                                     tab_switch_verified = True
                                     logger.info(f"  ✅ Tab switched: target '{clicked_text}' is now selected")
                                     reasons.append(f"tab switched to '{new_selected_tab}'")
+                                    
+                                    # SCROLL TO CONTENT AREA: After tab switch, scroll down to show data table
+                                    try:
+                                        logger.info(f"  📊 Scrolling to tab content area...")
+                                        # Wait for content to load (data tables can be slow)
+                                        await self.page.wait_for_timeout(2000)
+                                        
+                                        # Scroll down to show the content area (data table is usually below tabs)
+                                        await self.page.evaluate("window.scrollBy(0, 400)")
+                                        await self.page.wait_for_timeout(500)  # Let scroll animation complete
+                                        
+                                        # Take additional screenshot showing the content
+                                        self.screenshot_counter += 1
+                                        safe_name = self._sanitize_filename(f"{clicked_text}_content")
+                                        filename = f"{self.screenshot_counter:03d}_tab_content_{safe_name}.png"
+                                        filepath = self.screenshots_dir / filename
+                                        await self.page.screenshot(path=str(filepath), full_page=False)
+                                        
+                                        screenshot_size = filepath.stat().st_size if filepath.exists() else 0
+                                        logger.info(f"  📊 Tab content screenshot: {filename} ({screenshot_size} bytes)")
+                                        
+                                        # Store for results
+                                        screenshot_msg = f"✅ Tab content screenshot: {filename} ({screenshot_size} bytes)"
+                                        self.pre_click_screenshots.append(screenshot_msg)
+                                        
+                                    except Exception as e:
+                                        logger.warning(f"  ⚠️ Could not capture tab content: {e}")
                                 else:
                                     logger.warning(f"  ⚠️ Tab validation: current tab still '{new_selected_tab}', expected change from '{initial_tab_state.get('selected_tab')}'")
                                     # Override click_succeeded if tab didn't actually switch
