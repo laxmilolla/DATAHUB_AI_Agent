@@ -1193,6 +1193,10 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # If we can't check for multiple matches, continue with original selector
                 logger.warning(f"  ⚠️ Could not check element context: {e}")
             
+            # Initialize tab detection variables BEFORE both code paths
+            is_tab_click = False
+            initial_tab_state = None
+            
             # If we have a chosen locator from AI disambiguation, use it directly
             if chosen_locator:
                 # Use the specific locator element instead of selector string
@@ -1412,12 +1416,10 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             except:
                 pass
             
-            # TAB-SPECIFIC: Capture currently selected tab if this is a tab click
-            initial_tab_state = None
-            is_tab_click = False
+            # TAB-SPECIFIC: Fallback check via selector if not already detected
             try:
-                # Check if selector indicates tab interaction
-                if '[role="tab"]' in original_selector or ':nth-child' in original_selector:
+                # Check if selector indicates tab interaction (fallback for non-chosen_locator path)
+                if not is_tab_click and ('[role="tab"]' in original_selector or ':nth-child' in original_selector):
                     is_tab_click = True
                     # Get currently selected tab's text
                     selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
