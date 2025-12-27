@@ -1243,6 +1243,19 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         is_tab_click = True
                         logger.info(f"  🎯 Tab detected (fallback to selector string)")
                 
+                # STORY CONTEXT: Final fallback - check if story mentions this element as a "tab"
+                if not is_tab_click and self.story:
+                    story_lower = self.story.lower()
+                    element_name_lower = element_name.lower().strip()
+                    # Look for pattern like "click on the [element] tab"
+                    if element_name_lower and 'tab' in story_lower and element_name_lower in story_lower:
+                        # Check proximity: "tab" should be near element name (within 50 chars)
+                        import re
+                        pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
+                        if re.search(pattern, story_lower):
+                            is_tab_click = True
+                            logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                
                 # Directly validate the chosen locator with screenshot
                 try:
                     # Scroll into view and highlight
@@ -1362,6 +1375,32 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 pass
                 except Exception as e:
                     logger.debug(f"  Could not check preserved_locator role: {e}")
+            
+            # STORY CONTEXT: Check if story mentions this element as a "tab"
+            if not is_tab_click and self.story:
+                element_name = original_selector.replace("text=", "").replace("_", " ")
+                story_lower = self.story.lower()
+                element_name_lower = element_name.lower().strip()
+                # Look for pattern like "click on the [element] tab"
+                if element_name_lower and 'tab' in story_lower and element_name_lower in story_lower:
+                    # Check proximity: "tab" should be near element name (within 50 chars)
+                    import re
+                    pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
+                    if re.search(pattern, story_lower):
+                        is_tab_click = True
+                        logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                        
+                        # Capture initial tab state
+                        if not initial_tab_state:
+                            try:
+                                selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
+                                initial_tab_state = {
+                                    "selected_tab": selected_tab.strip() if selected_tab else None,
+                                    "target_element": original_selector
+                                }
+                                logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
+                            except:
+                                pass
             
             # Capture initial state (for verification)
             initial_html = await self.page.content()
