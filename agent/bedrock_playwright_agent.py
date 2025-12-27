@@ -963,8 +963,27 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     match = visible_matches[0]
                     description = await self._describe_element(match)
                     
-                    # Check if element seems appropriate (has button/tab/accordion indicators)
-                    is_interactive = "button" in description.lower() or "tab" in description.lower() or "expandable: yes" in description.lower()
+                    # Check if THIS SPECIFIC ELEMENT is interactive (not just description text)
+                    # We need to check the element's actual properties, not search the description
+                    element_props = await match.evaluate("""el => ({
+                        tagName: el.tagName.toLowerCase(),
+                        role: el.getAttribute('role'),
+                        ariaExpanded: el.getAttribute('aria-expanded'),
+                        ariaSelected: el.getAttribute('aria-selected'),
+                        type: el.getAttribute('type'),
+                        hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
+                    })""")
+                    
+                    # Element is interactive if it's a button, link, or has interactive roles/attributes
+                    is_interactive = (
+                        element_props['tagName'] in ['button', 'a', 'input', 'select'] or
+                        element_props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
+                        element_props['ariaExpanded'] is not None or
+                        element_props['ariaSelected'] is not None or
+                        element_props['hasClickHandler']
+                    )
+                    
+                    logger.info(f"  📋 Element check: tag={element_props['tagName']}, role={element_props['role']}, interactive={is_interactive}")
                     
                     candidates.append({
                         "index": 0,
@@ -972,27 +991,38 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         "description": description
                     })
                     
-                    # If element doesn't seem interactive or appropriate, check parent
+                    # If element is NOT directly interactive, check parent
                     if not is_interactive:
-                        logger.info(f"  🔍 Element may not be interactive, checking parent...")
+                        logger.info(f"  🔍 Element is not directly interactive (tag={element_props['tagName']}), checking parent...")
                         try:
                             parent = await match.evaluate_handle("el => el.parentElement")
                             if parent and await parent.as_element().is_visible():
                                 parent_elem = parent.as_element()
                                 parent_desc = await self._describe_element(parent_elem)
                                 
-                                # Check if parent is more appropriate (has aria-expanded, role=button, etc.)
-                                parent_is_better = ("expandable: yes" in parent_desc.lower() or 
-                                                   "role: button" in parent_desc.lower() or
-                                                   "type: filter accordion" in parent_desc.lower())
+                                # Check parent's actual properties
+                                parent_props = await parent_elem.evaluate("""el => ({
+                                    tagName: el.tagName.toLowerCase(),
+                                    role: el.getAttribute('role'),
+                                    ariaExpanded: el.getAttribute('aria-expanded')
+                                })""")
+                                
+                                # Parent is better if it's a button/accordion/tab
+                                parent_is_better = (
+                                    parent_props['tagName'] in ['button', 'a'] or
+                                    parent_props['role'] in ['button', 'tab'] or
+                                    parent_props['ariaExpanded'] is not None
+                                )
                                 
                                 if parent_is_better:
-                                    logger.info(f"  ✅ Parent element looks more appropriate (has aria-expanded or role=button)")
+                                    logger.info(f"  ✅ Parent is interactive: tag={parent_props['tagName']}, role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']}")
                                     candidates.append({
                                         "index": 1,
                                         "element": parent_elem,
-                                        "description": parent_desc + "\n(This is the PARENT of the matched element)"
+                                        "description": parent_desc + f"\n(PARENT element: <{parent_props['tagName']}> with role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']})"
                                     })
+                                else:
+                                    logger.info(f"  ⚠️ Parent also not interactive: tag={parent_props['tagName']}, role={parent_props['role']}")
                         except Exception as pe:
                             logger.debug(f"  Could not check parent: {pe}")
                 
