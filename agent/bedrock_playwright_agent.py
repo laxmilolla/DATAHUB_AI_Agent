@@ -1197,20 +1197,11 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             is_tab_click = False
             initial_tab_state = None
             
-            # If we have a chosen locator from AI disambiguation, use it directly
+            # If we have a chosen locator from AI disambiguation, prepare it for the common flow
             if chosen_locator:
-                # Use the specific locator element instead of selector string
-                # Smart retry strategy using the chosen locator
-                strategies = [
-                    {"desc": "direct click", "method": lambda: chosen_locator.click()},
-                    {"desc": "exact coordinates", "method": lambda: chosen_locator.click()},
-                    {"desc": "force click", "method": lambda: chosen_locator.click(force=True)},
-                ]
-                
-                # Use chosen locator for validation (already visible, we filtered for it)
+                # TAB DETECTION: Check if this is a tab by element role or story context
                 element_name = original_selector.replace("text=", "").replace("_", " ")
                 
-                # CHECK ACTUAL ELEMENT ROLE: Detect if this is a tab by checking the element's role
                 try:
                     element_role = await chosen_locator.get_attribute('role')
                     aria_selected = await chosen_locator.get_attribute('aria-selected')
@@ -1219,18 +1210,6 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     if element_role == 'tab' or aria_selected is not None:
                         is_tab_click = True
                         logger.info(f"  🎯 Tab detected (role={element_role}, aria-selected={aria_selected})")
-                        
-                        # Capture initial tab state if not already done
-                        if not initial_tab_state:
-                            try:
-                                selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
-                                initial_tab_state = {
-                                    "selected_tab": selected_tab.strip() if selected_tab else None,
-                                    "target_element": original_selector
-                                }
-                                logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
-                            except:
-                                pass
                     else:
                         # Fallback: Check if selector indicates tab (for cases where role is on parent)
                         if '[role="tab"]' in original_selector or 'aria-selected' in original_selector:
@@ -1256,7 +1235,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             is_tab_click = True
                             logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
                 
-                # Directly validate the chosen locator with screenshot
+                # Validate the chosen locator with screenshot
                 try:
                     # Scroll into view and highlight
                     await chosen_locator.scroll_into_view_if_needed()
@@ -1287,6 +1266,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     filename = None
                     screenshot_size = None
                 
+                # Create validation result and set preserved_locator to use common click flow
                 validation_result = {
                     "exists": True,
                     "visible": await chosen_locator.is_visible(),
@@ -1299,6 +1279,8 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     "locator": chosen_locator
                 }
                 pre_validation = validation_result
+                # IMPORTANT: Set preserved_locator so we use the common click loop below
+                # This ensures tab-specific logic, accordion validation, etc. all work
             else:
                 # Normal selector-based flow
                 # Smart retry strategy for complex UI elements (dropdowns, accordions, etc.)
