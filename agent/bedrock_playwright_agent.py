@@ -1206,6 +1206,27 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # Use chosen locator for validation (already visible, we filtered for it)
                 element_name = original_selector.replace("text=", "").replace("_", " ")
                 
+                # CHECK ACTUAL ELEMENT ROLE: Detect if this is a tab by checking the element's role
+                try:
+                    element_role = await chosen_locator.get_attribute('role')
+                    if element_role == 'tab':
+                        is_tab_click = True
+                        logger.info(f"  🎯 Tab detected (by element role='tab')")
+                        
+                        # Capture initial tab state if not already done
+                        if not initial_tab_state:
+                            try:
+                                selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
+                                initial_tab_state = {
+                                    "selected_tab": selected_tab.strip() if selected_tab else None,
+                                    "target_element": original_selector
+                                }
+                                logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
+                            except:
+                                pass
+                except Exception as e:
+                    logger.debug(f"  Could not check element role: {e}")
+                
                 # Directly validate the chosen locator with screenshot
                 try:
                     # Scroll into view and highlight
