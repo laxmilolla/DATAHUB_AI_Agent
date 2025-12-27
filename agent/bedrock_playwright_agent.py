@@ -991,40 +991,68 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         "description": description
                     })
                     
-                    # If element is NOT directly interactive, check parent
+                    # If element is NOT directly interactive, climb DOM tree to find interactive ancestors
                     if not is_interactive:
-                        logger.info(f"  🔍 Element is not directly interactive (tag={element_props['tagName']}), checking parent...")
-                        try:
-                            parent = await match.evaluate_handle("el => el.parentElement")
-                            if parent and await parent.as_element().is_visible():
-                                parent_elem = parent.as_element()
-                                parent_desc = await self._describe_element(parent_elem)
+                        logger.info(f"  🔍 Element is not directly interactive (tag={element_props['tagName']}), climbing DOM tree...")
+                        
+                        # Climb up to 5 levels to find an interactive ancestor
+                        current_elem = match
+                        max_depth = 5
+                        
+                        for depth in range(1, max_depth + 1):
+                            try:
+                                parent_handle = await current_elem.evaluate_handle("el => el.parentElement")
+                                if not parent_handle:
+                                    logger.info(f"  🔚 Reached top of DOM at depth {depth}")
+                                    break
                                 
-                                # Check parent's actual properties
+                                parent_elem = parent_handle.as_element()
+                                if not parent_elem or not await parent_elem.is_visible():
+                                    logger.info(f"  ⚠️ Parent at depth {depth} not visible")
+                                    break
+                                
+                                # Check this ancestor's properties
                                 parent_props = await parent_elem.evaluate("""el => ({
                                     tagName: el.tagName.toLowerCase(),
                                     role: el.getAttribute('role'),
-                                    ariaExpanded: el.getAttribute('aria-expanded')
+                                    ariaExpanded: el.getAttribute('aria-expanded'),
+                                    ariaSelected: el.getAttribute('aria-selected'),
+                                    hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
                                 })""")
                                 
-                                # Parent is better if it's a button/accordion/tab
-                                parent_is_better = (
-                                    parent_props['tagName'] in ['button', 'a'] or
-                                    parent_props['role'] in ['button', 'tab'] or
-                                    parent_props['ariaExpanded'] is not None
+                                # Check if this ancestor is interactive
+                                ancestor_is_interactive = (
+                                    parent_props['tagName'] in ['button', 'a', 'input', 'select'] or
+                                    parent_props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
+                                    parent_props['ariaExpanded'] is not None or
+                                    parent_props['ariaSelected'] is not None or
+                                    parent_props['hasClickHandler']
                                 )
                                 
-                                if parent_is_better:
-                                    logger.info(f"  ✅ Parent is interactive: tag={parent_props['tagName']}, role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']}")
+                                if ancestor_is_interactive:
+                                    # Found an interactive ancestor!
+                                    logger.info(f"  ✅ Found interactive ancestor at depth {depth}: tag={parent_props['tagName']}, role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']}")
+                                    
+                                    parent_desc = await self._describe_element(parent_elem)
                                     candidates.append({
-                                        "index": 1,
+                                        "index": len(candidates),
                                         "element": parent_elem,
-                                        "description": parent_desc + f"\n(PARENT element: <{parent_props['tagName']}> with role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']})"
+                                        "description": parent_desc + f"\n(ANCESTOR at depth {depth}: <{parent_props['tagName']}> with role={parent_props['role']}, aria-expanded={parent_props['ariaExpanded']})"
                                     })
+                                    # Found interactive ancestor, stop climbing
+                                    break
                                 else:
-                                    logger.info(f"  ⚠️ Parent also not interactive: tag={parent_props['tagName']}, role={parent_props['role']}")
-                        except Exception as pe:
-                            logger.debug(f"  Could not check parent: {pe}")
+                                    logger.info(f"  ⬆️ Depth {depth}: tag={parent_props['tagName']}, role={parent_props['role']} - not interactive, continuing...")
+                                    # Move to next level
+                                    current_elem = parent_elem
+                                    
+                            except Exception as pe:
+                                logger.debug(f"  Could not check ancestor at depth {depth}: {pe}")
+                                break
+                        
+                        # If we climbed the tree but found no interactive ancestor
+                        if len(candidates) == 1:
+                            logger.warning(f"  ⚠️ Climbed {depth} levels, no interactive ancestor found. Element may not be clickable!")
                 
                 # If we have multiple candidates (multiple matches OR single match + parent), ask LLM
                 if len(candidates) > 1:
