@@ -301,3 +301,95 @@ def get_element_map(domain, page):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@bp.route('/executions/<execution_id>/approve-discoveries', methods=['POST'])
+def approve_discoveries(execution_id):
+    """
+    User approved test execution - update element registry with discoveries
+    
+    This commits the discovered selectors to the registry so future tests
+    can use the optimized selectors instead of repeating discovery.
+    """
+    try:
+        import sys
+        from pathlib import Path
+        from urllib.parse import urlparse
+        sys.path.insert(0, str(Path(current_app.config['PROJECT_ROOT'])))
+        from utils.element_registry import get_registry
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        
+        # Load discoveries from file
+        discoveries_dir = project_root / 'storage' / 'discoveries'
+        discovery_file = discoveries_dir / f'{execution_id}_discoveries.json'
+        
+        if not discovery_file.exists():
+            return jsonify({
+                'error': 'Discovery file not found',
+                'execution_id': execution_id
+            }), 404
+        
+        with open(discovery_file, 'r') as f:
+            discovery_data = json.load(f)
+        
+        discoveries = discovery_data.get('discoveries', [])
+        
+        if not discoveries:
+            return jsonify({
+                'error': 'No discoveries found in this execution',
+                'execution_id': execution_id
+            }), 400
+        
+        # Get registry
+        registry = get_registry(str(project_root / 'element_maps'))
+        
+        # Extract domain from execution results
+        results_file = project_root / 'storage' / 'executions' / f'{execution_id}.json'
+        
+        if not results_file.exists():
+            return jsonify({'error': 'Execution results not found'}), 404
+        
+        with open(results_file, 'r') as f:
+            results = json.load(f)
+        
+        # Get domain from story or first action
+        story = results.get('story', '')
+        domain = None
+        
+        # Try to extract domain from story URL
+        if 'https://' in story or 'http://' in story:
+            import re
+            url_match = re.search(r'https?://([^\s/]+)', story)
+            if url_match:
+                domain = url_match.group(1)
+        
+        if not domain:
+            return jsonify({'error': 'Could not determine domain from test execution'}), 400
+        
+        page = "home"  # Default page name
+        
+        # Update registry with each discovery
+        updated_count = 0
+        for discovery in discoveries:
+            try:
+                registry.update_with_discovery(domain, page, discovery)
+                updated_count += 1
+            except Exception as e:
+                print(f"Warning: Failed to update discovery {discovery.get('name')}: {e}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'message': f'Registry updated with {updated_count} discoveries',
+            'execution_id': execution_id,
+            'discoveries_updated': updated_count,
+            'domain': domain,
+            'page': page
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"Error approving discoveries: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+

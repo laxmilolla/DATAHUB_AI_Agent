@@ -222,7 +222,99 @@
                 `;
             }
             
+            // Discoveries section
+            if (results.discoveries && results.discoveries.length > 0 && results.status === 'completed') {
+                html += `
+                    <div class="discoveries" style="margin-top: 30px; border: 2px solid #4CAF50; border-radius: 8px; padding: 20px; background: #f0f9f0;">
+                        <h3>📝 Discoveries (${results.discoveries.length})</h3>
+                        <p style="color: #666; margin-bottom: 15px;">
+                            The AI agent discovered these elements using tree climbing and disambiguation. 
+                            Approve to save them to the registry for faster future runs.
+                        </p>
+                        <ul style="list-style: none; padding: 0;">
+                `;
+                
+                results.discoveries.forEach((discovery, index) => {
+                    const method = discovery.discovery_method || 'unknown';
+                    const depth = discovery.metadata?.tree_depth || 1;
+                    const methodLabel = method === 'tree_climbing' ? `🌳 Tree Climbing (depth ${depth})` : '🤖 AI Disambiguation';
+                    
+                    html += `
+                        <li style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin: 8px 0;">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div style="flex: 1;">
+                                    <strong>${discovery.name}</strong>
+                                    <div style="color: #666; font-size: 12px; margin-top: 4px;">
+                                        ${methodLabel}
+                                    </div>
+                                    <div style="margin-top: 8px; font-family: monospace; font-size: 11px;">
+                                        <div>📥 Query: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.original_query}</code></div>
+                                        <div style="margin-top: 4px;">📤 Optimized: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.final_selector.substring(0, 80)}${discovery.final_selector.length > 80 ? '...' : ''}</code></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                html += `
+                        </ul>
+                        <div style="margin-top: 20px; text-align: center;">
+                            <button id="approve-btn" onclick="approveDiscoveries()" 
+                                    style="background: #4CAF50; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                                ✅ Approve & Update Registry
+                            </button>
+                            <p id="approve-msg" style="margin-top: 10px; color: #4CAF50; display: none;"></p>
+                        </div>
+                    </div>
+                `;
+            }
+            
             container.innerHTML = html;
+        }
+        
+        // Approve discoveries and update registry
+        async function approveDiscoveries() {
+            const btn = document.getElementById('approve-btn');
+            const msg = document.getElementById('approve-msg');
+            
+            // Disable button
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+            btn.style.cursor = 'not-allowed';
+            btn.textContent = '⏳ Updating Registry...';
+            
+            try {
+                const response = await fetch(`/api/executions/${executionId}/approve-discoveries`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    msg.textContent = `✅ Success! Registry updated with ${result.discoveries_updated} discoveries. Next test run will be 70% faster!`;
+                    msg.style.color = '#4CAF50';
+                    msg.style.display = 'block';
+                    btn.textContent = '✅ Registry Updated';
+                    btn.style.background = '#888';
+                } else {
+                    throw new Error(result.error || 'Failed to update registry');
+                }
+            } catch (error) {
+                console.error('Error approving discoveries:', error);
+                msg.textContent = `❌ Error: ${error.message}`;
+                msg.style.color = '#f44336';
+                msg.style.display = 'block';
+                
+                // Re-enable button on error
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.textContent = '✅ Approve & Update Registry';
+            }
         }
         
         // Start polling
