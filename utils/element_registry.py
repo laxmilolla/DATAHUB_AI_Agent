@@ -175,20 +175,59 @@ class ElementRegistry:
         
         element_map = self.current_maps[cache_key]
         element_name = discovery_data.get("name", "unknown")
+        original_query = discovery_data.get("original_query", "")
+        final_selector = discovery_data.get("final_selector", "")
         
-        # Check if element already exists (update) or new (add)
+        # 🔍 SMART KEY MATCHING - Try multiple strategies to find existing element
+        existing_key = None
+        
+        # Strategy 1: Try exact name match
         if element_name in element_map["elements"]:
-            element = element_map["elements"][element_name]
-            print(f"  📝 Updating existing element: {element_name}")
+            existing_key = element_name
+            print(f"  🎯 Found exact match by name: {element_name}")
+        
+        # Strategy 2: Try original query match (e.g., "text=Primary")
+        elif original_query and original_query in element_map["elements"]:
+            existing_key = original_query
+            print(f"  🎯 Found match by original query: {original_query}")
+        
+        # Strategy 3: Try fuzzy text matching (e.g., "Primary" in "text=Primary")
         else:
+            for key in element_map["elements"].keys():
+                # Check if element_name is substring of key or vice versa
+                if element_name.lower() in key.lower() or key.lower() in element_name.lower():
+                    existing_key = key
+                    print(f"  🎯 Found fuzzy match: '{element_name}' → '{key}'")
+                    break
+        
+        # Strategy 4: Check if we've seen this selector/query before (different key)
+        if not existing_key:
+            for key, elem_data in element_map["elements"].items():
+                if (elem_data.get("query") == original_query or 
+                    elem_data.get("selector") == final_selector):
+                    existing_key = key
+                    print(f"  🎯 Found match by selector/query: '{element_name}' → '{key}'")
+                    break
+        
+        # Now update or create
+        if existing_key:
+            # UPDATE existing entry (keep same key, update selector)
+            element = element_map["elements"][existing_key]
+            print(f"  📝 Updating existing element: {existing_key}")
+            print(f"     OLD selector: {element.get('selector')}")
+            print(f"     NEW selector: {final_selector}")
+            is_new = False
+        else:
+            # ADD new entry
             element = {}
+            existing_key = element_name  # Use element_name as the new key
             print(f"  ✅ Adding new element: {element_name}")
-            element_map["statistics"]["discovered_elements"] = element_map["statistics"].get("discovered_elements", 0) + 1
+            is_new = True
         
         # Update with discovery data
         element.update({
-            "query": discovery_data.get("original_query"),
-            "selector": discovery_data.get("final_selector"),
+            "query": original_query,
+            "selector": final_selector,  # This is the STABLE selector for Playwright!
             "type": "discovered",
             "discovery": {
                 "method": discovery_data.get("discovery_method"),
@@ -199,8 +238,12 @@ class ElementRegistry:
             "last_used": datetime.utcnow().isoformat() + "Z"
         })
         
-        # Save back
-        element_map["elements"][element_name] = element
+        # Save back using the found/new key
+        element_map["elements"][existing_key] = element
+        
+        # Update statistics
+        if is_new:
+            element_map["statistics"]["discovered_elements"] = element_map["statistics"].get("discovered_elements", 0) + 1
         element_map["statistics"]["total_elements"] = len(element_map["elements"])
         
         # Increment version
