@@ -929,9 +929,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 selector = registry_selector
                 logger.info(f"  📋 Using selector from registry")
             
-            # AI DISAMBIGUATION: If multiple elements match, let LLM choose based on rich context
-            # The enhanced _describe_element function provides location, type, and filter detection
-            # This allows the LLM to match story requirements ("sidebar filter") to actual elements
+            # SMART AI DISAMBIGUATION: Always check element context, even for single matches
+            # Verify element type matches story intent (accordion vs tab vs button)
+            # Check parent if direct match isn't interactive or appropriate
             chosen_locator = None  # Track if we have a specific locator from AI disambiguation
             try:
                 all_matches = await self.page.locator(selector).all()
@@ -942,28 +942,79 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     if await match.is_visible():
                         visible_matches.append(match)  # Store visible elements only
                 
+                candidates = []
+                
                 if len(visible_matches) > 1:
                     logger.info(f"  🔍 Found {len(visible_matches)} visible matches for '{selector}' (of {len(all_matches)} total), asking LLM to choose...")
                     
                     # Describe each VISIBLE candidate for the LLM
-                    candidates = []
                     for i, match in enumerate(visible_matches):
                         description = await self._describe_element(match)
                         candidates.append({
-                            "index": i,  # Use index in visible list
+                            "index": i,
+                            "element": match,
                             "description": description
                         })
+                
+                elif len(visible_matches) == 1:
+                    # SINGLE MATCH: Check if it's appropriate for story context
+                    logger.info(f"  🔍 Found 1 visible match, checking if it's the right element type...")
+                    
+                    match = visible_matches[0]
+                    description = await self._describe_element(match)
+                    
+                    # Check if element seems appropriate (has button/tab/accordion indicators)
+                    is_interactive = "button" in description.lower() or "tab" in description.lower() or "expandable: yes" in description.lower()
+                    
+                    candidates.append({
+                        "index": 0,
+                        "element": match,
+                        "description": description
+                    })
+                    
+                    # If element doesn't seem interactive or appropriate, check parent
+                    if not is_interactive:
+                        logger.info(f"  🔍 Element may not be interactive, checking parent...")
+                        try:
+                            parent = await match.evaluate_handle("el => el.parentElement")
+                            if parent and await parent.as_element().is_visible():
+                                parent_elem = parent.as_element()
+                                parent_desc = await self._describe_element(parent_elem)
+                                
+                                # Check if parent is more appropriate (has aria-expanded, role=button, etc.)
+                                parent_is_better = ("expandable: yes" in parent_desc.lower() or 
+                                                   "role: button" in parent_desc.lower() or
+                                                   "type: filter accordion" in parent_desc.lower())
+                                
+                                if parent_is_better:
+                                    logger.info(f"  ✅ Parent element looks more appropriate (has aria-expanded or role=button)")
+                                    candidates.append({
+                                        "index": 1,
+                                        "element": parent_elem,
+                                        "description": parent_desc + "\n(This is the PARENT of the matched element)"
+                                    })
+                        except Exception as pe:
+                            logger.debug(f"  Could not check parent: {pe}")
+                
+                # If we have multiple candidates (multiple matches OR single match + parent), ask LLM
+                if len(candidates) > 1:
+                    logger.info(f"  🤖 Asking LLM to choose from {len(candidates)} candidates based on story context...")
                     
                     # Ask LLM to choose based on story context
                     best_index = await self._llm_choose_element(candidates, selector)
                     
-                    # Use the chosen visible element directly (bypasses nth= indexing issues)
-                    logger.info(f"  🎯 Using visible element {best_index} of {len(visible_matches)}")
-                    chosen_locator = visible_matches[best_index]
+                    # Use the chosen element directly
+                    logger.info(f"  🎯 LLM chose element {best_index} of {len(candidates)}")
+                    chosen_locator = candidates[best_index]["element"]
+                
+                elif len(candidates) == 1:
+                    # Single candidate that looks appropriate, use it
+                    logger.info(f"  ✅ Single appropriate element found")
+                    chosen_locator = candidates[0]["element"]
                     
             except Exception as e:
                 # If we can't check for multiple matches, continue with original selector
-                logger.warning(f"  ⚠️ Could not check for multiple matches: {e}")
+                logger.warning(f"  ⚠️ Could not check element context: {e}")
             
             # If we have a chosen locator from AI disambiguation, use it directly
             if chosen_locator:
@@ -1595,14 +1646,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         
         system_prompt = """You are a QA automation agent. Use browser tools to execute tests.
 
-SELECTOR STRATEGY:
-- Use simple text= selectors - when multiple elements match, you'll see rich descriptions of each
-- Descriptions include: location (sidebar vs center), type (filter vs tab), and attributes
-- Match your test story keywords to element descriptions:
-  * Story says "sidebar filter" → Choose element with LOCATION: "LEFT SIDEBAR (filter panel)"
-  * Story says "tab" → Choose element with TYPE: "DATA TABLE TAB"
-  * Story says "expand" → Choose element with EXPANDABLE: "YES"
-- Be specific in test stories about LOCATION and PURPOSE for accurate element matching
+SMART ELEMENT SELECTION:
+- Use simple text= selectors - the system intelligently validates each element
+- Even for single matches, you'll see descriptions to verify it's the RIGHT element
+- System checks: Is it clickable? Is it a tab/accordion/button? Is parent better?
+- Descriptions show: LOCATION, TYPE, and ATTRIBUTES
+- Match story keywords to element attributes:
+  * "sidebar filter" → LOCATION: "LEFT SIDEBAR", TYPE: "FILTER ACCORDION"
+  * "tab" → TYPE: "DATA TABLE TAB", ROLE: tab
+  * "expand/dropdown" → EXPANDABLE: "YES" (has aria-expanded)
+- If element isn't interactive, system checks parent automatically
+- Be specific in stories: "click sidebar filter dropdown" vs "click tab"
 
 After navigating, use browser_snapshot() to see the page.
 Use browser_evaluate() to find selectors when needed.
