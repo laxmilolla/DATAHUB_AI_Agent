@@ -1209,9 +1209,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # CHECK ACTUAL ELEMENT ROLE: Detect if this is a tab by checking the element's role
                 try:
                     element_role = await chosen_locator.get_attribute('role')
-                    if element_role == 'tab':
+                    aria_selected = await chosen_locator.get_attribute('aria-selected')
+                    
+                    # Check if this is a tab (by role attribute or aria-selected)
+                    if element_role == 'tab' or aria_selected is not None:
                         is_tab_click = True
-                        logger.info(f"  🎯 Tab detected (by element role='tab')")
+                        logger.info(f"  🎯 Tab detected (role={element_role}, aria-selected={aria_selected})")
                         
                         # Capture initial tab state if not already done
                         if not initial_tab_state:
@@ -1224,8 +1227,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
                             except:
                                 pass
+                    else:
+                        # Fallback: Check if selector indicates tab (for cases where role is on parent)
+                        if '[role="tab"]' in original_selector or 'aria-selected' in original_selector:
+                            is_tab_click = True
+                            logger.info(f"  🎯 Tab detected (by selector string: {original_selector})")
                 except Exception as e:
                     logger.debug(f"  Could not check element role: {e}")
+                    # Last resort: Check selector string
+                    if '[role="tab"]' in original_selector or 'aria-selected' in original_selector:
+                        is_tab_click = True
+                        logger.info(f"  🎯 Tab detected (fallback to selector string)")
                 
                 # Directly validate the chosen locator with screenshot
                 try:
@@ -1322,6 +1334,30 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             # Get preserved locator and clicked text for reuse
             preserved_locator = pre_validation.get("locator")
             clicked_text = pre_validation.get("text_content", "")
+            
+            # ENHANCED TAB DETECTION: If not already detected via selector, check actual element role
+            if not is_tab_click and preserved_locator:
+                try:
+                    element_role = await preserved_locator.get_attribute('role')
+                    aria_selected = await preserved_locator.get_attribute('aria-selected')
+                    
+                    if element_role == 'tab' or aria_selected is not None:
+                        is_tab_click = True
+                        logger.info(f"  🎯 Tab detected post-validation (role={element_role}, aria-selected={aria_selected})")
+                        
+                        # Capture initial tab state
+                        if not initial_tab_state:
+                            try:
+                                selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
+                                initial_tab_state = {
+                                    "selected_tab": selected_tab.strip() if selected_tab else None,
+                                    "target_element": original_selector
+                                }
+                                logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
+                            except:
+                                pass
+                except Exception as e:
+                    logger.debug(f"  Could not check preserved_locator role: {e}")
             
             # Capture initial state (for verification)
             initial_html = await self.page.content()
