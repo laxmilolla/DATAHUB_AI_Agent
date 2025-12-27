@@ -1074,6 +1074,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             "element": match,
                             "description": description
                         })
+                        # Log candidate summary for debugging
+                        summary = description.split('\n')[0] if '\n' in description else description[:100]
+                        logger.info(f"    Candidate {i}: {summary}")
                 
                 elif len(visible_matches) == 1:
                     # SINGLE MATCH: Check if it's appropriate for story context
@@ -1176,6 +1179,11 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # If we have multiple candidates (multiple matches OR single match + parent), ask LLM
                 if len(candidates) > 1:
                     logger.info(f"  🤖 Asking LLM to choose from {len(candidates)} candidates based on story context...")
+                    
+                    # Log all candidates for debugging
+                    for i, candidate in enumerate(candidates):
+                        summary = candidate['description'].split('\n')[0] if '\n' in candidate['description'] else candidate['description'][:120]
+                        logger.info(f"    Candidate {i}: {summary}")
                     
                     # Ask LLM to choose based on story context
                     best_index = await self._llm_choose_element(candidates, selector)
