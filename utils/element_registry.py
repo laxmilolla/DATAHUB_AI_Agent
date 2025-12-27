@@ -139,6 +139,82 @@ class ElementRegistry:
         if cache_key in self.current_maps:
             self.save_map(domain, page, self.current_maps[cache_key])
     
+    def update_with_discovery(self, domain: str, page: str, discovery_data: Dict[str, Any]):
+        """
+        Update registry with discovery metadata (both original query and final selector)
+        
+        Args:
+            discovery_data: {
+                "name": "Tumor Classification",
+                "original_query": "text=Tumor Classification",
+                "final_selector": "div[role='button'][aria-expanded]:has-text('Tumor Classification')",
+                "discovery_method": "tree_climbing",
+                "metadata": {"tree_depth": 2, "relationship": "grandparent"}
+            }
+        """
+        cache_key = f"{domain}:{page}"
+        
+        # Load existing map or create new one
+        if cache_key not in self.current_maps:
+            element_map = self.load_map(domain, page)
+            if not element_map:
+                # Create new map
+                element_map = {
+                    "page": page,
+                    "url": f"https://{domain}",
+                    "version": "1.0",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "elements": {},
+                    "statistics": {
+                        "total_elements": 0,
+                        "parsed_elements": 0,
+                        "discovered_elements": 0
+                    }
+                }
+                self.current_maps[cache_key] = element_map
+        
+        element_map = self.current_maps[cache_key]
+        element_name = discovery_data.get("name", "unknown")
+        
+        # Check if element already exists (update) or new (add)
+        if element_name in element_map["elements"]:
+            element = element_map["elements"][element_name]
+            print(f"  📝 Updating existing element: {element_name}")
+        else:
+            element = {}
+            print(f"  ✅ Adding new element: {element_name}")
+            element_map["statistics"]["discovered_elements"] = element_map["statistics"].get("discovered_elements", 0) + 1
+        
+        # Update with discovery data
+        element.update({
+            "query": discovery_data.get("original_query"),
+            "selector": discovery_data.get("final_selector"),
+            "type": "discovered",
+            "discovery": {
+                "method": discovery_data.get("discovery_method"),
+                "metadata": discovery_data.get("metadata", {}),
+                "discovered_at": datetime.utcnow().isoformat() + "Z"
+            },
+            "usage_count": element.get("usage_count", 0) + 1,
+            "last_used": datetime.utcnow().isoformat() + "Z"
+        })
+        
+        # Save back
+        element_map["elements"][element_name] = element
+        element_map["statistics"]["total_elements"] = len(element_map["elements"])
+        
+        # Increment version
+        current_version = float(element_map.get("version", "1.0"))
+        element_map["version"] = f"{current_version + 0.1:.1f}"
+        
+        # Save updated map
+        self.save_map(domain, page, element_map)
+        
+        print(f"  💾 Registry updated for: {element_name}")
+        print(f"     Query: {discovery_data.get('original_query')}")
+        print(f"     Final: {discovery_data.get('final_selector')}")
+        print(f"     Method: {discovery_data.get('discovery_method')}")
+    
     def compare_maps(self, domain: str, page: str, baseline_version: str = None) -> Dict[str, Any]:
         """
         Compare current map with baseline version

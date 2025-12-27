@@ -13,6 +13,7 @@ import uuid
 import time
 import sys
 import re
+from datetime import datetime
 
 # Add utils to path for element registry
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -52,6 +53,7 @@ class BedrockPlaywrightAgent:
         self.discovered_elements = []  # Track newly discovered elements
         self.pre_click_screenshots = []  # Track pre-click validation screenshots
         self.story = ""  # Initialize story for AI disambiguation
+        self.discoveries = []  # Track discovery metadata (query + final selector + method)
         
     async def start_browser(self):
         """Launch Playwright browser"""
@@ -252,7 +254,23 @@ class BedrockPlaywrightAgent:
             # Return best match if found
             if best_match and best_score >= 80:  # Minimum score threshold (raised to prevent false matches)
                 name, elem = best_match
-                base_selector = elem.get("selector")
+                
+                # OPTIMIZATION: Try final selector first (from successful discovery)
+                # This is the actual working selector that was used successfully
+                final_selector_from_discovery = elem.get("selector")  # New format stores final selector here
+                query_selector = elem.get("query")  # Original query (if available)
+                
+                # If this element has discovery metadata, it means we have a proven working selector
+                if elem.get("discovery"):
+                    logger.info(f"  🚀 Using optimized selector from discovery (method: {elem.get('discovery', {}).get('method')})")
+                    logger.info(f"     Original query: {query_selector}")
+                    logger.info(f"     Final selector: {final_selector_from_discovery}")
+                    # Update usage and return the optimized selector directly
+                    self.element_registry.update_usage(domain, page, name)
+                    return final_selector_from_discovery
+                
+                # Otherwise, proceed with normal logic for legacy elements
+                base_selector = final_selector_from_discovery or elem.get("selector")
                 
                 # Check if matched element has dynamic count
                 import re as re_module
@@ -858,6 +876,84 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             logger.warning(f"  ⚠️ Could not parse LLM response: {e}, using element 0")
             return 0
     
+    async def _generate_final_selector(self, element) -> str:
+        """
+        Generate a robust final selector from an element
+        This is what will be saved to registry and used in generated Playwright code
+        
+        Priority:
+        1. role + aria attributes + text (best for accessibility)
+        2. data-testid or id (if unique)
+        3. CSS classes + text (less brittle than full structure)
+        """
+        try:
+            # Get element properties
+            props = await element.evaluate("""el => ({
+                tag: el.tagName.toLowerCase(),
+                role: el.getAttribute('role'),
+                ariaExpanded: el.getAttribute('aria-expanded'),
+                ariaSelected: el.getAttribute('aria-selected'),
+                ariaLabel: el.getAttribute('aria-label'),
+                id: el.id,
+                dataTestId: el.getAttribute('data-testid'),
+                classes: Array.from(el.classList),
+                text: el.textContent.trim().substring(0, 50)
+            })""")
+            
+            # Strategy 1: Role + aria + text (most robust)
+            if props['role'] and props['text']:
+                if props['ariaExpanded'] is not None:
+                    return f"{props['tag']}[role='{props['role']}'][aria-expanded]:has-text('{props['text']}')"
+                elif props['ariaSelected'] is not None:
+                    return f"{props['tag']}[role='{props['role']}'][aria-selected]:has-text('{props['text']}')"
+                else:
+                    return f"{props['tag']}[role='{props['role']}']:has-text('{props['text']}')"
+            
+            # Strategy 2: data-testid or unique id
+            if props['dataTestId']:
+                return f"[data-testid='{props['dataTestId']}']"
+            if props['id'] and not props['id'].startswith('dropdown') and not props['id'].startswith('checkbox'):
+                return f"#{props['id']}"
+            
+            # Strategy 3: Tag + classes + text
+            if props['classes'] and props['text']:
+                # Use first few meaningful classes
+                useful_classes = [c for c in props['classes'] if not c.startswith('jss') and len(c) > 2][:2]
+                if useful_classes:
+                    class_selector = '.'.join(useful_classes)
+                    return f"{props['tag']}.{class_selector}:has-text('{props['text']}')"
+            
+            # Fallback: Just text
+            if props['text']:
+                return f"text={props['text']}"
+            
+            # Last resort: tag + role
+            if props['role']:
+                return f"{props['tag']}[role='{props['role']}']"
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"  ⚠️ Could not generate final selector: {e}")
+            return None
+    
+    def _track_discovery(self, element_name: str, original_query: str, final_selector: str, 
+                         discovery_method: str, metadata: dict):
+        """Track a successful discovery for later registry update"""
+        discovery = {
+            "name": element_name,
+            "original_query": original_query,
+            "final_selector": final_selector,
+            "discovery_method": discovery_method,
+            "metadata": metadata,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+        self.discoveries.append(discovery)
+        logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method}")
+        logger.info(f"     Query: {original_query}")
+        logger.info(f"     Final: {final_selector}")
+    
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """Execute tool - Direct Playwright calls!"""
         
@@ -1411,6 +1507,51 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 screenshot_msg = f"✅ Post-click screenshot: {post_click_result['screenshot_file']} ({post_click_result['screenshot_size']} bytes)"
                                 self.pre_click_screenshots.append(screenshot_msg)
                         
+                        # TRACK DISCOVERY: If this was found via tree climbing or AI disambiguation
+                        if chosen_locator:
+                            try:
+                                logger.info(f"  📝 Tracking discovery metadata...")
+                                
+                                # Generate final working selector from the element that was actually clicked
+                                final_selector = await self._generate_final_selector(chosen_locator)
+                                
+                                if final_selector:
+                                    # Determine discovery method based on what happened
+                                    discovery_method = "unknown"
+                                    metadata = {}
+                                    
+                                    # Check if tree climbing was used
+                                    if len(candidates) > 1 or (len(candidates) == 1 and candidates[0].get("index") == 1):
+                                        # Multiple candidates or parent was chosen
+                                        if "PARENT" in candidates[-1].get("description", "").upper() or \
+                                           "ANCESTOR" in candidates[-1].get("description", "").upper():
+                                            discovery_method = "tree_climbing"
+                                            # Try to extract tree depth from description
+                                            desc = candidates[-1].get("description", "")
+                                            import re
+                                            depth_match = re.search(r'depth\s+(\d+)', desc, re.IGNORECASE)
+                                            if depth_match:
+                                                metadata["tree_depth"] = int(depth_match.group(1))
+                                            metadata["relationship"] = "parent" if "PARENT" in desc.upper() else "ancestor"
+                                        else:
+                                            discovery_method = "ai_disambiguation"
+                                            metadata["candidates_count"] = len(candidates)
+                                            metadata["chosen_index"] = best_index if 'best_index' in locals() else 0
+                                    
+                                    # Track the discovery
+                                    self._track_discovery(
+                                        element_name=element_name,
+                                        original_query=original_selector,
+                                        final_selector=final_selector,
+                                        discovery_method=discovery_method,
+                                        metadata=metadata
+                                    )
+                                else:
+                                    logger.warning(f"  ⚠️ Could not generate final selector for tracking")
+                            
+                            except Exception as e:
+                                logger.warning(f"  ⚠️ Failed to track discovery: {e}")
+                        
                         # POST-CLICK VALIDATION: Tab-specific validation first
                         if is_tab_click and initial_tab_state:
                             try:
@@ -1835,6 +1976,30 @@ Be adaptive and methodical."""
         if self.pre_click_screenshots:
             logger.info(f"📸 Adding {len(self.pre_click_screenshots)} pre-click screenshots to results")
             results["screenshots"] = self.pre_click_screenshots + results["screenshots"]
+        
+        # Add discovery metadata to results
+        if self.discoveries:
+            logger.info(f"📝 Saving {len(self.discoveries)} discoveries to results")
+            results["discoveries"] = self.discoveries
+            
+            # Also save to a separate JSON file for reference
+            try:
+                project_root = Path(__file__).parent.parent
+                discoveries_dir = project_root / 'storage' / 'discoveries'
+                discoveries_dir.mkdir(parents=True, exist_ok=True)
+                
+                discovery_file = discoveries_dir / f"{self.execution_id}_discoveries.json"
+                with open(discovery_file, 'w') as f:
+                    json.dump({
+                        "execution_id": self.execution_id,
+                        "story": story,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "discoveries": self.discoveries
+                    }, f, indent=2)
+                
+                logger.info(f"  💾 Discovery metadata saved to: {discovery_file}")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not save discovery file: {e}")
         
         await self.close_browser()
         logger.info(f"Finished: {results['status']}")
