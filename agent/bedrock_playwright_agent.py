@@ -1227,16 +1227,31 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     story_lower = self.story.lower()
                     element_name_lower = element_name.lower().strip()
                     # Look for pattern like "click on the [element] tab"
-                    if element_name_lower and 'tab' in story_lower and element_name_lower in story_lower:
-                        # Check proximity: "tab" should be near element name (within 50 chars)
-                        import re
-                        pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                        if re.search(pattern, story_lower):
-                            is_tab_click = True
-                            logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                    if element_name_lower and element_name_lower in story_lower:
+                        # Check for NEGATIVE keywords (sidebar/filter) - NOT a tab
+                        negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
+                        has_negative_keyword = any(keyword in story_lower for keyword in negative_keywords)
+                        
+                        if has_negative_keyword:
+                            logger.info(f"  ⛔ NOT a tab (story mentions filter/sidebar context)")
+                        else:
+                            # Check for POSITIVE keywords (table tab) - IS a tab
+                            positive_keywords = ['table tab', 'data table tab', 'tab in table', 'table with tabs']
+                            has_positive_keyword = any(keyword in story_lower for keyword in positive_keywords)
                             
-                            # Capture initial tab state for validation
-                            if not initial_tab_state:
+                            if has_positive_keyword:
+                                is_tab_click = True
+                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' in table/tab context)")
+                            # Original logic: check proximity of element name to "tab" word
+                            elif 'tab' in story_lower:
+                                import re
+                                pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
+                                if re.search(pattern, story_lower):
+                                    is_tab_click = True
+                                    logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                        
+                        # Capture initial tab state for validation if tab detected
+                        if is_tab_click and not initial_tab_state:
                                 try:
                                     selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
                                     initial_tab_state = {
@@ -1381,16 +1396,31 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 story_lower = self.story.lower()
                 element_name_lower = element_name.lower().strip()
                 # Look for pattern like "click on the [element] tab"
-                if element_name_lower and 'tab' in story_lower and element_name_lower in story_lower:
-                    # Check proximity: "tab" should be near element name (within 50 chars)
-                    import re
-                    pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                    if re.search(pattern, story_lower):
-                        is_tab_click = True
-                        logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                if element_name_lower and element_name_lower in story_lower:
+                    # Check for NEGATIVE keywords (sidebar/filter) - NOT a tab
+                    negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
+                    has_negative_keyword = any(keyword in story_lower for keyword in negative_keywords)
+                    
+                    if has_negative_keyword:
+                        logger.info(f"  ⛔ NOT a tab (story mentions filter/sidebar context)")
+                    else:
+                        # Check for POSITIVE keywords (table tab) - IS a tab
+                        positive_keywords = ['table tab', 'data table tab', 'tab in table', 'table with tabs']
+                        has_positive_keyword = any(keyword in story_lower for keyword in positive_keywords)
                         
-                        # Capture initial tab state
-                        if not initial_tab_state:
+                        if has_positive_keyword:
+                            is_tab_click = True
+                            logger.info(f"  🎯 Tab detected (by story context: '{element_name}' in table/tab context)")
+                        # Original logic: check proximity of element name to "tab" word
+                        elif 'tab' in story_lower:
+                            import re
+                            pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
+                            if re.search(pattern, story_lower):
+                                is_tab_click = True
+                                logger.info(f"  🎯 Tab detected (by story context: story mentions '{element_name}' near 'tab')")
+                    
+                    # Capture initial tab state for validation if tab detected
+                    if is_tab_click and not initial_tab_state:
                             try:
                                 selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
                                 initial_tab_state = {
