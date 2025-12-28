@@ -393,3 +393,81 @@ def approve_discoveries(execution_id):
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+
+@bp.route('/executions/<exec_id>/generate-and-validate', methods=['POST'])
+def generate_and_validate(exec_id):
+    """Generate Playwright test and validate it"""
+    try:
+        from generator.playwright_generator import PlaywrightGenerator
+        from validator.test_runner import TestRunner
+        from validator.comparator import Comparator
+        
+        data = request.get_json() or {}
+        test_name = data.get('test_name')
+        validate = data.get('validate', True)
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        
+        # Step 1: Generate Playwright code
+        generator = PlaywrightGenerator(project_root)
+        generation_result = generator.generate(exec_id, test_name)
+        
+        result = {
+            'success': True,
+            'execution_id': exec_id,
+            'test_file': generation_result['filename'],
+            'test_path': generation_result['filepath'],
+            'code_preview': generation_result['code'][:500] + '...',  # Preview only
+            'generated_at': generation_result['metadata']['generated_at']
+        }
+        
+        # Step 2: Validate (if requested)
+        if validate:
+            runner = TestRunner(project_root)
+            test_result = runner.run(generation_result['filename'], exec_id)
+            
+            # Step 3: Compare results
+            comparator = Comparator(project_root)
+            comparison = comparator.compare(exec_id, test_result)
+            
+            result['validation'] = test_result
+            result['comparison'] = comparison
+            result['ready_for_cicd'] = comparison['match']
+        
+        return jsonify(result), 200
+        
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        import traceback
+        print(f"Error generating/validating test: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/executions/<exec_id>/generated-test', methods=['GET'])
+def get_generated_test(exec_id):
+    """Get generated test code"""
+    try:
+        project_root = current_app.config['PROJECT_ROOT']
+        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+        
+        if not metadata_file.exists():
+            return jsonify({'error': 'No generated test found for this execution'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Read the generated code
+        test_file = Path(metadata['filename'])
+        if test_file.exists():
+            with open(test_file, 'r') as f:
+                code = f.read()
+            metadata['code'] = code
+        
+        return jsonify(metadata), 200
+        
+    except Exception as e:
+        print(f"Error retrieving generated test: {e}")
+        return jsonify({'error': str(e)}), 500
+
