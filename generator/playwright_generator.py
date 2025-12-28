@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any
+from urllib.parse import urlparse
 
 
 class PlaywrightGenerator:
@@ -19,6 +20,7 @@ class PlaywrightGenerator:
         self.executions_dir = self.project_root / 'storage' / 'executions'
         self.generated_tests_dir = self.project_root / 'tests' / 'generated'
         self.generated_tests_metadata_dir = self.project_root / 'storage' / 'generated_tests'
+        self.element_maps_dir = self.project_root / 'element_maps'
         self.generated_tests_dir.mkdir(parents=True, exist_ok=True)
         self.generated_tests_metadata_dir.mkdir(parents=True, exist_ok=True)
     
@@ -37,12 +39,15 @@ class PlaywrightGenerator:
         execution = self._load_execution(execution_id)
         discoveries = self._load_discoveries(execution_id)
         
+        # Load registry for the domain
+        registry = self._load_registry(execution.get('story_url', ''))
+        
         # Generate test name
         if not test_name:
             test_name = self._generate_test_name(execution['story'])
         
         # Generate code
-        code = self._generate_test_code(execution, discoveries, test_name)
+        code = self._generate_test_code(execution, discoveries, test_name, registry)
         
         # Save to file
         filename = f"{test_name}.py"
@@ -89,6 +94,29 @@ class PlaywrightGenerator:
         with open(file_path, 'r') as f:
             return json.load(f)
     
+    def _load_registry(self, url: str) -> Dict:
+        """Load element registry for the domain"""
+        if not url:
+            return {}
+        
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        
+        # Look for registry file (try home_page.json or explore_page.json)
+        domain_dir = self.element_maps_dir / domain
+        if not domain_dir.exists():
+            return {}
+        
+        # Try common page names
+        for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
+            registry_file = domain_dir / page_name
+            if registry_file.exists():
+                with open(registry_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get('elements', {})
+        
+        return {}
+    
     def _generate_test_name(self, story: str) -> str:
         """Generate test name from story"""
         # Extract meaningful words
@@ -98,8 +126,11 @@ class PlaywrightGenerator:
         name = '_'.join(name_words) if name_words else 'test'
         return f"test_{name}"
     
-    def _generate_test_code(self, execution: Dict, discoveries: Dict, test_name: str) -> str:
+    def _generate_test_code(self, execution: Dict, discoveries: Dict, test_name: str, registry: Dict = None) -> str:
         """Generate complete Python Playwright test code"""
+        
+        if registry is None:
+            registry = {}
         
         # Header
         code = f'''"""
@@ -131,7 +162,7 @@ def {test_name}():
         
         # Generate code for each step
         for i, step in enumerate(steps):
-            code += self._generate_step_code(step, discoveries_list, indent=12)
+            code += self._generate_step_code(step, discoveries_list, registry, indent=12)
         
         # Footer
         code += f'''            
@@ -184,7 +215,7 @@ if __name__ == '__main__':
         
         return steps
     
-    def _generate_step_code(self, step: Dict, discoveries: List[Dict], indent: int = 12) -> str:
+    def _generate_step_code(self, step: Dict, discoveries: List[Dict], registry: Dict, indent: int = 12) -> str:
         """Generate code for a single step"""
         ind = ' ' * indent
         code = ''
@@ -199,39 +230,44 @@ if __name__ == '__main__':
             code += f"{ind}page.wait_for_timeout({step['duration']})\n\n"
         
         elif step['action'] == 'click':
-            code += self._generate_click_code(step, discoveries, indent)
+            code += self._generate_click_code(step, discoveries, registry, indent)
         
         elif step['action'] == 'verify':
             code += self._generate_verify_code(step, indent)
         
         return code
     
-    def _generate_click_code(self, step: Dict, discoveries: List[Dict], indent: int) -> str:
+    def _generate_click_code(self, step: Dict, discoveries: List[Dict], registry: Dict, indent: int) -> str:
         """Generate click action code with discovery metadata"""
         ind = ' ' * indent
         element = step['element']
         
-        # Find matching discovery
-        discovery = self._find_discovery(element, discoveries)
-        
         code = f"{ind}# Click: {element}\n"
         
-        if discovery:
-            # Add AI discovery comment
-            method = discovery.get('discovery_method', 'unknown')
-            metadata = discovery.get('metadata', {})
-            
-            if method == 'tree_climbing':
-                depth = metadata.get('tree_depth', 'unknown')
-                code += f"{ind}# AI Note: Found via tree climbing (depth {depth})\n"
-            elif method == 'ai_disambiguation':
-                code += f"{ind}# AI Note: Found via AI disambiguation\n"
-            
-            # Use the final selector from discovery
-            selector = discovery.get('final_selector', f"text={element}")
+        # Try to find selector in registry first (priority)
+        selector = self._get_selector_from_registry(element, registry)
+        source = "registry"
+        
+        if not selector:
+            # Fallback to discovery metadata
+            discovery = self._find_discovery(element, discoveries)
+            if discovery:
+                selector = discovery.get('final_selector', f"text={element}")
+                method = discovery.get('discovery_method', 'unknown')
+                metadata = discovery.get('metadata', {})
+                
+                if method == 'tree_climbing':
+                    depth = metadata.get('tree_depth', 'unknown')
+                    code += f"{ind}# AI Note: Found via tree climbing (depth {depth})\n"
+                elif method == 'ai_disambiguation':
+                    code += f"{ind}# AI Note: Found via AI disambiguation\n"
+                source = "discovery"
+            else:
+                # No discovery metadata, use simple text selector
+                selector = f"text={element}"
+                source = "default"
         else:
-            # No discovery metadata, use simple text selector
-            selector = f"text={element}"
+            code += f"{ind}# Selector from registry (optimized)\n"
         
         # Sanitize element name for screenshot filename
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', element)[:50]
@@ -285,6 +321,26 @@ if __name__ == '__main__':
             code += f"{ind}print('⚠️  Manual verification needed')\n\n"
         
         return code
+    
+    def _get_selector_from_registry(self, element_name: str, registry: Dict) -> str:
+        """Get optimized selector from registry"""
+        if not registry:
+            return None
+        
+        element_lower = element_name.lower().strip()
+        
+        # Try exact match first
+        for key, value in registry.items():
+            key_lower = key.lower()
+            if element_lower in key_lower or key_lower in element_lower:
+                # Return the optimized selector from registry
+                if isinstance(value, dict) and 'selector' in value:
+                    return value['selector']
+                elif isinstance(value, dict) and 'query' in value:
+                    # Fallback to query if no selector
+                    return value['query']
+        
+        return None
     
     def _find_discovery(self, element_name: str, discoveries: List[Dict]) -> Dict:
         """Find discovery metadata for an element"""
