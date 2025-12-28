@@ -65,5 +65,6 @@ if __name__ == '__main__':
     print(f'Web UI: http://0.0.0.0:5000')
     print(f'API: http://0.0.0.0:5000/api/health')
     print('='*60 + '\n')
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Disable debug mode in production to avoid reload loops with generated tests
+    app.run(host='0.0.0.0', port=5000, debug=False)
 
