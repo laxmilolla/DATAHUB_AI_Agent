@@ -241,14 +241,8 @@ if __name__ == '__main__':
         selector_escaped = selector.replace("'", "\\'")
         
         code += f"{ind}try:\n"
-        code += f"{ind}    # Try to find element (use .first() if multiple matches)\n"
-        code += f"{ind}    locators = page.locator('{selector_escaped}')\n"
-        code += f"{ind}    count = locators.count()\n"
-        code += f"{ind}    if count > 1:\n"
-        code += f"{ind}        print(f'⚠️  Found {{count}} matches for {element}, using first visible one')\n"
-        code += f"{ind}        element = locators.first()\n"
-        code += f"{ind}    else:\n"
-        code += f"{ind}        element = locators\n"
+        code += f"{ind}    # Try to find element (use .nth(0) if multiple matches)\n"
+        code += f"{ind}    element = page.locator('{selector_escaped}').nth(0)\n"
         code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}    element.click()\n"
         code += f"{ind}    page.wait_for_timeout(1000)  # Wait for UI update\n"
