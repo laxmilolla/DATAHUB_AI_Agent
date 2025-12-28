@@ -156,8 +156,6 @@ if __name__ == '__main__':
         
         # Common patterns
         navigate_pattern = r'go to (https?://\S+)'
-        click_pattern = r'click (?:on )?(?:the )?(.+?)(?:\s+(?:and|to|in|verify|check|$))'
-        verify_pattern = r'verify|check|should'
         
         # Navigate
         if match := re.search(navigate_pattern, story, re.IGNORECASE):
@@ -168,17 +166,21 @@ if __name__ == '__main__':
             if match := re.search(r'wait (\d+) seconds', story, re.IGNORECASE):
                 steps.append({'action': 'wait', 'duration': int(match.group(1)) * 1000})
         
-        # Find all click actions
-        sentences = re.split(r'[.!]', story)
-        for sentence in sentences:
-            if 'click' in sentence.lower() and 'verify' not in sentence.lower():
-                # Extract element name
-                if match := re.search(r'click (?:on )?(?:the )?([^,\.]+)', sentence, re.IGNORECASE):
-                    element = match.group(1).strip()
-                    steps.append({'action': 'click', 'element': element, 'sentence': sentence})
-            
-            elif re.search(verify_pattern, sentence, re.IGNORECASE):
-                steps.append({'action': 'verify', 'description': sentence.strip()})
+        # Find all click actions (improved regex to handle run-on sentences)
+        # Look for "click on/the X" patterns
+        click_pattern = r'click (?:on )?(?:the )?([^,\.\n]+?)(?:\s+(?:to|and|in|inside|now|then|verify|check)|$)'
+        for match in re.finditer(click_pattern, story, re.IGNORECASE):
+            element = match.group(1).strip()
+            # Clean up common trailing words
+            element = re.sub(r'\s+(to|and|expand|dismiss|checkbox|tab|button)$', '', element, flags=re.IGNORECASE).strip()
+            if element and len(element) > 2:  # Avoid single-character matches
+                steps.append({'action': 'click', 'element': element})
+        
+        # Find verification steps
+        verify_pattern = r'verify that (.+?)(?:\s+(?:click|$))'
+        for match in re.finditer(verify_pattern, story, re.IGNORECASE):
+            description = match.group(1).strip()
+            steps.append({'action': 'verify', 'description': description})
         
         return steps
     
@@ -231,11 +233,19 @@ if __name__ == '__main__':
             # No discovery metadata, use simple text selector
             selector = f"text={element}"
         
+        # Sanitize element name for screenshot filename
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', element)[:50]
+        screenshot_path = f"storage/screenshots/pw_{safe_name}.png"
+        
         code += f"{ind}try:\n"
         code += f"{ind}    element = page.locator('{selector}')\n"
         code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}    element.click()\n"
+        code += f"{ind}    page.wait_for_timeout(1000)  # Wait for UI update\n"
         code += f"{ind}    print('✅ Clicked: {element}')\n"
+        code += f"{ind}    # Capture screenshot after click\n"
+        code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+        code += f"{ind}    print('📸 Screenshot: {screenshot_path}')\n"
         code += f"{ind}except Exception as e:\n"
         code += f"{ind}    print(f'❌ Failed to click {element}: {{e}}')\n"
         code += f"{ind}    raise\n\n"
