@@ -5,14 +5,19 @@ Pure Python Architecture 2
 from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 # Import routes
-from routes import bp as api_bp
+from api.routes import bp as api_bp
 
 def create_app():
     """Create and configure Flask app"""
