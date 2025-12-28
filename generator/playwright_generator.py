@@ -18,7 +18,9 @@ class PlaywrightGenerator:
         self.discoveries_dir = self.project_root / 'storage' / 'discoveries'
         self.executions_dir = self.project_root / 'storage' / 'executions'
         self.generated_tests_dir = self.project_root / 'tests' / 'generated'
+        self.generated_tests_metadata_dir = self.project_root / 'storage' / 'generated_tests'
         self.generated_tests_dir.mkdir(parents=True, exist_ok=True)
+        self.generated_tests_metadata_dir.mkdir(parents=True, exist_ok=True)
     
     def generate(self, execution_id: str, test_name: str = None) -> Dict[str, Any]:
         """
@@ -58,7 +60,7 @@ class PlaywrightGenerator:
             'discoveries_count': len(discoveries.get('discoveries', []))
         }
         
-        metadata_file = self.project_root / 'storage' / 'generated_tests' / f'{execution_id}_test.json'
+        metadata_file = self.generated_tests_metadata_dir / f'{execution_id}_test.json'
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
         
