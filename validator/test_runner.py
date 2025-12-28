@@ -6,6 +6,7 @@ Executes generated Playwright tests and captures results
 import subprocess
 import time
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
@@ -41,7 +42,7 @@ class TestRunner:
         # Run the test as a subprocess
         try:
             result = subprocess.run(
-                ['python', str(test_path)],
+                [sys.executable, str(test_path)],
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout
