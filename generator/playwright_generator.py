@@ -237,8 +237,11 @@ if __name__ == '__main__':
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', element)[:50]
         screenshot_path = f"storage/screenshots/pw_{safe_name}.png"
         
+        # Escape quotes in selector for Python string
+        selector_escaped = selector.replace("'", "\\'")
+        
         code += f"{ind}try:\n"
-        code += f"{ind}    element = page.locator('{selector}')\n"
+        code += f"{ind}    element = page.locator('{selector_escaped}')\n"
         code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}    element.click()\n"
         code += f"{ind}    page.wait_for_timeout(1000)  # Wait for UI update\n"
