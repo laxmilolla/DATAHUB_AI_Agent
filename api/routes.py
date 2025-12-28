@@ -402,7 +402,8 @@ def generate_and_validate(exec_id):
         from validator.test_runner import TestRunner
         from validator.comparator import Comparator
         
-        data = request.get_json() or {}
+        # Handle empty body gracefully
+        data = request.get_json(silent=True) or {}
         test_name = data.get('test_name')
         validate = data.get('validate', True)
         
