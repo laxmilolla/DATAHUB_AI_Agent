@@ -261,10 +261,15 @@
                         </ul>
                         <div style="margin-top: 20px; text-align: center;">
                             <button id="approve-btn" onclick="approveDiscoveries()" 
-                                    style="background: #4CAF50; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                                    style="background: #4CAF50; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 10px;">
                                 ✅ Approve & Update Registry
                             </button>
+                            <button id="generate-test-btn" onclick="generatePlaywrightTest()" 
+                                    style="background: #2196F3; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                                🎭 Generate Playwright Test
+                            </button>
                             <p id="approve-msg" style="margin-top: 10px; color: #4CAF50; display: none;"></p>
+                            <p id="generate-msg" style="margin-top: 10px; display: none;"></p>
                         </div>
                     </div>
                 `;
@@ -314,6 +319,77 @@
                 btn.style.opacity = '1';
                 btn.style.cursor = 'pointer';
                 btn.textContent = '✅ Approve & Update Registry';
+            }
+        }
+        
+        async function generatePlaywrightTest() {
+            const btn = document.getElementById('generate-test-btn');
+            const msg = document.getElementById('generate-msg');
+            
+            // Disable button
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+            btn.style.cursor = 'not-allowed';
+            btn.textContent = '⏳ Generating Test...';
+            
+            try {
+                const response = await fetch(`/api/executions/${executionId}/generate-and-validate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        validate: true
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    const validation = result.validation;
+                    const comparison = result.comparison;
+                    
+                    let message = `✅ Test Generated: ${result.test_file}<br>`;
+                    message += `📊 Validation: ${validation.status} (${validation.duration}s)<br>`;
+                    message += `✅ Assertions: ${validation.assertions_passed} passed`;
+                    
+                    if (validation.assertions_failed > 0) {
+                        message += `, ${validation.assertions_failed} failed`;
+                    }
+                    
+                    message += `<br>🎯 ${comparison.recommendation}`;
+                    
+                    msg.innerHTML = message;
+                    msg.style.color = comparison.match ? '#4CAF50' : '#FF9800';
+                    msg.style.display = 'block';
+                    msg.style.padding = '15px';
+                    msg.style.background = comparison.match ? '#e8f5e9' : '#fff3e0';
+                    msg.style.borderRadius = '4px';
+                    msg.style.textAlign = 'left';
+                    
+                    btn.textContent = '✅ Test Generated';
+                    btn.style.background = '#888';
+                    
+                    // Add view code button
+                    if (result.test_path) {
+                        setTimeout(() => {
+                            msg.innerHTML += `<br><br><a href="/api/executions/${executionId}/generated-test" target="_blank" style="color: #2196F3; text-decoration: underline;">📄 View Generated Code</a>`;
+                        }, 1000);
+                    }
+                } else {
+                    throw new Error(result.error || 'Failed to generate test');
+                }
+            } catch (error) {
+                console.error('Error generating test:', error);
+                msg.innerHTML = `❌ Error: ${error.message}`;
+                msg.style.color = '#f44336';
+                msg.style.display = 'block';
+                
+                // Re-enable button on error
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.textContent = '🎭 Generate Playwright Test';
             }
         }
         
