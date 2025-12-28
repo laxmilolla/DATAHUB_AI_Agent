@@ -134,11 +134,11 @@ def {test_name}():
             code += self._generate_step_code(step, discoveries_list, indent=12)
         
         # Footer
-        code += '''            
+        code += f'''            
             print("✅ Test completed successfully")
             
         except Exception as e:
-            print(f"❌ Test failed: {e}")
+            print(f"❌ Test failed: {{e}}")
             raise
         finally:
             browser.close()
