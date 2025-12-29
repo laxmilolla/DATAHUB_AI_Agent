@@ -322,6 +322,115 @@
             }
         }
         
+        function displayPlaywrightResults(validation, comparison, screenshots) {
+            // Check if section already exists
+            let playwrightSection = document.getElementById('playwright-section');
+            if (!playwrightSection) {
+                // Create new section after the generate-msg
+                const container = document.querySelector('.results-container');
+                playwrightSection = document.createElement('div');
+                playwrightSection.id = 'playwright-section';
+                playwrightSection.style.cssText = 'margin-top: 30px; border: 2px solid #2196F3; border-radius: 8px; padding: 20px; background: #f0f8ff;';
+                
+                // Find where to insert (after generate-msg)
+                const generateMsg = document.getElementById('generate-msg');
+                if (generateMsg && generateMsg.parentNode) {
+                    generateMsg.parentNode.insertBefore(playwrightSection, generateMsg.nextSibling);
+                } else {
+                    container.appendChild(playwrightSection);
+                }
+            }
+            
+            // Build content
+            let html = `
+                <h3 style="color: #2196F3; margin-top: 0;">🎭 Playwright Test Validation Results</h3>
+                
+                <div style="background: white; border-radius: 6px; padding: 15px; margin-bottom: 20px;">
+                    <h4 style="margin-top: 0; color: #333;">📊 Test Execution Summary</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                        <div style="background: ${validation.status === 'passed' ? '#e8f5e9' : '#ffebee'}; padding: 12px; border-radius: 4px;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Status</div>
+                            <div style="font-size: 18px; font-weight: bold; color: ${validation.status === 'passed' ? '#4CAF50' : '#f44336'};">
+                                ${validation.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}
+                            </div>
+                        </div>
+                        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Duration</div>
+                            <div style="font-size: 18px; font-weight: bold; color: #333;">⏱️ ${validation.duration}s</div>
+                        </div>
+                        <div style="background: #e8f5e9; padding: 12px; border-radius: 4px;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Assertions Passed</div>
+                            <div style="font-size: 18px; font-weight: bold; color: #4CAF50;">✅ ${validation.assertions_passed}</div>
+                        </div>
+                        ${validation.assertions_failed > 0 ? `
+                        <div style="background: #ffebee; padding: 12px; border-radius: 4px;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Assertions Failed</div>
+                            <div style="font-size: 18px; font-weight: bold; color: #f44336;">❌ ${validation.assertions_failed}</div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <div style="background: ${comparison.match ? '#e8f5e9' : '#fff3e0'}; border-radius: 6px; padding: 15px; margin-bottom: 20px;">
+                    <h4 style="margin-top: 0; color: #333;">🎯 Recommendation</h4>
+                    <div style="font-size: 16px; font-weight: bold; color: ${comparison.match ? '#4CAF50' : '#FF9800'};">
+                        ${comparison.recommendation}
+                    </div>
+                    ${comparison.differences && comparison.differences.length > 0 ? `
+                    <div style="margin-top: 10px;">
+                        <strong>Differences:</strong>
+                        <ul style="margin: 8px 0; padding-left: 20px;">
+                            ${comparison.differences.map(diff => `<li style="color: #666;">${diff}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            // Add screenshots section
+            if (screenshots && screenshots.length > 0) {
+                html += `
+                    <div style="background: white; border-radius: 6px; padding: 15px;">
+                        <h4 style="margin-top: 0; color: #333;">📸 Playwright Screenshots (${screenshots.length})</h4>
+                        <div class="screenshots-grid">
+                `;
+                
+                screenshots.forEach((screenshot, index) => {
+                    html += `
+                        <div class="screenshot-item" style="animation: fadeIn 0.5s;">
+                            <img src="/api/screenshots/${screenshot.filename}" alt="Playwright Screenshot ${index + 1}" 
+                                 onclick="window.open('/api/screenshots/${screenshot.filename}', '_blank')"
+                                 style="width: 100%; border-radius: 4px; cursor: pointer; border: 2px solid #2196F3;">
+                            <p style="text-align: center; margin-top: 8px; font-size: 12px; color: #2196F3; font-weight: bold;">${screenshot.filename}</p>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Show execution output
+            if (validation.stdout) {
+                html += `
+                    <div style="background: white; border-radius: 6px; padding: 15px; margin-top: 20px;">
+                        <h4 style="margin-top: 0; color: #333;">📝 Execution Output</h4>
+                        <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; line-height: 1.5; max-height: 300px; overflow-y: auto;">${validation.stdout}</pre>
+                    </div>
+                `;
+            }
+            
+            playwrightSection.innerHTML = html;
+            playwrightSection.style.display = 'block';
+            
+            // Scroll to the new section
+            setTimeout(() => {
+                playwrightSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 300);
+        }
+        
         async function generatePlaywrightTest() {
             const btn = document.getElementById('generate-test-btn');
             const msg = document.getElementById('generate-msg');
@@ -348,6 +457,7 @@
                 if (response.ok) {
                     const validation = result.validation;
                     const comparison = result.comparison;
+                    const playwrightScreenshots = result.playwright_screenshots || [];
                     
                     let message = `✅ Test Generated: ${result.test_file}<br>`;
                     message += `📊 Validation: ${validation.status} (${validation.duration}s)<br>`;
@@ -376,6 +486,9 @@
                             msg.innerHTML += `<br><br><a href="/api/executions/${executionId}/generated-test" target="_blank" style="color: #2196F3; text-decoration: underline;">📄 View Generated Code</a>`;
                         }, 1000);
                     }
+                    
+                    // Display Playwright validation section
+                    displayPlaywrightResults(validation, comparison, playwrightScreenshots);
                 } else {
                     throw new Error(result.error || 'Failed to generate test');
                 }

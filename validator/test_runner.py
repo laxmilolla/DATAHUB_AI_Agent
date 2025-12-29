@@ -60,6 +60,19 @@ class TestRunner:
             assertions_passed = stdout.count('✅')
             assertions_failed = stdout.count('❌')
             
+            # Extract Playwright screenshots from output
+            screenshots = []
+            for line in stdout.split('\n'):
+                if '📸 Screenshot:' in line:
+                    # Extract filename from "📸 Screenshot: storage/screenshots/pw_XXX.png"
+                    screenshot_path = line.split('Screenshot:')[1].strip()
+                    screenshot_name = screenshot_path.split('/')[-1]  # Get just filename
+                    screenshots.append({
+                        'filename': screenshot_name,
+                        'path': screenshot_path,
+                        'full_path': str(self.project_root / screenshot_path)
+                    })
+            
             test_result = {
                 'status': 'passed' if passed else 'failed',
                 'exit_code': result.returncode,
@@ -68,6 +81,7 @@ class TestRunner:
                 'stderr': stderr,
                 'assertions_passed': assertions_passed,
                 'assertions_failed': assertions_failed,
+                'screenshots': screenshots,
                 'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'test_file': test_file,
                 'execution_id': execution_id

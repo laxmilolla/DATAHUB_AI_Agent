@@ -434,6 +434,7 @@ def generate_and_validate(exec_id):
             result['validation'] = test_result
             result['comparison'] = comparison
             result['ready_for_cicd'] = comparison['match']
+            result['playwright_screenshots'] = test_result.get('screenshots', [])
         
         return jsonify(result), 200
         

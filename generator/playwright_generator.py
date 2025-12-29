@@ -265,6 +265,9 @@ if __name__ == '__main__':
         # Try to find selector in registry first (priority)
         selector = self._get_selector_from_registry(element, registry)
         source = "registry"
+        discovery = None
+        method = ''
+        metadata = {}
         
         if not selector:
             # Fallback to discovery metadata
@@ -275,8 +278,7 @@ if __name__ == '__main__':
                 metadata = discovery.get('metadata', {})
                 
                 if method == 'tree_climbing':
-                    depth = metadata.get('tree_depth', 'unknown')
-                    code += f"{ind}# AI Note: Found via tree climbing (depth {depth})\n"
+                    code += f"{ind}# AI Note: Found via tree climbing (with parent fallback)\n"
                 elif method == 'ai_disambiguation':
                     code += f"{ind}# AI Note: Found via AI disambiguation\n"
                 source = "discovery"
@@ -309,9 +311,9 @@ if __name__ == '__main__':
             code += f"{ind}except Exception:\n"
             code += f"{ind}    print('ℹ️  {element} not found (this is fine, {context} not present)')\n\n"
         else:
-            # Required click - fail if not found
+            # Required click with tree climbing fallback
             code += f"{ind}try:\n"
-            code += f"{ind}    # Try to find element (use .nth(0) if multiple matches)\n"
+            code += f"{ind}    # Strategy 1: Try direct click on element\n"
             code += f"{ind}    element = page.locator('{selector_escaped}').nth(0)\n"
             code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
             code += f"{ind}    element.click()\n"
@@ -321,8 +323,30 @@ if __name__ == '__main__':
             code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
             code += f"{ind}    print('📸 Screenshot: {screenshot_path}')\n"
             code += f"{ind}except Exception as e:\n"
-            code += f"{ind}    print(f'❌ Failed to click {element}: {{e}}')\n"
-            code += f"{ind}    raise\n\n"
+            
+            # Add tree climbing fallback if metadata indicates it was used
+            if method == 'tree_climbing' and metadata.get('relationship') == 'parent':
+                code += f"{ind}    # Fallback: AI used tree climbing, try clicking parent element\n"
+                code += f"{ind}    try:\n"
+                code += f"{ind}        print(f'⚠️  Direct click failed, trying parent element (AI tree climbing strategy)...')\n"
+                code += f"{ind}        parent = page.locator('{selector_escaped}').nth(0).locator('xpath=..')\n"
+                code += f"{ind}        parent.wait_for(state='visible', timeout=5000)\n"
+                code += f"{ind}        parent.click()\n"
+                code += f"{ind}        page.wait_for_timeout(1000)\n"
+                code += f"{ind}        print('✅ Clicked parent element: {element}')\n"
+                code += f"{ind}        page.screenshot(path='{screenshot_path}')\n"
+                code += f"{ind}        print('📸 Screenshot: {screenshot_path}')\n"
+                code += f"{ind}    except Exception as e2:\n"
+                code += f"{ind}        print(f'❌ Both strategies failed for {element}')\n"
+                code += f"{ind}        print(f'   Direct: {{e}}')\n"
+                code += f"{ind}        print(f'   Parent: {{e2}}')\n"
+                code += f"{ind}        raise e2\n"
+            else:
+                # No tree climbing metadata, just fail
+                code += f"{ind}    print(f'❌ Failed to click {element}: {{e}}')\n"
+                code += f"{ind}    raise\n"
+            
+            code += f"\n"
         
         return code
     

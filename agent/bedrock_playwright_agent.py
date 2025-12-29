@@ -415,7 +415,7 @@ class BedrockPlaywrightAgent:
     async def _click_parent_or_sibling(self, selector):
         """Helper to click parent or sibling of target element using Playwright API"""
         try:
-            locator = self.page.locator(selector).first
+            locator = self.page.locator(selector).nth(0)
             if await locator.count() == 0:
                 raise Exception(f"Element not found: {selector}")
             
@@ -444,7 +444,7 @@ class BedrockPlaywrightAgent:
         }
         
         try:
-            locator = self.page.locator(selector).first
+            locator = self.page.locator(selector).nth(0)
             validation_result["locator"] = locator  # Preserve locator reference
             
             # Check if element exists
@@ -1066,17 +1066,89 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 if len(visible_matches) > 1:
                     logger.info(f"  🔍 Found {len(visible_matches)} visible matches for '{selector}' (of {len(all_matches)} total), asking LLM to choose...")
                     
-                    # Describe each VISIBLE candidate for the LLM
+                    # Describe each VISIBLE candidate AND check for tree climbing
                     for i, match in enumerate(visible_matches):
                         description = await self._describe_element(match)
+                        
+                        # Check if THIS element is interactive
+                        element_props = await match.evaluate("""el => ({
+                            tagName: el.tagName.toLowerCase(),
+                            role: el.getAttribute('role'),
+                            ariaExpanded: el.getAttribute('aria-expanded'),
+                            ariaSelected: el.getAttribute('aria-selected'),
+                            type: el.getAttribute('type'),
+                            hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
+                        })""")
+                        
+                        is_interactive = (
+                            element_props['tagName'] in ['button', 'a', 'input', 'select'] or
+                            element_props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
+                            element_props['ariaExpanded'] is not None or
+                            element_props['ariaSelected'] is not None or
+                            element_props['hasClickHandler']
+                        )
+                        
                         candidates.append({
-                            "index": i,
+                            "index": len(candidates),
                             "element": match,
                             "description": description
                         })
+                        
                         # Log candidate summary for debugging
                         summary = description.split('\n')[0] if '\n' in description else description[:100]
-                        logger.info(f"    Candidate {i}: {summary}")
+                        logger.info(f"    Candidate {len(candidates)-1}: {summary}")
+                        
+                        # If element is NOT directly interactive, climb DOM tree to find interactive ancestor
+                        if not is_interactive:
+                            logger.info(f"  🔍 Candidate {i}: Element not interactive (tag={element_props['tagName']}), climbing tree...")
+                            
+                            current_elem = match
+                            max_depth = 5
+                            
+                            for depth in range(1, max_depth + 1):
+                                try:
+                                    parent_handle = await current_elem.evaluate_handle("el => el.parentElement")
+                                    if not parent_handle:
+                                        break
+                                    
+                                    parent_elem = parent_handle.as_element()
+                                    if not parent_elem or not await parent_elem.is_visible():
+                                        break
+                                    
+                                    # Check ancestor properties
+                                    parent_props = await parent_elem.evaluate("""el => ({
+                                        tagName: el.tagName.toLowerCase(),
+                                        role: el.getAttribute('role'),
+                                        ariaExpanded: el.getAttribute('aria-expanded'),
+                                        ariaSelected: el.getAttribute('aria-selected'),
+                                        hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
+                                    })""")
+                                    
+                                    ancestor_is_interactive = (
+                                        parent_props['tagName'] in ['button', 'a', 'input', 'select'] or
+                                        parent_props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
+                                        parent_props['ariaExpanded'] is not None or
+                                        parent_props['ariaSelected'] is not None or
+                                        parent_props['hasClickHandler']
+                                    )
+                                    
+                                    if ancestor_is_interactive:
+                                        logger.info(f"  ✅ Found interactive ancestor at depth {depth}: tag={parent_props['tagName']}, role={parent_props['role']}")
+                                        
+                                        parent_desc = await self._describe_element(parent_elem)
+                                        candidates.append({
+                                            "index": len(candidates),
+                                            "element": parent_elem,
+                                            "description": parent_desc + f"\n(PARENT at depth {depth})"
+                                        })
+                                        break
+                                    else:
+                                        logger.info(f"  ⬆️ Depth {depth}: tag={parent_props['tagName']}, role={parent_props['role']} - not interactive, continuing...")
+                                        current_elem = parent_elem
+                                        
+                                except Exception as e:
+                                    logger.debug(f"  Error climbing at depth {depth}: {e}")
+                                    break
                 
                 elif len(visible_matches) == 1:
                     # SINGLE MATCH: Check if it's appropriate for story context
@@ -1610,6 +1682,15 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     dom_changed = new_html != initial_html
                     url_changed = new_url != initial_url
                     dom_grew = len(new_html) > len(initial_html) * 1.05  # 5% growth
+                    dom_shrank = len(new_html) < len(initial_html) * 0.97  # 3% shrinkage (popup dismissed)
+                    
+                    # DEBUG: Log DOM size changes
+                    initial_size = len(initial_html)
+                    new_size = len(new_html)
+                    size_change = new_size - initial_size
+                    size_change_pct = (size_change / initial_size * 100) if initial_size > 0 else 0
+                    logger.info(f"  📏 DOM size: {initial_size} → {new_size} ({size_change:+d} bytes, {size_change_pct:+.1f}%)")
+                    logger.info(f"  🔍 Checks: dom_changed={dom_changed}, dom_grew={dom_grew}, dom_shrank={dom_shrank}")
                     
                     # ACCORDION VALIDATION: Check if accordion expanded
                     aria_expanded = False
@@ -1677,16 +1758,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     # For strategy 1: require strong evidence
                     # For strategy 2+: allow weaker evidence since element might be tricky
                     if i == 0:
-                        # Strategy 1: Require URL change OR significant DOM growth OR state change OR accordion opened
-                        click_succeeded = url_changed or dom_grew or state_changed or aria_expanded or accordion_opened
+                        # Strategy 1: Require URL change OR significant DOM growth/shrinkage OR state change OR accordion opened
+                        click_succeeded = url_changed or dom_grew or dom_shrank or state_changed or aria_expanded or accordion_opened
                     else:
                         # Strategy 2+: Allow DOM change as fallback
-                        click_succeeded = url_changed or dom_grew or aria_expanded or accordion_opened or state_changed or dom_changed
+                        click_succeeded = url_changed or dom_grew or dom_shrank or aria_expanded or accordion_opened or state_changed or dom_changed
                     
                     if click_succeeded:
                         reasons = []
                         if url_changed: reasons.append("page navigated")
                         if dom_grew: reasons.append(f"content expanded ({len(new_html) - len(initial_html)} bytes)")
+                        if dom_shrank: reasons.append(f"popup dismissed ({len(initial_html) - len(new_html)} bytes removed)")
                         if accordion_opened: reasons.append("accordion expanded (aria-expanded: false→true)")
                         elif aria_expanded: reasons.append("dropdown/section expanded")
                         if state_changed: reasons.append("element state changed")
