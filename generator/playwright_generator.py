@@ -197,11 +197,23 @@ if __name__ == '__main__':
             if match := re.search(r'wait (\d+) seconds', story, re.IGNORECASE):
                 steps.append({'action': 'wait', 'duration': int(match.group(1)) * 1000})
         
-        # Find all click actions (improved regex to handle run-on sentences)
+        # Find CONDITIONAL click actions (e.g., "If there is a popup... click it")
+        # These are optional and should not fail the test if element not found
+        conditional_pattern = r'if (?:there is )?(?:a )?([^,]+?)(?:with a |, )?(?:click )?(?:(?:the|on|it)?\s*)?([A-Z][a-zA-Z\s]+?)(?:\s+(?:button|to dismiss|to|$))'
+        for match in re.finditer(conditional_pattern, story, re.IGNORECASE):
+            context = match.group(1).strip()  # e.g., "popup"
+            element = match.group(2).strip()   # e.g., "Continue"
+            if 'click' in match.group(0).lower() and element and len(element) > 2:
+                steps.append({'action': 'click', 'element': element, 'optional': True, 'context': context})
+        
+        # Find all regular click actions (improved regex to handle run-on sentences)
         # Look for "click on/the X" patterns
         click_pattern = r'click (?:on )?(?:the )?([^,\.\n]+?)(?:\s+(?:to|and|in|inside|now|then|verify|check)|$)'
         for match in re.finditer(click_pattern, story, re.IGNORECASE):
             element = match.group(1).strip()
+            # Skip if this was already captured as a conditional click
+            if any(s.get('element', '').lower() == element.lower() and s.get('optional') for s in steps):
+                continue
             # Clean up common trailing words
             element = re.sub(r'\s+(to|and|expand|dismiss|checkbox|tab|button)$', '', element, flags=re.IGNORECASE).strip()
             if element and len(element) > 2:  # Avoid single-character matches
@@ -241,8 +253,13 @@ if __name__ == '__main__':
         """Generate click action code with discovery metadata"""
         ind = ' ' * indent
         element = step['element']
+        is_optional = step.get('optional', False)
+        context = step.get('context', '')
         
-        code = f"{ind}# Click: {element}\n"
+        if is_optional:
+            code = f"{ind}# Optional: {element} ({context} - may not be present)\n"
+        else:
+            code = f"{ind}# Click: {element}\n"
         
         # Try to find selector in registry first (priority)
         selector = self._get_selector_from_registry(element, registry)
@@ -276,19 +293,35 @@ if __name__ == '__main__':
         # Escape quotes in selector for Python string
         selector_escaped = selector.replace("'", "\\'")
         
-        code += f"{ind}try:\n"
-        code += f"{ind}    # Try to find element (use .nth(0) if multiple matches)\n"
-        code += f"{ind}    element = page.locator('{selector_escaped}').nth(0)\n"
-        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
-        code += f"{ind}    element.click()\n"
-        code += f"{ind}    page.wait_for_timeout(1000)  # Wait for UI update\n"
-        code += f"{ind}    print('✅ Clicked: {element}')\n"
-        code += f"{ind}    # Capture screenshot after click\n"
-        code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
-        code += f"{ind}    print('📸 Screenshot: {screenshot_path}')\n"
-        code += f"{ind}except Exception as e:\n"
-        code += f"{ind}    print(f'❌ Failed to click {element}: {{e}}')\n"
-        code += f"{ind}    raise\n\n"
+        if is_optional:
+            # Optional click - don't fail if not found
+            code += f"{ind}try:\n"
+            code += f"{ind}    element = page.locator('{selector_escaped}').nth(0)\n"
+            code += f"{ind}    if element.is_visible(timeout=2000):\n"
+            code += f"{ind}        element.click()\n"
+            code += f"{ind}        page.wait_for_timeout(500)\n"
+            code += f"{ind}        print('✅ Clicked: {element} ({context})')\n"
+            code += f"{ind}        page.screenshot(path='{screenshot_path}')\n"
+            code += f"{ind}        print('📸 Screenshot: {screenshot_path}')\n"
+            code += f"{ind}    else:\n"
+            code += f"{ind}        print('ℹ️  {element} not visible (this is fine, {context} not present)')\n"
+            code += f"{ind}except Exception:\n"
+            code += f"{ind}    print('ℹ️  {element} not found (this is fine, {context} not present)')\n\n"
+        else:
+            # Required click - fail if not found
+            code += f"{ind}try:\n"
+            code += f"{ind}    # Try to find element (use .nth(0) if multiple matches)\n"
+            code += f"{ind}    element = page.locator('{selector_escaped}').nth(0)\n"
+            code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+            code += f"{ind}    element.click()\n"
+            code += f"{ind}    page.wait_for_timeout(1000)  # Wait for UI update\n"
+            code += f"{ind}    print('✅ Clicked: {element}')\n"
+            code += f"{ind}    # Capture screenshot after click\n"
+            code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+            code += f"{ind}    print('📸 Screenshot: {screenshot_path}')\n"
+            code += f"{ind}except Exception as e:\n"
+            code += f"{ind}    print(f'❌ Failed to click {element}: {{e}}')\n"
+            code += f"{ind}    raise\n\n"
         
         return code
     
