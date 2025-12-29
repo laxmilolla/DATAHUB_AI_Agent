@@ -221,8 +221,9 @@ if __name__ == '__main__':
                 steps.append({'action': 'click', 'element': element})
         
         # Find verification steps
-        verify_pattern = r'verify that (.+?)(?:\s+(?:click|$))'
-        for match in re.finditer(verify_pattern, story, re.IGNORECASE):
+        # Match "Verify that X" or "Verify X" - capture everything until newline or end of string
+        verify_pattern = r'verify\s+(?:that\s+)?(.+?)(?:\n|$)'
+        for match in re.finditer(verify_pattern, story, re.IGNORECASE | re.MULTILINE):
             description = match.group(1).strip()
             steps.append({'action': 'verify', 'description': description})
         
