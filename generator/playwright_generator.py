@@ -199,11 +199,12 @@ if __name__ == '__main__':
         
         # Find CONDITIONAL click actions (e.g., "If there is a popup... click it")
         # These are optional and should not fail the test if element not found
-        conditional_pattern = r'if (?:there is )?(?:a )?([^,]+?)(?:with a |, )?(?:click )?(?:(?:the|on|it)?\s*)?([A-Z][a-zA-Z\s]+?)(?:\s+(?:button|to dismiss|to|$))'
+        # Pattern: "If there is [context] with [element] button, click it"
+        conditional_pattern = r'if\s+there\s+is\s+(?:a\s+)?(\w+)\s+with\s+(?:a\s+)?(\w+)\s+button,?\s+click'
         for match in re.finditer(conditional_pattern, story, re.IGNORECASE):
             context = match.group(1).strip()  # e.g., "popup"
             element = match.group(2).strip()   # e.g., "Continue"
-            if 'click' in match.group(0).lower() and element and len(element) > 2:
+            if element and len(element) > 2:
                 steps.append({'action': 'click', 'element': element, 'optional': True, 'context': context})
         
         # Find all regular click actions (improved regex to handle run-on sentences)
