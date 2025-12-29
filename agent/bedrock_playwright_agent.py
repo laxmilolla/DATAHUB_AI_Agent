@@ -2047,7 +2047,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             
             try:
                 # Take a pre-verification screenshot
-                screenshot_path = await self._take_screenshot("verify_table")
+                self.screenshot_counter += 1
+                filename = f"{self.screenshot_counter:03d}_verify_table.png"
+                filepath = self.screenshots_dir / filename
+                await self.page.screenshot(path=str(filepath), full_page=False)
+                screenshot_path = filename
+                logger.info(f"  📸 Verification screenshot: {filename}")
                 
                 # Find the table
                 if table_selector == 'visible_table':
