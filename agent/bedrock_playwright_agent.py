@@ -2037,7 +2037,151 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             else:
                 logger.warning(f"  ⚠️ Fill mismatch: expected '{text}', got '{actual_value}'")
                 return f"⚠️ Filled {selector} - Expected '{text}', got '{actual_value}'"
-        
+
+        elif tool_name == "browser_verify_table":
+            table_selector = tool_input.get('table_selector', 'visible_table')
+            column_name = tool_input['column_name']
+            expected_value = tool_input['expected_value']
+            
+            logger.info(f"Verify Table: Column '{column_name}' contains '{expected_value}'")
+            
+            try:
+                # Take a pre-verification screenshot
+                screenshot_path = await self._take_screenshot("verify_table")
+                
+                # Find the table
+                if table_selector == 'visible_table':
+                    # Auto-detect: Find first visible table
+                    table = self.page.locator('table').first
+                else:
+                    table = self.page.locator(table_selector).first
+                
+                # Wait for table to be visible
+                await table.wait_for(state='visible', timeout=10000)
+                
+                # Find column index by header text
+                headers = await table.locator('thead th, thead td').all_text_contents()
+                column_index = -1
+                for i, header in enumerate(headers):
+                    if column_name.lower() in header.lower():
+                        column_index = i
+                        break
+                
+                if column_index == -1:
+                    logger.warning(f"  ⚠️ Column '{column_name}' not found in table headers: {headers}")
+                    
+                    # Store verification discovery
+                    self._track_discovery(
+                        element_name=f"verify_table_{column_name}",
+                        original_query=f"verify column {column_name}",
+                        final_selector=table_selector,
+                        discovery_method="table_verification",
+                        metadata={
+                            "verification_type": "table_column",
+                            "column_name": column_name,
+                            "expected_value": expected_value,
+                            "result": "FAIL",
+                            "reason": f"Column not found. Available: {headers}",
+                            "screenshot": screenshot_path
+                        }
+                    )
+                    
+                    return f"❌ VERIFICATION FAILED: Column '{column_name}' not found. Available columns: {', '.join(headers)}"
+                
+                # Get all rows in that column
+                rows = await table.locator('tbody tr').all()
+                total_rows = len(rows)
+                matching_rows = 0
+                mismatches = []
+                sample_values = []
+                
+                for row_idx, row in enumerate(rows):
+                    cells = await row.locator('td').all()
+                    if column_index < len(cells):
+                        cell_text = await cells[column_index].inner_text()
+                        cell_text = cell_text.strip()
+                        
+                        # Store sample values (first 3)
+                        if len(sample_values) < 3:
+                            sample_values.append(cell_text)
+                        
+                        # Check if expected value is in the cell text
+                        if expected_value.lower() in cell_text.lower():
+                            matching_rows += 1
+                        else:
+                            if len(mismatches) < 3:  # Store first 3 mismatches
+                                mismatches.append(f"Row {row_idx + 1}: '{cell_text}'")
+                
+                # Determine pass/fail
+                success = matching_rows == total_rows
+                
+                if success:
+                    logger.info(f"  ✅ Verification PASSED: {matching_rows}/{total_rows} rows match")
+                    
+                    # Store verification discovery
+                    self._track_discovery(
+                        element_name=f"verify_table_{column_name}",
+                        original_query=f"verify column {column_name} = {expected_value}",
+                        final_selector=table_selector,
+                        discovery_method="table_verification",
+                        metadata={
+                            "verification_type": "table_column",
+                            "column_name": column_name,
+                            "expected_value": expected_value,
+                            "result": "PASS",
+                            "total_rows": total_rows,
+                            "matching_rows": matching_rows,
+                            "sample_values": sample_values,
+                            "screenshot": screenshot_path
+                        }
+                    )
+                    
+                    return f"✅ VERIFICATION PASSED: All {total_rows} rows in '{column_name}' contain '{expected_value}'"
+                else:
+                    logger.warning(f"  ⚠️ Verification FAILED: {matching_rows}/{total_rows} rows match")
+                    
+                    # Store verification discovery
+                    self._track_discovery(
+                        element_name=f"verify_table_{column_name}",
+                        original_query=f"verify column {column_name} = {expected_value}",
+                        final_selector=table_selector,
+                        discovery_method="table_verification",
+                        metadata={
+                            "verification_type": "table_column",
+                            "column_name": column_name,
+                            "expected_value": expected_value,
+                            "result": "FAIL",
+                            "total_rows": total_rows,
+                            "matching_rows": matching_rows,
+                            "mismatches": mismatches,
+                            "sample_values": sample_values,
+                            "screenshot": screenshot_path
+                        }
+                    )
+                    
+                    mismatch_details = "; ".join(mismatches) if mismatches else "See screenshot"
+                    return f"❌ VERIFICATION FAILED: {matching_rows}/{total_rows} rows match. Mismatches: {mismatch_details}"
+                    
+            except Exception as e:
+                logger.error(f"  ❌ Table verification error: {e}")
+                
+                # Store verification discovery with error
+                self._track_discovery(
+                    element_name=f"verify_table_{column_name}",
+                    original_query=f"verify column {column_name} = {expected_value}",
+                    final_selector=table_selector if table_selector != 'visible_table' else 'table',
+                    discovery_method="table_verification",
+                    metadata={
+                        "verification_type": "table_column",
+                        "column_name": column_name,
+                        "expected_value": expected_value,
+                        "result": "ERROR",
+                        "error": str(e)
+                    }
+                )
+                
+                return f"❌ VERIFICATION ERROR: {str(e)}"
+
         elif tool_name == "browser_screenshot":
             self.screenshot_counter += 1
             name = tool_input.get('name', 'screenshot')
@@ -2192,6 +2336,23 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         }
                     }
                 }
+            },
+            {
+                "toolSpec": {
+                    "name": "browser_verify_table",
+                    "description": "Verify that all rows in a table column contain a specific value. Use this for data validation in tables.",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {
+                                "table_selector": {"type": "string", "description": "CSS selector for the table or 'visible_table' to auto-detect"},
+                                "column_name": {"type": "string", "description": "Name of the column to verify (will match header text)"},
+                                "expected_value": {"type": "string", "description": "Expected value that should appear in all rows"}
+                            },
+                            "required": ["column_name", "expected_value"]
+                        }
+                    }
+                }
             }
         ]
     
@@ -2234,6 +2395,13 @@ SMART ELEMENT SELECTION:
   * "expand/dropdown" → EXPANDABLE: "YES" (has aria-expanded)
 - If element isn't interactive, system checks parent automatically
 - Be specific in stories: "click sidebar filter dropdown" vs "click tab"
+
+VERIFICATION:
+- Use browser_verify_table() to verify table column data
+- Example: "Verify all rows in 'Sample Type' column contain 'Primary'"
+  → browser_verify_table(column_name="Sample Type", expected_value="Primary")
+- The system will check all rows and report PASS/FAIL with details
+- Verification results are automatically saved for Playwright code generation
 
 After navigating, use browser_snapshot() to see the page.
 Use browser_evaluate() to find selectors when needed.

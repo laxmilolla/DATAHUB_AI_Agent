@@ -246,7 +246,7 @@ if __name__ == '__main__':
             code += self._generate_click_code(step, discoveries, registry, indent)
         
         elif step['action'] == 'verify':
-            code += self._generate_verify_code(step, indent)
+            code += self._generate_verify_code(step, discoveries, indent)
         
         return code
     
@@ -350,11 +350,76 @@ if __name__ == '__main__':
         
         return code
     
-    def _generate_verify_code(self, step: Dict, indent: int) -> str:
-        """Generate verification code"""
+    def _generate_verify_code(self, step: Dict, discoveries: List[Dict], indent: int) -> str:
+        """Generate verification code based on AI verification metadata"""
         ind = ' ' * indent
         description = step['description']
         
+        # Try to find verification discovery metadata
+        verify_discovery = None
+        for disc in discoveries:
+            if disc.get('discovery_method') == 'table_verification':
+                verify_discovery = disc
+                break
+        
+        if verify_discovery and verify_discovery.get('metadata', {}).get('verification_type') == 'table_column':
+            # Generate table column verification code
+            metadata = verify_discovery['metadata']
+            column_name = metadata.get('column_name', 'unknown')
+            expected_value = metadata.get('expected_value', '')
+            table_selector = verify_discovery.get('final_selector', 'table')
+            
+            code = f"{ind}# Verify: All rows in '{column_name}' column contain '{expected_value}'\n"
+            code += f"{ind}try:\n"
+            code += f"{ind}    print('🔍 Verifying table column...')\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    # Find table\n"
+            code += f"{ind}    table = page.locator('{table_selector}').first\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    # Find column index by header text\n"
+            code += f"{ind}    headers = table.locator('thead th, thead td').all_text_contents()\n"
+            code += f"{ind}    column_index = -1\n"
+            code += f"{ind}    for i, header in enumerate(headers):\n"
+            code += f"{ind}        if '{column_name}'.lower() in header.lower():\n"
+            code += f"{ind}            column_index = i\n"
+            code += f"{ind}            break\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    if column_index == -1:\n"
+            code += f"{ind}        raise Exception(f\"Column '{column_name}' not found. Available: {{headers}}\")\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    print(f'📋 Found column \"{column_name}\" at index {{column_index}}')\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    # Get all rows and verify\n"
+            code += f"{ind}    rows = table.locator('tbody tr').all()\n"
+            code += f"{ind}    total_rows = len(rows)\n"
+            code += f"{ind}    matching_rows = 0\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    print(f'🔍 Checking {{total_rows}} rows...')\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    for row_idx, row in enumerate(rows):\n"
+            code += f"{ind}        cells = row.locator('td').all()\n"
+            code += f"{ind}        if column_index < len(cells):\n"
+            code += f"{ind}            cell_text = cells[column_index].inner_text().strip()\n"
+            code += f"{ind}            if '{expected_value}'.lower() in cell_text.lower():\n"
+            code += f"{ind}                matching_rows += 1\n"
+            code += f"{ind}            else:\n"
+            code += f"{ind}                print(f'⚠️  Row {{row_idx + 1}}: Expected \"{expected_value}\", got \"{{cell_text}}\"')\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    # Assert all rows match\n"
+            code += f"{ind}    assert matching_rows == total_rows, f\"Only {{matching_rows}}/{{total_rows}} rows match\"\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    print(f'✅ VERIFICATION PASSED: All {{total_rows}} rows in \"{column_name}\" contain \"{expected_value}\"')\n"
+            code += f"{ind}    page.screenshot(path='storage/screenshots/pw_verify_table.png')\n"
+            code += f"{ind}    print('📸 Screenshot: storage/screenshots/pw_verify_table.png')\n"
+            code += f"{ind}    \n"
+            code += f"{ind}except Exception as e:\n"
+            code += f"{ind}    print(f'❌ VERIFICATION FAILED: {{e}}')\n"
+            code += f"{ind}    page.screenshot(path='storage/screenshots/pw_verify_table_failed.png')\n"
+            code += f"{ind}    raise\n\n"
+            
+            return code
+        
+        # Fallback: Generic verification
         code = f"{ind}# Verify: {description}\n"
         
         # URL verification
@@ -368,15 +433,10 @@ if __name__ == '__main__':
                 code += f"{ind}except Exception as e:\n"
                 code += f"{ind}    print(f'❌ URL verification failed: {{e}}')\n\n"
         
-        # Table data verification
-        elif 'table' in description.lower() and 'show' in description.lower():
-            code += f"{ind}# TODO: Add table data verification\n"
-            code += f"{ind}print('⚠️  Table verification not yet implemented')\n\n"
-        
         # Generic verification
         else:
-            code += f"{ind}# TODO: Add specific verification for: {description}\n"
-            code += f"{ind}print('⚠️  Manual verification needed')\n\n"
+            code += f"{ind}# AI Agent performed verification, see execution results\n"
+            code += f"{ind}print('⚠️  Verification performed by AI - add specific Playwright assertions if needed')\n\n"
         
         return code
     

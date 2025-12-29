@@ -237,24 +237,67 @@
                 results.discoveries.forEach((discovery, index) => {
                     const method = discovery.discovery_method || 'unknown';
                     const depth = discovery.metadata?.tree_depth || 1;
-                    const methodLabel = method === 'tree_climbing' ? `🌳 Tree Climbing (depth ${depth})` : '🤖 AI Disambiguation';
                     
-                    html += `
-                        <li style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin: 8px 0;">
-                            <div style="display: flex; justify-content: space-between; align-items: start;">
-                                <div style="flex: 1;">
-                                    <strong>${discovery.name}</strong>
-                                    <div style="color: #666; font-size: 12px; margin-top: 4px;">
-                                        ${methodLabel}
-                                    </div>
-                                    <div style="margin-top: 8px; font-family: monospace; font-size: 11px;">
-                                        <div>📥 Query: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.original_query}</code></div>
-                                        <div style="margin-top: 4px;">📤 Optimized: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.final_selector.substring(0, 80)}${discovery.final_selector.length > 80 ? '...' : ''}</code></div>
+                    // Check if this is a verification discovery
+                    if (method === 'table_verification') {
+                        const metadata = discovery.metadata || {};
+                        const result = metadata.result || 'UNKNOWN';
+                        const resultIcon = result === 'PASS' ? '✅' : '❌';
+                        const resultColor = result === 'PASS' ? '#4CAF50' : '#f44336';
+                        const totalRows = metadata.total_rows || 0;
+                        const matchingRows = metadata.matching_rows || 0;
+                        const columnName = metadata.column_name || 'unknown';
+                        const expectedValue = metadata.expected_value || '';
+                        const screenshot = metadata.screenshot || '';
+                        
+                        html += `
+                            <li style="background: white; border: 2px solid ${resultColor}; border-radius: 4px; padding: 15px; margin: 8px 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <strong style="color: ${resultColor};">${resultIcon} VERIFICATION: ${discovery.name}</strong>
+                                        <div style="color: #666; font-size: 13px; margin-top: 8px;">
+                                            <strong>Column:</strong> ${columnName}<br>
+                                            <strong>Expected:</strong> All rows contain "${expectedValue}"<br>
+                                            <strong>Result:</strong> ${matchingRows}/${totalRows} rows matched
+                                        </div>
+                                        ${metadata.mismatches ? `
+                                        <div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 12px;">
+                                            <strong>Mismatches:</strong> ${metadata.mismatches.join(', ')}
+                                        </div>
+                                        ` : ''}
+                                        ${screenshot ? `
+                                        <div style="margin-top: 10px;">
+                                            <img src="/api/screenshots/${screenshot.split('/').pop()}" 
+                                                 style="max-width: 300px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;"
+                                                 onclick="window.open('/api/screenshots/${screenshot.split('/').pop()}', '_blank')"
+                                                 alt="Verification screenshot">
+                                        </div>
+                                        ` : ''}
                                     </div>
                                 </div>
-                            </div>
-                        </li>
-                    `;
+                            </li>
+                        `;
+                    } else {
+                        // Regular discovery (click, etc.)
+                        const methodLabel = method === 'tree_climbing' ? `🌳 Tree Climbing (depth ${depth})` : '🤖 AI Disambiguation';
+                        
+                        html += `
+                            <li style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin: 8px 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <strong>${discovery.name}</strong>
+                                        <div style="color: #666; font-size: 12px; margin-top: 4px;">
+                                            ${methodLabel}
+                                        </div>
+                                        <div style="margin-top: 8px; font-family: monospace; font-size: 11px;">
+                                            <div>📥 Query: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.original_query}</code></div>
+                                            <div style="margin-top: 4px;">📤 Optimized: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.final_selector.substring(0, 80)}${discovery.final_selector.length > 80 ? '...' : ''}</code></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </li>
+                        `;
+                    }
                 });
                 
                 html += `
