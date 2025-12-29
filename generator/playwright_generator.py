@@ -369,6 +369,9 @@ if __name__ == '__main__':
             column_name = metadata.get('column_name', 'unknown')
             expected_value = metadata.get('expected_value', '')
             table_selector = verify_discovery.get('final_selector', 'table')
+            # Convert 'visible_table' to 'table' for Playwright
+            if table_selector == 'visible_table':
+                table_selector = 'table'
             
             code = f"{ind}# Verify: All rows in '{column_name}' column contain '{expected_value}'\n"
             code += f"{ind}try:\n"
