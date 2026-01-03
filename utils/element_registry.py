@@ -360,12 +360,15 @@ class ElementRegistry:
         return baseline_path
 
 
-# Global registry instance
-_registry = None
+# Global registry instances (one per maps_dir path)
+_registries = {}
 
 def get_registry(maps_dir: str = "element_maps") -> ElementRegistry:
-    """Get global registry instance"""
-    global _registry
-    if _registry is None:
-        _registry = ElementRegistry(maps_dir)
-    return _registry
+    """Get registry instance for the given maps_dir (cached)"""
+    global _registries
+    # Normalize the path to ensure consistent caching
+    normalized_path = str(Path(maps_dir).resolve())
+    
+    if normalized_path not in _registries:
+        _registries[normalized_path] = ElementRegistry(maps_dir)
+    return _registries[normalized_path]

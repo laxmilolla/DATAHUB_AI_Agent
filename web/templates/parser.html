@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parser Tree Viewer & Editor - Test Automation Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=3">
+    <!-- jsTree for tree visualization -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.16/themes/default/style.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.16/jstree.min.js"></script>
+    <style>
+        .parser-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .upload-section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn.active {
+            color: var(--nci-blue);
+            border-bottom-color: var(--nci-blue);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .file-upload-area {
+            border: 3px dashed #ccc;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            background: #f9f9f9;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .file-upload-area:hover {
+            border-color: var(--nci-blue);
+            background: #f0f7ff;
+        }
+        
+        .file-upload-area.dragover {
+            border-color: var(--esi-teal);
+            background: #e0f7f4;
+        }
+        
+        textarea.html-input {
+            width: 100%;
+            min-height: 300px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            resize: vertical;
+        }
+        
+        .url-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            margin: 15px 0;
+        }
+        
+        .page-name-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            margin: 15px 0;
+        }
+        
+        .parse-btn {
+            background: linear-gradient(135deg, var(--nci-blue) 0%, var(--esi-teal) 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+        
+        .parse-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .parse-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .results-section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .results-section.visible {
+            display: block;
+        }
+        
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-box .number {
+            font-size: 2em;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .stat-box .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .element-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .element-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+        
+        .element-item:last-child {
+            border-bottom: none;
+        }
+        
+        .element-name {
+            font-weight: 600;
+            color: var(--nci-blue);
+        }
+        
+        .element-type {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #e3f2fd;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--nci-blue);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 HTML Parser</h1>
+            <p class="subtitle">Extract Interactive Elements & Build Element Registry</p>
+            <a href="/" style="color: white; margin-top: 10px; display: inline-block;">← Back to Home</a>
+        </header>
+
+        <main class="parser-container">
+            <div class="upload-section">
+                <h2>Parse HTML to Element Map</h2>
+                <p style="margin-bottom: 20px; color: #666;">
+                    Upload an HTML file or paste HTML content to extract all interactive elements and build the registry.
+                </p>
+
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchTab('upload')">📁 Upload File</button>
+                    <button class="tab-btn" onclick="switchTab('paste')">📋 Paste HTML</button>
+                    <button class="tab-btn" onclick="switchTab('fetch')">🌐 Fetch from URL</button>
+                </div>
+
+                <!-- Upload Tab -->
+                <div id="upload-tab" class="tab-content active">
+                    <div class="file-upload-area" id="dropZone">
+                        <div style="font-size: 3em; margin-bottom: 10px;">📄</div>
+                        <h3>Drop HTML file here or click to browse</h3>
+                        <p style="color: #666; margin-top: 10px;">Supported: .html, .htm files</p>
+                        <input type="file" id="fileInput" accept=".html,.htm" style="display: none;">
+                    </div>
+                    <div id="fileName" style="margin-top: 15px; font-weight: 600; color: var(--nci-blue);"></div>
+                </div>
+
+                <!-- Paste Tab -->
+                <div id="paste-tab" class="tab-content">
+                    <textarea id="htmlInput" class="html-input" placeholder="Paste your HTML content here..."></textarea>
+                </div>
+
+                <!-- Fetch Tab -->
+                <div id="fetch-tab" class="tab-content">
+                    <label for="fetchUrl" style="font-weight: 600; display: block; margin-bottom: 10px;">Enter Website URL:</label>
+                    <input type="url" id="fetchUrl" class="url-input" placeholder="https://example.com/page" />
+                    <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                        ⚠️ Note: The page will be fetched from the server using Playwright
+                    </p>
+                </div>
+
+                <!-- Common Fields -->
+                <div style="margin-top: 30px;">
+                    <label for="pageUrl" style="font-weight: 600; display: block; margin-bottom: 10px;">Page URL (for reference):</label>
+                    <input type="url" id="pageUrl" class="url-input" placeholder="https://example.com/page" required />
+                    
+                    <label for="pageName" style="font-weight: 600; display: block; margin-bottom: 10px; margin-top: 15px;">Page Name:</label>
+                    <input type="text" id="pageName" class="page-name-input" placeholder="home, explore, dashboard, etc." required />
+                </div>
+
+                <button id="parseBtn" class="parse-btn" onclick="parseHTML()">
+                    🚀 Parse HTML & Build Registry
+                </button>
+
+                <div id="loadingIndicator" style="display: none; text-align: center; margin-top: 20px;">
+                    <div class="spinner"></div>
+                    <p style="color: #666; margin-top: 10px;">Parsing HTML and extracting elements...</p>
+                </div>
+            </div>
+
+            <!-- Registry Viewer Section -->
+            <div class="upload-section" style="background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border: 3px solid var(--nci-blue);">
+                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                    <div style="font-size: 3em;">📋</div>
+                    <div>
+                        <h2 style="margin: 0;">Registry Viewer & Editor</h2>
+                        <p style="margin: 5px 0 0 0; color: #666; font-size: 0.95em;">
+                            View, edit, and manage element registries
+                        </p>
+                    </div>
+                </div>
+
+                <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                    <label for="registrySelect" style="font-weight: 600; display: block; margin-bottom: 10px; font-size: 1.1em; color: var(--nci-blue);">
+                        📂 Select Registry to View:
+                    </label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <select id="registrySelect" class="url-input" onchange="loadRegistryMap()" style="flex: 1; font-size: 1.05em; padding: 15px; margin: 0;">
+                            <option value="">-- Select a domain/page to view elements --</option>
+                        </select>
+                        <button id="deleteRegistryBtn" onclick="deleteRegistry()" style="padding: 15px 20px; background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1em; white-space: nowrap; box-shadow: 0 4px 15px rgba(244,67,54,0.3); transition: all 0.3s; display: none;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(244,67,54,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(244,67,54,0.3)'" title="Delete this registry">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                    <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                        💡 Tip: Select "clinicalcommons.ccdi.cancer.gov - home" to see 352 pre-parsed elements!
+                    </p>
+                </div>
+
+                <div id="registryViewer" style="display: none; background: white; padding: 20px; border-radius: 10px;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 1.4em;">📊 Registry Information</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                            <div>
+                                <div style="font-size: 0.9em; opacity: 0.9;">Domain</div>
+                                <div style="font-size: 1.1em; font-weight: 600;" id="regDomain"></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.9em; opacity: 0.9;">Page</div>
+                                <div style="font-size: 1.1em; font-weight: 600;" id="regPage"></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.9em; opacity: 0.9;">Version</div>
+                                <div style="font-size: 1.1em; font-weight: 600;" id="regVersion"></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.9em; opacity: 0.9;">Total Elements</div>
+                                <div style="font-size: 1.3em; font-weight: bold;" id="regTotalElements"></div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.9em; opacity: 0.9;">Last Updated</div>
+                                <div style="font-size: 0.95em; font-weight: 600;" id="regLastUpdated"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; gap: 20px;">
+                        <div>
+                            <strong>📝 How to Edit:</strong>
+                            <ul style="margin: 10px 0 0 20px; line-height: 1.8;">
+                                <li>Click <strong>✏️ Edit</strong> button next to any element to change its selector</li>
+                                <li>Click <strong>🗑️ Delete</strong> button to remove an element from registry</li>
+                                <li>Click <strong>🌳 View Tree</strong> to see parent-child relationships</li>
+                                <li>Changes are saved immediately and will be used by the AI Agent</li>
+                            </ul>
+                        </div>
+                        <button onclick="openTreeViewerFromRegistry()" style="padding: 15px 25px; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1.05em; white-space: nowrap; box-shadow: 0 4px 15px rgba(76,175,80,0.3); transition: all 0.3s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(76,175,80,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(76,175,80,0.3)'">
+                            🌳 View & Edit Tree
+                        </button>
+                    </div>
+
+                    <h3 style="margin: 20px 0 15px 0; color: var(--nci-blue);">
+                        📋 Elements List 
+                        <span style="font-size: 0.8em; color: #666; font-weight: normal;">(Click Edit or Delete buttons on the right)</span>
+                    </h3>
+                    <div id="registryElementsList" class="element-list" style="max-height: 600px; border: 2px solid #e0e0e0;"></div>
+                </div>
+            </div>
+
+            <div id="resultsSection" class="results-section">
+                <h2>✅ Parsing Results</h2>
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <span class="number" id="totalElements">0</span>
+                        <span class="label">Total Elements</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="tabsCount">0</span>
+                        <span class="label">Tabs</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="accordionsCount">0</span>
+                        <span class="label">Accordions</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="buttonsCount">0</span>
+                        <span class="label">Buttons</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="tablesCount">0</span>
+                        <span class="label">Tables</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="checkboxesCount">0</span>
+                        <span class="label">Checkboxes</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="number" id="tableColumnsCount">0</span>
+                        <span class="label">Table Columns</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <h3>📋 Extracted Elements</h3>
+                    <div id="elementsList" class="element-list"></div>
+                </div>
+
+                <div style="margin-top: 30px; padding: 20px; background: #e8f5e9; border-radius: 8px;">
+                    <h4 style="color: #2e7d32; margin-bottom: 10px;">✅ Registry Updated Successfully!</h4>
+                    <p>The element map has been saved to the registry. The AI Agent will now use this information automatically when running tests for this website.</p>
+                    <p style="margin-top: 10px;"><strong>Registry Path:</strong> <code id="registryPath"></code></p>
+                    
+                    <!-- Tree Viewer Button -->
+                    <button onclick="openTreeViewer()" style="margin-top: 15px; padding: 10px 20px; background: var(--nci-blue); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+                        🌳 View & Edit Element Tree
+                    </button>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Tree Viewer Modal -->
+        <div id="treeViewerModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; overflow: auto;">
+            <div style="background: white; margin: 20px auto; max-width: 1400px; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.3);">
+                <!-- Header -->
+                <div style="background: linear-gradient(135deg, var(--nci-blue) 0%, #1976d2 100%); color: white; padding: 20px 30px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 1.5em;">🌳 Element Tree Viewer & Editor</h2>
+                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 0.9em;" id="treeSubtitle">Loading...</p>
+                    </div>
+                    <button onclick="closeTreeViewer()" style="background: rgba(255,255,255,0.2); border: none; color: white; font-size: 24px; cursor: pointer; padding: 5px 15px; border-radius: 5px;">×</button>
+                </div>
+                
+                <!-- Toolbar -->
+                <div style="padding: 15px 30px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; gap: 10px; align-items: center;">
+                    <button id="saveTreeBtn" onclick="saveTreeChanges()" disabled style="padding: 8px 16px; background: #4caf50; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+                        💾 Save Changes
+                    </button>
+                    <button onclick="showAddElementForm()" style="padding: 8px 16px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 8px rgba(33,150,243,0.3);">
+                        ➕ Add Element
+                    </button>
+                    <button onclick="reloadTree()" style="padding: 8px 16px; background: #2196f3; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        🔄 Reload
+                    </button>
+                    <button onclick="expandAllNodes()" style="padding: 8px 16px; background: #757575; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        ⬇️ Expand All
+                    </button>
+                    <button onclick="collapseAllNodes()" style="padding: 8px 16px; background: #757575; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        ⬆️ Collapse All
+                    </button>
+                    <span id="treeStatus" style="margin-left: auto; padding: 8px 16px; background: #fff; border-radius: 5px; font-size: 0.9em;"></span>
+                </div>
+                
+                <!-- Search/Filter Panel -->
+                <div style="padding: 15px 30px; background: white; border-bottom: 2px solid #e0e0e0;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <div style="flex: 1;">
+                            <label style="display: block; font-size: 0.85em; font-weight: 600; color: #666; margin-bottom: 5px;">🔍 Search Name:</label>
+                            <input type="text" id="searchName" placeholder="Search element name..." oninput="filterTree()" style="width: 100%; padding: 8px 12px; border: 2px solid #ddd; border-radius: 5px; font-size: 0.95em;">
+                        </div>
+                        <div style="width: 200px;">
+                            <label style="display: block; font-size: 0.85em; font-weight: 600; color: #666; margin-bottom: 5px;">📋 Filter Type:</label>
+                            <select id="filterType" onchange="filterTree()" style="width: 100%; padding: 8px 12px; border: 2px solid #ddd; border-radius: 5px; font-size: 0.95em;">
+                                <option value="">All Types</option>
+                                <option value="accordion">Accordion</option>
+                                <option value="button">Button</option>
+                                <option value="checkbox">Checkbox</option>
+                                <option value="input">Input</option>
+                                <option value="link">Link</option>
+                                <option value="tab">Tab</option>
+                                <option value="table">Table</option>
+                            </select>
+                        </div>
+                        <div style="width: 150px;">
+                            <label style="display: block; font-size: 0.85em; font-weight: 600; color: #666; margin-bottom: 5px;">📊 Filter Depth:</label>
+                            <select id="filterDepth" onchange="filterTree()" style="width: 100%; padding: 8px 12px; border: 2px solid #ddd; border-radius: 5px; font-size: 0.95em;">
+                                <option value="">All Depths</option>
+                                <option value="0">Depth 0 (Top)</option>
+                                <option value="1">Depth 1</option>
+                                <option value="2">Depth 2</option>
+                                <option value="3">Depth 3</option>
+                                <option value="4+">Depth 4+</option>
+                            </select>
+                        </div>
+                        <div style="align-self: flex-end;">
+                            <button onclick="clearFilters()" style="padding: 8px 16px; background: #ff9800; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; white-space: nowrap;">
+                                🔄 Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div id="filterStats" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+                </div>
+                
+                <!-- Content Area -->
+                <div style="display: flex; height: calc(100vh - 350px); min-height: 400px;">
+                    <!-- Tree Panel -->
+                    <div style="flex: 1; padding: 20px; overflow: auto; border-right: 1px solid #ddd;">
+                        <div id="elementTree" style="font-size: 14px;"></div>
+                    </div>
+                    
+                    <!-- Properties Panel -->
+                    <div style="width: 400px; padding: 20px; overflow: auto; background: #fafafa;">
+                        <h3 style="margin-top: 0; color: #333;">Element Properties</h3>
+                        <div id="elementProperties" style="color: #666;">
+                            <p>Select an element from the tree to view and edit its properties.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Element Modal -->
+        <div id="addElementModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; overflow: auto;">
+            <div style="background: white; margin: 50px auto; max-width: 600px; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.3);">
+                <div style="background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; padding: 20px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0;">➕ Add New Element</h2>
+                    <button onclick="closeAddElementForm()" style="background: rgba(255,255,255,0.2); border: none; color: white; font-size: 24px; cursor: pointer; padding: 5px 15px; border-radius: 5px;">×</button>
+                </div>
+                
+                <div style="padding: 30px;">
+                    <form id="addElementForm" onsubmit="addNewElement(event)">
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Element Name: <span style="color: red;">*</span></label>
+                            <input type="text" id="newElementName" required placeholder="e.g., Submit button" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em;">
+                            <small style="color: #666;">The display name for this element</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Type: <span style="color: red;">*</span></label>
+                            <select id="newElementType" required style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em;">
+                                <option value="">-- Select type --</option>
+                                <option value="button">Button</option>
+                                <option value="input">Input</option>
+                                <option value="checkbox">Checkbox</option>
+                                <option value="link">Link</option>
+                                <option value="accordion">Accordion</option>
+                                <option value="tab">Tab</option>
+                                <option value="table">Table</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Selector: <span style="color: red;">*</span></label>
+                            <input type="text" id="newElementSelector" required placeholder="e.g., button[id='submit'], .btn-primary" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em; font-family: monospace;">
+                            <small style="color: #666;">CSS selector or XPath to locate the element</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Parent Element:</label>
+                            <select id="newElementParent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em;">
+                                <option value="">-- Top-level (No parent) --</option>
+                            </select>
+                            <small style="color: #666;">Optional: Select a parent element for nesting</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Location:</label>
+                            <input type="text" id="newElementLocation" placeholder="e.g., left sidebar, main content" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em;">
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Text/Label:</label>
+                            <input type="text" id="newElementText" placeholder="e.g., Submit, Search" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 1em;">
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; margin-top: 20px;">
+                            <button type="submit" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 1em;">
+                                ✅ Add Element
+                            </button>
+                            <button type="button" onclick="closeAddElementForm()" style="flex: 1; padding: 12px; background: #757575; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 1em;">
+                                ❌ Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>National Cancer Institute & Essential Software Inc.</p>
+            <p style="font-size: 0.85em; margin-top: 5px; opacity: 0.7;">
+                AI-Driven Test Generation | LLM-Powered Element Discovery
+            </p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/parser.js') }}?v=3"></script>
+    <script src="{{ url_for('static', filename='js/tree_viewer.js') }}?v=1"></script>
+</body>
+</html>
+

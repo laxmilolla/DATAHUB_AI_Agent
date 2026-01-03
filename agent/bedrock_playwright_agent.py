@@ -18,6 +18,7 @@ from datetime import datetime
 # Add utils to path for element registry
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.element_registry import get_registry
+from utils.xpath_builder import XPathBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +48,91 @@ class BedrockPlaywrightAgent:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_counter = 0
         
-        # Element Registry for cached selectors
-        self.element_registry = get_registry()
+        # Story step tracking
+        self.current_step_number = 0
+        self.parsed_steps = {}  # {step_number: {metadata}}
+        
+        # Element Registry for cached selectors - use absolute path from project root
+        self.element_registry = get_registry(str(project_root / "element_maps"))
         self.current_url = ""
         self.discovered_elements = []  # Track newly discovered elements
+        self.last_clicked_element = None  # ✨ Track last clicked for parent-child relationships
         self.pre_click_screenshots = []  # Track pre-click validation screenshots
         self.story = ""  # Initialize story for AI disambiguation
         self.discoveries = []  # Track discovery metadata (query + final selector + method)
+    
+    def parse_story_metadata(self, story: str):
+        """Parse story once and extract metadata for each step"""
+        import re
+        
+        logger.info("📖 Parsing story metadata...")
+        self.story = story
+        self.parsed_steps = {}
+        
+        # Split into steps
+        lines = story.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line or not line.startswith('Step'):
+                continue
+            
+            # Extract step number: "Step 4:" or "4."
+            step_match = re.match(r'Step\s+(\d+)[\.:)]?\s*(.+)', line, re.IGNORECASE)
+            if not step_match:
+                continue
+            
+            step_num = int(step_match.group(1))
+            step_text = step_match.group(2).lower()
+            
+            # Extract metadata from step text
+            metadata = {"text": step_text}
+            
+            # Detect TYPE
+            if "tab" in step_text:
+                metadata["type"] = "tab"
+            elif "accordion" in step_text or "expand" in step_text:
+                metadata["type"] = "accordion"
+            elif "checkbox" in step_text or "check box" in step_text:
+                metadata["type"] = "checkbox"
+            
+            # Detect LOCATION
+            if "sidebar" in step_text or "filter panel" in step_text or "left" in step_text:
+                metadata["location"] = "sidebar"
+            elif "table" in step_text or "bottom" in step_text or "main" in step_text or "content" in step_text:
+                metadata["location"] = "table"
+            
+            # Detect PARENT/NESTED
+            if "nested" in step_text or "inner" in step_text or "within" in step_text or "inside" in step_text:
+                metadata["nested"] = True
+                
+            # Extract PARENT HINT from context (e.g., "in the Diagnosis section")
+            parent_patterns = [
+                r'in (?:the )?(\w+)(?: section| accordion| area)?',
+                r'inside (?:the )?(\w+)',
+                r'within (?:the )?(\w+)',
+                r'under (?:the )?(\w+)'
+            ]
+            for pattern in parent_patterns:
+                match = re.search(pattern, step_text)
+                if match:
+                    parent_hint = match.group(1).lower()
+                    # Exclude common words
+                    if parent_hint not in ['the', 'a', 'an', 'this', 'that', 'expanded', 'collapsed']:
+                        metadata["parent_hint"] = parent_hint
+                        break
+            
+            # Detect DEPTH preference
+            if "top" in step_text or "main" in step_text or "primary" in step_text:
+                metadata["prefer_depth"] = 0  # Top-level
+            elif "first level" in step_text:
+                metadata["prefer_depth"] = 1
+            elif "second level" in step_text:
+                metadata["prefer_depth"] = 2
+            
+            self.parsed_steps[step_num] = metadata
+            logger.info(f"  Step {step_num}: {metadata}")
+        
+        logger.info(f"✅ Parsed {len(self.parsed_steps)} steps with metadata")
         
     async def start_browser(self):
         """Launch Playwright browser"""
@@ -64,7 +143,8 @@ class BedrockPlaywrightAgent:
             headless=True,
             args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         )
-        self.page = await self.browser.new_page(viewport={'width': 1280, 'height': 720})
+        # Set larger viewport to ensure all tabs and elements are visible
+        self.page = await self.browser.new_page(viewport={'width': 1920, 'height': 1080})
         
         logger.info("Browser ready")
     
@@ -91,246 +171,227 @@ class BedrockPlaywrightAgent:
             
             # Extract page name
             import re
+            from urllib.parse import urlparse
+            
+            # Parse URL to get path
+            parsed = urlparse(current_url)
+            path = parsed.path.strip('/')
+            
+            # Try hash routing first (e.g., /#/explore)
             match = re.search(r'/#/(\w+)', current_url)
             if match:
                 page = match.group(1)
+            elif path:
+                # Extract first segment of path (e.g., /explore/something -> explore)
+                segments = path.split('/')
+                page = segments[0] if segments[0] else "home"
             else:
                 page = "home"
             
+            logger.debug(f"  🔍 Page detection: URL={current_url}, path={path}, page={page}")
             return domain, page
         except Exception as e:
             logger.warning(f"Error getting domain/page: {e}")
             return None, None
 
     def _check_element_registry(self, element_description: str) -> str:
-        """Check if element exists in registry and return selector. Returns None if not found (LLM will discover)."""
+        """Check if element exists in registry using current step metadata. Returns None if not found (LLM will discover)."""
         try:
             domain, page = self._get_domain_and_page()
-            logger.info(f"  🔍 Registry check: element='{element_description}', domain={domain}, page={page}, url={self.page.url if self.page else "N/A"}")
+            logger.info(f"  🔍 Registry check: element='{element_description}', domain={domain}, page={page}")
             if not domain or not page:
                 logger.warning(f"  ⚠️ Registry check skipped: domain or page not determined")
                 return None
             
+            # Get current step metadata
+            step_metadata = self.parsed_steps.get(self.current_step_number, {})
+            logger.info(f"  📖 Step {self.current_step_number} metadata: {step_metadata}")
+            
             # Try exact match first
             element = self.element_registry.get_element(domain, page, element_description)
-            logger.info(f"  📍 Exact match result: {'Found' if element else 'Not found'}")
             if element:
                 selector = element.get('selector')
-                logger.info(f"  ✅ Found in element map: {element_description} -> {selector}")
+                logger.info(f"  ✅ Exact match: {element_description} -> {selector}")
                 self.element_registry.update_usage(domain, page, element_description)
                 return selector
             
-            # Load element map for fuzzy matching
+            # Load element map for metadata-based matching
             element_map = self.element_registry.load_map(domain, page)
-            logger.info(f"  📂 Element map loaded: {len(element_map.get('elements', {})) if element_map else 0} elements")
+            logger.info(f"  📂 Element map: {len(element_map.get('elements', {})) if element_map else 0} elements")
             if not element_map:
                 return None
             
-            logger.info(f"  📝 Starting keyword extraction for: {element_description}")
+            # Extract clean text from selector
+            import re
+            clean_text = element_description.lower()
+            if clean_text.startswith('text='):
+                clean_text = clean_text[5:]
+            clean_text = clean_text.strip()
             
-            # Normalize selector to handle dynamic counts and preserve semantic type
-            normalized_selector, semantic_type, normalized_text = self._normalize_selector_for_dynamic_content(element_description)
-            
-            # Strip Playwright selector syntax before keyword extraction
-            clean_desc = normalized_text  # Use normalized text without counts
-            
-            # Extract from attribute selectors: [data-testid="Study-Facet"] -> Study-Facet
-            import re as re_import
-            attr_match = re_import.search(r'\[(?:data-testid|id|class|aria-label)=["\']([^"\']*)["\']\]', clean_desc)
-            if attr_match:
-                clean_desc = attr_match.group(1)
-                # Further clean: Study-Facet -> Study
-                clean_desc = re.sub(r'[-_](Facet|facet|Dropdown|dropdown|Button|button)', '', clean_desc)
-            
-            # Remove text= prefix
-            if clean_desc.startswith('text='):
-                clean_desc = clean_desc[5:]
-            
-            # Remove :has-text() wrapper
-            if ':has-text(' in clean_desc:
-                match = re.search(r":has-text\((.+?)\)", clean_desc)
-                if match:
-                    clean_desc = match.group(1).strip('"\'').strip()
-            
-            # Don't remove element type prefixes - we need them!
-            # But extract for matching
-            element_type_prefix = None
-            type_prefix_match = re.search(r'^(button|input|a|div|span|tab):', clean_desc)
-            if type_prefix_match:
-                element_type_prefix = type_prefix_match.group(1)
-            
-            logger.info(f"  🧹 Cleaned: '{element_description}' -> '{clean_desc}' (type={semantic_type or element_type_prefix})")
-            # Extract keywords from cleaned description
-            keywords = re.sub(r"[^a-zA-Z0-9]", " ", clean_desc).lower().split()
-            keywords = [k for k in keywords if k and len(k) > 2]  # Filter short words
-            # Filter out technical keywords (data, testid, aria, etc.)
-            keywords = [k for k in keywords if k not in ["data", "testid", "aria", "label", "class", "button", "input", "span", "div"]]
-            logger.info(f"  DEBUG_KEYWORDS: {keywords}")
-            
-            # Prioritized matching: better matches win
-            best_match = None
-            best_score = 0
-            
-            element_desc_lower = element_description.lower()
-            element_desc_clean = " ".join(keywords)  # Cleaned version: "text study" -> "study"
-            
+            # Find all matching elements by name using word boundaries
+            matches = []
             for name, elem in element_map.get("elements", {}).items():
                 name_lower = name.lower()
-                elem_type = elem.get("type", "").lower()
-                score = 0
-                
-                # FILTER: If semantic type specified, only match same type
-                if semantic_type:
-                    # Check if element type matches requested semantic type
-                    type_matches = False
-                    
-                    # Handle role="tab" matching
-                    if semantic_type == "tab":
-                        if elem_type in ["tab", "button"] and "tab" in name_lower:
-                            type_matches = True
-                    # Handle button: matching
-                    elif semantic_type == "button":
-                        if elem_type == "button":
-                            type_matches = True
-                    # Handle other role types
-                    else:
-                        if elem_type == semantic_type:
-                            type_matches = True
-                    
-                    # Skip if type doesn't match
-                    if not type_matches:
-                        logger.debug(f"  ⏭️ Skipping '{name}' (type={elem_type}) - doesn't match requested type={semantic_type}")
-                        continue
-                
-                # Priority 1: Element name exactly matches query (case-insensitive) - Score 100
-                if name_lower == element_desc_lower or name_lower == element_desc_clean:
-                    score = 100
-                
-                # Priority 2: Element name starts with query - Score 80
-                elif name_lower.startswith(element_desc_clean) or any(name_lower.startswith(k) for k in keywords):
-                    score = 80
-                
-                # Priority 3: Element name ends with query - Score 70
-                elif name_lower.endswith(element_desc_clean) or any(name_lower.endswith(k) for k in keywords):
-                    score = 70
-                
-                # Priority 4: Query is substring of element name - Score 60
-                elif element_desc_clean in name_lower:
-                    score = 60
-                
-                # Priority 5: Keyword appears in element name - Score 40
-                elif any(k in name_lower for k in keywords):
-                    score = 40
-                
-                # Priority 6: Keyword appears in description - Score 20
-                elif any(k in elem.get("description", "").lower() for k in keywords):
-                    score = 20
-                
-                # Bonus: Element type is accordion/dropdown - add 10 points if query suggests dropdown
-                if elem.get("type") in ["accordion", "dropdown"] and "dropdown" in element_desc_lower:
-                    score += 10
-                
-                # Bonus: Semantic type match adds confidence
-                if semantic_type and elem_type == semantic_type:
-                    score += 15
-                
-                # Penalty: ID-based selectors (likely nested/hidden elements)
-                if elem.get("selector", "").startswith("#"):
-                    score -= 30
-                    logger.debug(f"  ⬇️ ID selector penalty for '{name}': {elem.get('selector')}")
-                
-                # Penalty: Specific selectors (button:, [role=) when query is generic text=
-                # Prefer simpler text= matches for AI discovery
-                if not semantic_type and element_description.startswith("text="):
-                    if elem.get("selector", "").startswith(("button:", "[role=")):
-                        score -= 15
-                        logger.debug(f"  ⬇️ Specific selector penalty for '{name}' (query is generic)")
-                
-                # Track best match
-                if score > best_score or (score == best_score and best_match and len(name) < len(best_match[0])):
-                    best_score = score
-                    best_match = (name, elem)
+                # Use word boundary matching to avoid partial matches
+                # "diagnosis" should match "Diagnosis" but NOT "Age at Diagnosis"
+                pattern = r'\b' + re.escape(clean_text) + r'\b'
+                if re.search(pattern, name_lower):
+                    matches.append((name, elem))
+                    logger.info(f"  ✓ Name match: {name}")
             
-            # Return best match if found
-            if best_match and best_score >= 80:  # Minimum score threshold (raised to prevent false matches)
-                name, elem = best_match
-                
-                # OPTIMIZATION: Try final selector first (from successful discovery)
-                # This is the actual working selector that was used successfully
-                final_selector_from_discovery = elem.get("selector")  # New format stores final selector here
-                query_selector = elem.get("query")  # Original query (if available)
-                
-                # If this element has discovery metadata, it means we have a proven working selector
-                if elem.get("discovery"):
-                    logger.info(f"  🚀 Using optimized selector from discovery (method: {elem.get('discovery', {}).get('method')})")
-                    logger.info(f"     Original query: {query_selector}")
-                    logger.info(f"     Final selector: {final_selector_from_discovery}")
-                    # Update usage and return the optimized selector directly
-                    self.element_registry.update_usage(domain, page, name)
-                    return final_selector_from_discovery
-                
-                # Otherwise, proceed with normal logic for legacy elements
-                base_selector = final_selector_from_discovery or elem.get("selector")
-                
-                # Check if matched element has dynamic count
-                import re as re_module
-                if re_module.search(r'\(\d+\)', name):
-                    # Element has count - use regex selector to match any count
-                    # Extract clean text from the selector, not the name field
-                    if ':has-text(' in base_selector:
-                        # Extract from selector like "button:has-text('Samples(1507)')"
-                        text_match = re_module.search(r':has-text\(["\']?([^"\'()]+)', base_selector)
-                        if text_match:
-                            element_text = text_match.group(1).strip()
-                        else:
-                            # Fallback: clean the name field
-                            element_text = re_module.sub(r'\s*(button|link|dropdown|tab|filter)$', '', name)
-                            element_text = re_module.sub(r'\(\d+\)', '', element_text).strip()
-                    else:
-                        # For text= selectors or others - clean the name field
-                        element_text = re_module.sub(r'\s*(button|link|dropdown|tab|filter)$', '', name)
-                        element_text = re_module.sub(r'\(\d+\)', '', element_text).strip()
-                    
-                    # Determine element type from selector or elem info
-                    if semantic_type:
-                        if semantic_type == "tab":
-                            final_selector = f'[role="tab"]:has-text(/{element_text}\\(\\d+\\)/)'
-                        elif semantic_type == "button":
-                            final_selector = f'button:has-text(/{element_text}\\(\\d+\\)/)'
-                        else:
-                            final_selector = f'[role="{semantic_type}"]:has-text(/{element_text}\\(\\d+\\)/)'
-                    elif base_selector.startswith('button'):
-                        final_selector = f'button:has-text(/{element_text}\\(\\d+\\)/)'
-                    else:
-                        # Generic text match with regex
-                        final_selector = f':has-text(/{element_text}\\(\\d+\\)/)'
-                    
-                    logger.info(f"  ✅ Best match (score={best_score}): '{element_description}' matched '{name}'")
-                    logger.info(f"  🔄 Dynamic count detected - using regex selector: {final_selector}")
-                    self.element_registry.update_usage(domain, page, name)
-                    return final_selector
+            if not matches:
+                logger.info(f"  ⚠️ No name matches for '{clean_text}'")
+                return None
+            
+            logger.info(f"  Found {len(matches)} name matches, filtering by step metadata...")
+            
+            # Filter by step metadata
+            filtered = matches
+            
+            # Filter by TYPE if specified in metadata
+            if "type" in step_metadata:
+                required_type = step_metadata["type"]
+                temp_filtered = []
+                for name, elem in filtered:
+                    elem_type = elem.get("type", "").lower()
+                    if elem_type == required_type or required_type in name.lower():
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Type match ({required_type}): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} by type={required_type}")
+            
+            # Filter by LOCATION if specified in metadata
+            if "location" in step_metadata:
+                required_location = step_metadata["location"]
+                temp_filtered = []
+                for name, elem in filtered:
+                    elem_location = elem.get("location", "").lower()
+                    if elem_location == required_location:
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Location match ({required_location}): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} by location={required_location}")
+            
+            # Filter by NESTED/PARENT if specified in metadata
+            if "nested" in step_metadata and step_metadata["nested"]:
+                temp_filtered = []
+                for name, elem in filtered:
+                    parent_name = elem.get("parent_name")
+                    if parent_name and parent_name != "None":
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Nested match (has parent): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} - nested elements only")
+            else:
+                # NOT nested - prefer elements WITHOUT parent
+                temp_filtered = []
+                for name, elem in filtered:
+                    parent_name = elem.get("parent_name")
+                    if not parent_name or parent_name == "None":
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Parent match (no parent): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} - top-level elements only")
+            
+            # Filter by PARENT HINT if specified (e.g., "in the Diagnosis section")
+            if "parent_hint" in step_metadata:
+                parent_hint = step_metadata["parent_hint"]
+                temp_filtered = []
+                for name, elem in filtered:
+                    parent_text = elem.get("parent_text", "").lower()
+                    parent_id = elem.get("parent_id", "").lower()
+                    if parent_hint in parent_text or parent_hint in parent_id:
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Parent hint match ('{parent_hint}'): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} by parent_hint='{parent_hint}'")
+            
+            # Filter by DEPTH preference if specified
+            if "prefer_depth" in step_metadata:
+                prefer_depth = step_metadata["prefer_depth"]
+                temp_filtered = []
+                for name, elem in filtered:
+                    elem_depth = elem.get("depth", 0)
+                    if elem_depth == prefer_depth:
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Depth match (depth={prefer_depth}): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} by depth={prefer_depth}")
                 else:
-                    # No dynamic count - use selector as-is, but apply semantic type if specified
-                    if semantic_type and not ('[role=' in base_selector or base_selector.startswith(semantic_type)):
-                        # Add semantic type qualifier if not already present
-                        if ':has-text(' in base_selector:
-                            text_part = re_module.search(r':has-text\(([^)]+)\)', base_selector)
-                            if text_part:
-                                if semantic_type in ['tab', 'button', 'link']:
-                                    final_selector = f'{semantic_type}:has-text({text_part.group(1)})'
-                                else:
-                                    final_selector = f'[role="{semantic_type}"]:has-text({text_part.group(1)})'
-                            else:
-                                final_selector = base_selector
-                        else:
-                            final_selector = base_selector
-                    else:
-                        final_selector = base_selector
+                    # If no exact match, prefer closest depth
+                    filtered.sort(key=lambda x: abs(x[1].get("depth", 0) - prefer_depth))
+                    logger.info(f"  📊 Sorted by depth proximity to {prefer_depth}")
+            
+            # Filter by SEMANTIC TYPE if available
+            if "semantic_type" in step_metadata:
+                required_semantic = step_metadata["semantic_type"]
+                temp_filtered = []
+                for name, elem in filtered:
+                    elem_semantic = elem.get("semantic_type", "").lower()
+                    if required_semantic in elem_semantic:
+                        temp_filtered.append((name, elem))
+                        logger.info(f"  ✓ Semantic type match ({required_semantic}): {name}")
+                if temp_filtered:
+                    filtered = temp_filtered
+                    logger.info(f"  Filtered to {len(filtered)} by semantic_type='{required_semantic}'")
+            
+            # If we have filtered results, pick the best match
+            if filtered:
+                # Sort by name similarity - prefer shorter names and exact matches
+                # Extract just the element name from description (remove location/type info)
+                def extract_element_name(desc):
+                    """Extract just the element name from full description"""
+                    # Example: "Diagnosis accordion nested in Diagnosis" -> "diagnosis"
+                    parts = desc.lower().split()
+                    # Remove common suffixes
+                    for word in ['accordion', 'tab', 'button', 'checkbox', 'nested', 'in', 'left', 'sidebar', 'filter', 'panel']:
+                        if word in parts:
+                            parts.remove(word)
+                    return ' '.join(parts[:2])  # Take first 2 words max
+                
+                # Sort: exact matches first, then by depth (prefer shallower), then by name length
+                def match_score(item):
+                    name, elem = item
+                    elem_name = extract_element_name(name)
+                    elem_depth = elem.get("depth", 0)
                     
-                    logger.info(f"  ✅ Best match (score={best_score}): '{element_description}' matched '{name}' -> {final_selector}")
-                    self.element_registry.update_usage(domain, page, name)
-                    return final_selector
-
+                    # Exact match gets score 0 (best)
+                    if elem_name == clean_text:
+                        return (0, elem_depth, len(name))
+                    # Close match gets score 1
+                    if clean_text in elem_name or elem_name in clean_text:
+                        return (1, elem_depth, len(name))
+                    # Otherwise sort by depth and length
+                    return (2, elem_depth, len(name))
+                
+                filtered = sorted(filtered, key=match_score)
+                name, elem = filtered[0]
+                
+                # CRITICAL: If step is nested AND element has parent → use XPath (includes parent check)
+                # Simple selector like [id='Diagnosis'] matches BOTH outer and inner accordions
+                # XPath like parent::*[@id='Diagnosis'] ensures we get the correct nested one
+                if step_metadata.get("nested") and elem.get("parent_id"):
+                    xpath = elem.get('xpath')
+                    if xpath:
+                        selector = f"xpath={xpath}"
+                        logger.info(f"  ✅ Matched (NESTED - using XPath): '{element_description}' -> '{name}'")
+                        logger.info(f"      XPath: {xpath}")
+                    else:
+                        selector = elem.get('selector')
+                        logger.warning(f"  ⚠️ Nested element but no XPath available, using selector: {selector}")
+                else:
+                    selector = elem.get('selector')
+                    logger.info(f"  ✅ Matched: '{element_description}' -> '{name}' -> {selector}")
+                
+                self.element_registry.update_usage(domain, page, name)
+                return selector
+            
             return None
         except Exception as e:
             # Registry lookup failed - no problem, LLM will discover
@@ -402,7 +463,7 @@ class BedrockPlaywrightAgent:
         while '__' in name:
             name = name.replace('__', '_')
         return name
-    
+
     def _record_discovered_element(self, element_name: str, selector: str, element_type: str = "unknown"):
         """Record newly discovered element for later addition to registry"""
         self.discovered_elements.append({
@@ -446,6 +507,7 @@ class BedrockPlaywrightAgent:
         try:
             locator = self.page.locator(selector).nth(0)
             validation_result["locator"] = locator  # Preserve locator reference
+            validation_result["selector"] = selector  # Preserve selector for post-click reconstruction
             
             # Check if element exists
             count = await locator.count()
@@ -478,23 +540,23 @@ class BedrockPlaywrightAgent:
             # Highlight element for visual confirmation
             if validation_result["visible"]:
                 try:
-                    # CRITICAL: Scroll element into view first!
-                    logger.info(f"  📍 Scrolling element into view...")
-                    await locator.scroll_into_view_if_needed()
-                    await self.page.wait_for_timeout(500)  # Let scroll animation complete
+                    # DISABLED: Highlighting was causing accordions to auto-expand
+                    # logger.info(f"  📍 Scrolling element into view...")
+                    # await locator.scroll_into_view_if_needed()
+                    # await self.page.wait_for_timeout(500)  # Let scroll animation complete
                     
-                    # Add thick red outline
-                    await locator.evaluate("el => el.style.outline = '5px solid red'")
-                    await locator.evaluate("el => el.style.outlineOffset = '2px'")
-                    await self.page.wait_for_timeout(1000)  # Wait for browser to render highlight
+                    # DISABLED: Add thick red outline - causes accordion auto-expansion
+                    # await locator.evaluate("el => el.style.outline = '5px solid red'")
+                    # await locator.evaluate("el => el.style.outlineOffset = '2px'")
+                    # await self.page.wait_for_timeout(1000)  # Wait for browser to render highlight
                     
-                    # Take screenshot showing highlighted element
+                    # Take screenshot showing element (without highlighting to avoid auto-expansion)
                     self.screenshot_counter += 1
                     safe_name = self._sanitize_filename(element_description)
                     filename = f"{self.screenshot_counter:03d}_pre_click_{safe_name}.png"
                     filepath = self.screenshots_dir / filename
                     
-                    # Take full page screenshot (element is now in view)
+                    # Take full page screenshot (element is in current view)
                     await self.page.screenshot(path=str(filepath), full_page=False)
                     
                     # Store screenshot info
@@ -503,12 +565,12 @@ class BedrockPlaywrightAgent:
                         validation_result["screenshot_taken"] = True
                         validation_result["screenshot_file"] = filename
                         validation_result["screenshot_size"] = size
-                        logger.info(f"  ✅ Pre-validation: Element visible and highlighted in screenshot: {filename} ({size} bytes)")
+                        logger.info(f"  ✅ Pre-validation: Element visible in screenshot (no highlighting): {filename} ({size} bytes)")
                     
-                    # Keep highlight visible briefly, then remove
-                    await self.page.wait_for_timeout(200)
-                    await locator.evaluate("el => el.style.outline = ''")
-                    await locator.evaluate("el => el.style.outlineOffset = ''")
+                    # DISABLED: Keep highlight visible briefly, then remove
+                    # await self.page.wait_for_timeout(200)
+                    # await locator.evaluate("el => el.style.outline = ''")
+                    # await locator.evaluate("el => el.style.outlineOffset = ''")
                     
                 except Exception as e:
                     logger.warning(f"  ⚠️ Could not highlight element: {e}")
@@ -532,13 +594,13 @@ class BedrockPlaywrightAgent:
             count = await locator.count()
             
             if count > 0 and await locator.is_visible():
-                # CASE 1: Element still visible - highlight it green
-                await locator.scroll_into_view_if_needed()
+                # CASE 1: Element still visible - NO highlighting (could affect element behavior)
+                # DISABLED: await locator.scroll_into_view_if_needed()
                 await self.page.wait_for_timeout(300)
                 
-                # Apply GREEN highlight
-                await locator.evaluate("el => el.style.outline = '5px solid lime'")
-                await locator.evaluate("el => el.style.outlineOffset = '2px'")
+                # DISABLED: Apply GREEN highlight - could trigger element interactions
+                # await locator.evaluate("el => el.style.outline = '5px solid lime'")
+                # await locator.evaluate("el => el.style.outlineOffset = '2px'")
                 await self.page.wait_for_timeout(1000)
                 
                 # Screenshot
@@ -548,16 +610,16 @@ class BedrockPlaywrightAgent:
                 filepath = self.screenshots_dir / filename
                 await self.page.screenshot(path=str(filepath))
                 
-                # Remove highlight
-                await self.page.wait_for_timeout(200)
-                await locator.evaluate("el => el.style.outline = ''")
-                await locator.evaluate("el => el.style.outlineOffset = ''")
+                # DISABLED: Remove highlight
+                # await self.page.wait_for_timeout(200)
+                # await locator.evaluate("el => el.style.outline = ''")
+                # await locator.evaluate("el => el.style.outlineOffset = ''")
                 
                 result["screenshot_taken"] = True
                 result["screenshot_file"] = filename
                 result["screenshot_size"] = filepath.stat().st_size
                 logger.info(f"  📸 ✅ Post-click screenshot: {filename} ({result['screenshot_size']} bytes)")
-                logger.info(f"  🟢 Post-click GREEN highlight captured")
+                logger.info(f"  📸 Post-click screenshot captured (no highlighting)")
                 
             else:
                 # CASE 2: Element disappeared - find the result/echo in the page
@@ -577,9 +639,9 @@ class BedrockPlaywrightAgent:
                             await elem.scroll_into_view_if_needed()
                             await self.page.wait_for_timeout(300)
                             
-                            # Highlight result in green
-                            await elem.evaluate("el => el.style.outline = '5px solid lime'")
-                            await elem.evaluate("el => el.style.outlineOffset = '2px'")
+                            # DISABLED: Highlight result in green - could trigger element interactions
+                            # await elem.evaluate("el => el.style.outline = '5px solid lime'")
+                            # await elem.evaluate("el => el.style.outlineOffset = '2px'")
                             await self.page.wait_for_timeout(1000)
                             
                             # Screenshot
@@ -589,15 +651,15 @@ class BedrockPlaywrightAgent:
                             filepath = self.screenshots_dir / filename
                             await self.page.screenshot(path=str(filepath))
                             
-                            # Remove highlight
-                            await elem.evaluate("el => el.style.outline = ''")
-                            await elem.evaluate("el => el.style.outlineOffset = ''")
+                            # DISABLED: Remove highlight
+                            # await elem.evaluate("el => el.style.outline = ''")
+                            # await elem.evaluate("el => el.style.outlineOffset = ''")
                             
                             result["screenshot_taken"] = True
                             result["screenshot_file"] = filename
                             result["screenshot_size"] = filepath.stat().st_size
                             logger.info(f"  📸 ✅ Post-click result screenshot: {filename} ({result['screenshot_size']} bytes)")
-                            logger.info(f"  🟢 Post-click GREEN highlight on result")
+                            logger.info(f"  📸 Post-click result screenshot captured (no highlighting)")
                             element_found = True
                             break
                     except:
@@ -661,7 +723,7 @@ class BedrockPlaywrightAgent:
                 # Generic: matches Cases(50), Products(100), Files(20), etc.
                 count_locator = self.page.locator('text=/\\w+\\s*\\(\\d+\\)/')
                 if await count_locator.count() > 0:
-                    count_text = await count_locator.first.text_content()
+                    count_text = await count_locator.nth(0).text_content()
                     match = re.search(r'\\((\\d+)\\)', count_text)
                     if match:
                         new_count = int(match.group(1))
@@ -943,13 +1005,97 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             logger.warning(f"  ⚠️ Could not generate final selector: {e}")
             return None
     
-    def _track_discovery(self, element_name: str, original_query: str, final_selector: str, 
+    async def _extract_element_attributes(self, locator) -> Dict:
+        """Extract all attributes from a Playwright locator or ElementHandle for XPath generation"""
+        try:
+            # Handle both Locator and ElementHandle types
+            # Check if it's already an ElementHandle
+            from playwright.async_api import ElementHandle, Locator
+            
+            if isinstance(locator, ElementHandle):
+                # Already an ElementHandle, use directly
+                element = locator
+            elif isinstance(locator, Locator):
+                # It's a Locator, get the element handle
+                element = await locator.element_handle()
+                if not element:
+                    logger.warning("  ⚠️ Could not get element handle for attribute extraction")
+                    return {}
+            else:
+                logger.warning(f"  ⚠️ Unexpected type for locator: {type(locator)}")
+                return {}
+            
+            # Extract tag name
+            tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+            
+            # Extract attributes
+            attrs = {
+                "tag": tag_name,
+                "id": await element.get_attribute('id'),
+                "role": await element.get_attribute('role'),
+                "aria-label": await element.get_attribute('aria-label'),
+                "aria-expanded": await element.get_attribute('aria-expanded'),
+                "aria-selected": await element.get_attribute('aria-selected'),
+                "title": await element.get_attribute('title'),
+                "data-testid": await element.get_attribute('data-testid'),
+                "class": await element.get_attribute('class'),
+                "name": await element.get_attribute('name'),
+                "text": await element.text_content()
+            }
+            
+            # Clean up None values
+            attrs = {k: v for k, v in attrs.items() if v is not None}
+            
+            logger.info(f"  📝 Extracted {len(attrs)} attributes: {list(attrs.keys())}")
+            if attrs.get('id'):
+                logger.info(f"     🆔 ID: {attrs['id']}")
+            if attrs.get('text'):
+                logger.info(f"     📄 Text: {attrs['text'][:50]}")
+            
+            return attrs
+        
+        except Exception as e:
+            logger.warning(f"  ⚠️ Failed to extract attributes: {e}")
+            import traceback
+            logger.warning(f"     {traceback.format_exc()}")
+            return {}
+    
+    async def _track_discovery(self, element_name: str, original_query: str, final_selector: str, 
                          discovery_method: str, metadata: dict):
-        """Track a successful discovery for later registry update"""
+        """Track a successful discovery for later registry update - Generate XPath using LIVE DOM"""
+        
+        # Generate XPath from the discovered element
+        xpath_result = None
+        try:
+            # Extract element attributes if available
+            element_attrs = metadata.get('element_attrs', {})
+            
+            if element_attrs:
+                logger.info(f"  🔨 Building XPath for '{element_name}' using LIVE Playwright DOM...")
+                # Use XPath builder with Playwright's LIVE DOM (no BeautifulSoup!)
+                xpath_builder = XPathBuilder(self.page)
+                xpath_result = await xpath_builder.build_unique_xpath(element_attrs, element_name)
+                
+                logger.info(f"  ✅ Generated unique XPath")
+                logger.info(f"     Method: {xpath_result['uniqueness_method']}")
+                logger.info(f"     XPath: {xpath_result['xpath']}")
+            else:
+                logger.warning(f"  ⚠️ No element_attrs in metadata - cannot generate XPath")
+                logger.warning(f"     Available metadata keys: {list(metadata.keys())}")
+        
+        except Exception as e:
+            logger.warning(f"  ⚠️ Failed to generate XPath: {e}")
+            logger.warning(f"  Falling back to CSS selector")
+            import traceback
+            logger.warning(f"     {traceback.format_exc()}")
+        
+        # Store discovery with XPath
         discovery = {
             "name": element_name,
             "original_query": original_query,
-            "final_selector": final_selector,
+            "final_selector": final_selector,  # Keep for backward compatibility
+            "xpath": xpath_result['xpath'] if xpath_result else None,
+            "uniqueness_method": xpath_result['uniqueness_method'] if xpath_result else None,
             "discovery_method": discovery_method,
             "metadata": metadata,
             "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -958,10 +1104,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         self.discoveries.append(discovery)
         logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method}")
         logger.info(f"     Query: {original_query}")
-        logger.info(f"     Final: {final_selector}")
+        if xpath_result:
+            logger.info(f"     XPath: {xpath_result['xpath']}")
+        else:
+            logger.info(f"     Selector: {final_selector}")
     
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """Execute tool - Direct Playwright calls!"""
+        
+        # Increment step number for every tool execution
+        self.current_step_number += 1
+        logger.info(f"🔢 Executing Step {self.current_step_number}")
         
         if tool_name == "browser_navigate":
             url = tool_input['url']
@@ -973,6 +1126,18 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             # Execute
             await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await self.page.wait_for_timeout(1000)  # Allow page to settle
+            
+            # Set wide viewport and zoom out to show all tabs (avoid "More" button)
+            try:
+                # Viewport is already 1920x1080 from initialization
+                # Zoom out to 80% for maximum tab visibility
+                await self.page.evaluate("document.body.style.zoom = '0.8'")
+                logger.info(f"  🔍 Zoom set to 80% (viewport: 1920x1080)")
+                
+                # Wait for layout to adjust
+                await self.page.wait_for_timeout(500)
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not adjust viewport/zoom: {e}")
             
             # Verify
             actual_url = self.page.url
@@ -1025,7 +1190,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             original_selector = selector
             logger.info(f"Click: {selector}")
             
-            # Check element registry first for known good selectors
+            # Check element registry using current step metadata
             registry_selector = self._check_element_registry(selector)
             optimized_selector_used = False
             if registry_selector:
@@ -1037,10 +1202,49 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             # Verify element type matches story intent (accordion vs tab vs button)
             # Check parent if direct match isn't interactive or appropriate
             chosen_locator = None  # Track if we have a specific locator from AI disambiguation
+            original_element_for_xpath = None  # Track original nested element for XPath generation
             
             # TRY optimized selector first, with fallback to original query if it fails
             try:
                 all_matches = await self.page.locator(selector).all()
+                
+                # ✅ VERIFY XPATH UNIQUENESS during execution (not just during parsing!)
+                if optimized_selector_used and selector.startswith("xpath="):
+                    xpath_count = len(all_matches)
+                    logger.info(f"  🔍 XPath verification: {xpath_count} match(es) found in live DOM")
+                    
+                    if xpath_count == 0:
+                        logger.warning(f"  ⚠️ XPath returned 0 matches (element may be hidden/not in DOM yet)")
+                        logger.info(f"  ⚙️ Falling back to discovery: {original_selector}")
+                        selector = original_selector
+                        optimized_selector_used = False
+                        all_matches = await self.page.locator(selector).all()
+                    elif xpath_count > 1:
+                        logger.warning(f"  ⚠️ XPath returned {xpath_count} matches (not unique in current DOM state)")
+                        logger.info(f"  ⚙️ Continuing with AI disambiguation for {xpath_count} matches")
+                        # Continue with normal AI disambiguation flow
+                    else:
+                        logger.info(f"  ✅ XPath is unique (1 match) - proceeding with click")
+                        
+                        # 🔍 DEBUG: Log the actual element attributes that were matched
+                        try:
+                            matched_elem = all_matches[0]
+                            elem_debug_info = await matched_elem.evaluate("""el => ({
+                                tagName: el.tagName.toLowerCase(),
+                                id: el.id,
+                                role: el.getAttribute('role'),
+                                ariaExpanded: el.getAttribute('aria-expanded'),
+                                text: el.textContent?.substring(0, 80),
+                                className: el.className,
+                                parentId: el.parentElement?.id || null
+                            })""")
+                            logger.info(f"  🔍 DEBUG - Matched element attributes:")
+                            logger.info(f"      tag={elem_debug_info['tagName']}, id='{elem_debug_info['id']}', role='{elem_debug_info['role']}'")
+                            logger.info(f"      aria-expanded={elem_debug_info['ariaExpanded']}, parent_id='{elem_debug_info['parentId']}'")
+                            logger.info(f"      text='{elem_debug_info['text'][:60] if elem_debug_info['text'] else 'N/A'}...'")
+                        except Exception as debug_err:
+                            logger.warning(f"  ⚠️ Could not extract debug info: {debug_err}")
+                        
             except Exception as selector_error:
                 # Optimized selector failed, fall back to original query
                 if optimized_selector_used and selector != original_selector:
@@ -1260,14 +1464,65 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     # Ask LLM to choose based on story context
                     best_index = await self._llm_choose_element(candidates, selector)
                     
-                    # Use the chosen element directly
+                    # Use the chosen element for clicking
                     logger.info(f"  🎯 LLM chose element {best_index} of {len(candidates)}")
                     chosen_locator = candidates[best_index]["element"]
+                    
+                    # 🔍 DEBUG: Log the LLM-chosen element's attributes
+                    try:
+                        llm_chosen_debug = await chosen_locator.evaluate("""el => ({
+                            tagName: el.tagName.toLowerCase(),
+                            id: el.id,
+                            role: el.getAttribute('role'),
+                            ariaExpanded: el.getAttribute('aria-expanded'),
+                            text: el.textContent?.substring(0, 80),
+                            parentId: el.parentElement?.id || null
+                        })""")
+                        logger.info(f"  🔍 DEBUG - LLM chose element with attributes:")
+                        logger.info(f"      tag={llm_chosen_debug['tagName']}, id='{llm_chosen_debug['id']}', role='{llm_chosen_debug['role']}'")
+                        logger.info(f"      aria-expanded={llm_chosen_debug['ariaExpanded']}, parent_id='{llm_chosen_debug['parentId']}'")
+                        logger.info(f"      text='{llm_chosen_debug['text'][:60] if llm_chosen_debug['text'] else 'N/A'}...'")
+                    except Exception as debug_err:
+                        logger.warning(f"  ⚠️ Could not extract LLM-chosen element debug info: {debug_err}")
+                    
+                    # IMPORTANT: Preserve the original nested element (candidates[0]) for XPath generation
+                    # When tree climbing finds a parent, we click the parent but generate XPath for the nested element
+                    original_element_for_xpath = candidates[0]["element"]
+                    if best_index > 0:
+                        logger.info(f"  📍 Using element {best_index} for clicking, but element 0 (nested) for XPath")
                 
                 elif len(candidates) == 1:
                     # Single candidate that looks appropriate, use it
                     logger.info(f"  ✅ Single appropriate element found")
                     chosen_locator = candidates[0]["element"]
+                    original_element_for_xpath = candidates[0]["element"]
+                    
+                    # 🔍 DEBUG: Log the chosen element's attributes AND verify it's the same as XPath match
+                    try:
+                        chosen_debug_info = await chosen_locator.evaluate("""el => ({
+                            tagName: el.tagName.toLowerCase(),
+                            id: el.id,
+                            role: el.getAttribute('role'),
+                            ariaExpanded: el.getAttribute('aria-expanded'),
+                            text: el.textContent?.substring(0, 80),
+                            parentId: el.parentElement?.id || null
+                        })""")
+                        logger.info(f"  🔍 DEBUG - Chosen element for click (candidates[0]):")
+                        logger.info(f"      tag={chosen_debug_info['tagName']}, id='{chosen_debug_info['id']}', role='{chosen_debug_info['role']}'")
+                        logger.info(f"      aria-expanded={chosen_debug_info['ariaExpanded']}, parent_id='{chosen_debug_info['parentId']}'")
+                        logger.info(f"      text='{chosen_debug_info['text'][:60] if chosen_debug_info['text'] else 'N/A'}...'")
+                        
+                        # Verify this is the same element from all_matches[0]
+                        first_match_debug = await all_matches[0].evaluate("""el => ({
+                            id: el.id,
+                            text: el.textContent?.substring(0, 80)
+                        })""")
+                        if first_match_debug['id'] == chosen_debug_info['id']:
+                            logger.info(f"  ✅ Confirmed: chosen_locator matches all_matches[0] (both id='{chosen_debug_info['id']}')")
+                        else:
+                            logger.warning(f"  ⚠️ MISMATCH: chosen_locator id='{chosen_debug_info['id']}' != all_matches[0] id='{first_match_debug['id']}'")
+                    except Exception as debug_err:
+                        logger.warning(f"  ⚠️ Could not extract chosen element debug info: {debug_err}")
                     
             except Exception as e:
                 # If we can't check for multiple matches, continue with original selector
@@ -1302,76 +1557,34 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         is_tab_click = True
                         logger.info(f"  🎯 Tab detected (fallback to selector string)")
                 
-                # STORY CONTEXT: Final fallback - check if story mentions this element as a "tab"
-                if not is_tab_click and self.story:
-                    story_lower = self.story.lower()
-                    element_name_lower = element_name.lower().strip()
-                    # Look for pattern like "click on the [element] tab"
-                    if element_name_lower and element_name_lower in story_lower:
-                        import re
-                        
-                        # Find all mentions of the element name and extract context (±80 chars)
-                        element_positions = [m.start() for m in re.finditer(re.escape(element_name_lower), story_lower)]
-                        
-                        for pos in element_positions:
-                            # Extract context window around this mention
-                            context_start = max(0, pos - 80)
-                            context_end = min(len(story_lower), pos + len(element_name_lower) + 80)
-                            context = story_lower[context_start:context_end]
-                            
-                            # Check for NEGATIVE keywords (sidebar/filter) in this context
-                            negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
-                            has_negative_keyword = any(keyword in context for keyword in negative_keywords)
-                            
-                            if has_negative_keyword:
-                                logger.info(f"  ⛔ NOT a tab (nearby context mentions filter/sidebar: '{context[max(0,pos-context_start-20):pos-context_start+len(element_name_lower)+20]}')")
-                                continue  # Skip this mention, check next one
-                            
-                            # Check for POSITIVE keywords (table tab) in this context
-                            positive_keywords = ['data table', 'table tab', 'tab in table', 'table with tabs', 'in the table']
-                            has_positive_keyword = any(keyword in context for keyword in positive_keywords)
-                            
-                            if has_positive_keyword:
-                                is_tab_click = True
-                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near table/tab keywords)")
-                                break  # Found a tab mention, stop searching
-                            
-                            # Check proximity of "tab" word in this context
-                            if 'tab' in context:
-                                # Check if "tab" is within 50 chars of element name in this context
-                                pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                                if re.search(pattern, context):
-                                    is_tab_click = True
-                                    logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near 'tab' in context)")
-                                    break  # Found a tab mention, stop searching
-                        
-                        # Capture initial tab state for validation if tab detected
-                        if is_tab_click and not initial_tab_state:
-                                try:
-                                    selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
-                                    initial_tab_state = {
-                                        "selected_tab": selected_tab.strip() if selected_tab else None,
-                                        "target_element": original_selector
-                                    }
-                                    logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
-                                except:
-                                    # If no semantic tabs, still set state to enable validation
-                                    initial_tab_state = {
-                                        "selected_tab": None,
-                                        "target_element": original_selector
-                                    }
-                                    logger.info(f"  🎯 Tab state captured (no semantic tabs found, will use DOM-based validation)")
-                
                 # Validate the chosen locator with screenshot
                 try:
-                    # Scroll into view and highlight
-                    await chosen_locator.scroll_into_view_if_needed()
-                    await self.page.wait_for_timeout(500)
-                    await chosen_locator.evaluate("el => el.style.outline = '5px solid red'")
-                    await chosen_locator.evaluate("el => el.style.outlineOffset = '2px'")
-                    await self.page.wait_for_timeout(1000)
+                    # DISABLED: DEBUG element extraction - was causing accordion auto-expansion
+                    # The evaluate() call was triggering the accordion to expand before the click
+                    # logger.info(f"  🔍 DEBUG - About to highlight element for pre-click screenshot:")
+                    # try:
+                    #     highlight_debug = await chosen_locator.evaluate("""el => ({
+                    #         tagName: el.tagName.toLowerCase(),
+                    #         id: el.id,
+                    #         role: el.getAttribute('role'),
+                    #         ariaExpanded: el.getAttribute('aria-expanded'),
+                    #         text: el.textContent?.substring(0, 80),
+                    #         parentId: el.parentElement?.id || null
+                    #     })""")
+                    #     logger.info(f"      tag={highlight_debug['tagName']}, id='{highlight_debug['id']}', role='{highlight_debug['role']}'")
+                    #     logger.info(f"      aria-expanded={highlight_debug['ariaExpanded']}, parent_id='{highlight_debug['parentId']}'")
+                    #     logger.info(f"      text='{highlight_debug['text'][:60] if highlight_debug['text'] else 'N/A'}...'")
+                    # except Exception as dbg_err:
+                    #     logger.warning(f"  ⚠️ Could not extract pre-highlight debug info: {dbg_err}")
                     
-                    # Take screenshot
+                    # DISABLED: Scroll into view and highlight - causes accordion auto-expansion
+                    # await chosen_locator.scroll_into_view_if_needed()
+                    # await self.page.wait_for_timeout(500)
+                    # await chosen_locator.evaluate("el => el.style.outline = '5px solid red'")
+                    # await chosen_locator.evaluate("el => el.style.outlineOffset = '2px'")
+                    # await self.page.wait_for_timeout(1000)
+                    
+                    # Take screenshot (no highlighting to avoid auto-expansion)
                     self.screenshot_counter += 1
                     safe_name = self._sanitize_filename(element_name)
                     filename = f"{self.screenshot_counter:03d}_pre_click_{safe_name}.png"
@@ -1381,19 +1594,36 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     screenshot_taken = filepath.exists()
                     screenshot_size = filepath.stat().st_size if screenshot_taken else 0
                     
-                    # Remove highlight
-                    await self.page.wait_for_timeout(200)
-                    await chosen_locator.evaluate("el => el.style.outline = ''")
-                    await chosen_locator.evaluate("el => el.style.outlineOffset = ''")
+                    # DISABLED: Remove highlight
+                    # await self.page.wait_for_timeout(200)
+                    # await chosen_locator.evaluate("el => el.style.outline = ''")
+                    # await chosen_locator.evaluate("el => el.style.outlineOffset = ''")
                     
-                    logger.info(f"  ✅ Pre-validation: Element visible and highlighted in screenshot: {filename} ({screenshot_size} bytes)")
+                    logger.info(f"  ✅ Pre-validation: Element visible in screenshot (no highlighting): {filename} ({screenshot_size} bytes)")
                 except Exception as e:
                     logger.warning(f"  ⚠️ Could not capture pre-click screenshot: {e}")
                     screenshot_taken = False
                     filename = None
                     screenshot_size = None
                 
-                # Create validation result and set preserved_locator to use common click flow
+                # Generate selector from chosen_locator for reconstruction (used for clicking)
+                try:
+                    final_selector = await self._generate_final_selector(chosen_locator)
+                except:
+                    # Fallback to original selector if generation fails
+                    final_selector = original_selector
+                
+                # Generate selector for post-click screenshots from nested element (if different)
+                nested_selector_for_screenshot = None
+                if original_element_for_xpath and original_element_for_xpath != chosen_locator:
+                    try:
+                        nested_selector_for_screenshot = await self._generate_final_selector(original_element_for_xpath)
+                        logger.info(f"  📸 Will use nested element selector for post-click screenshots")
+                    except:
+                        logger.warning(f"  ⚠️ Could not generate selector for nested element, using parent")
+                        nested_selector_for_screenshot = None
+                
+                # Create validation result and set preserved_selector to use common click flow
                 validation_result = {
                     "exists": True,
                     "visible": await chosen_locator.is_visible(),
@@ -1403,10 +1633,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     "screenshot_taken": screenshot_taken,
                     "screenshot_file": filename,
                     "screenshot_size": screenshot_size,
-                    "locator": chosen_locator
+                    "locator": chosen_locator,
+                    "selector": final_selector,  # Selector for clicking (parent)
+                    "nested_selector": nested_selector_for_screenshot  # Selector for post-click screenshots (nested)
                 }
                 pre_validation = validation_result
-                # IMPORTANT: Set preserved_locator so we use the common click loop below
+                # IMPORTANT: Set preserved_selector so we use the common click loop below
                 # This ensures tab-specific logic, accordion validation, etc. all work
             else:
                 # Normal selector-based flow
@@ -1418,25 +1650,66 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 ]
                 
                 # Try to find the element - be forgiving with selectors
+                # STEP 1: Find element in DOM (even if hidden)
+                element_found_in_dom = False
                 try:
-                    await self.page.wait_for_selector(selector, state='visible', timeout=10000)
+                    await self.page.wait_for_selector(selector, state='attached', timeout=5000)
+                    logger.info(f"  ✅ Element found in DOM: {selector}")
+                    element_found_in_dom = True
+                    
+                    # STEP 2: Try to scroll into view if hidden
+                    try:
+                        locator = self.page.locator(selector).first
+                        logger.info(f"  📜 Attempting to scroll element into view...")
+                        await locator.scroll_into_view_if_needed(timeout=3000)
+                        await self.page.wait_for_timeout(500)  # Let scroll animation complete
+                        logger.info(f"  ✅ Scrolled element into view")
+                    except Exception as scroll_error:
+                        logger.warning(f"  ⚠️ Could not scroll element: {scroll_error}")
+                    
+                    # STEP 3: Now wait for visibility (should work after scroll)
+                    # For checkboxes from registry, skip visibility check (virtual scrolling makes them "hidden")
+                    if selector.startswith('input[type') or '[type=' in selector:
+                        logger.info(f"  ✅ Checkbox element found - skipping visibility check (virtual scrolling)")
+                    else:
+                        await self.page.wait_for_selector(selector, state='visible', timeout=5000)
+                        logger.info(f"  ✅ Element is now visible")
+                    
                 except Exception as e:
-                    # FALLBACK: If optimized selector failed, try original query
-                    if optimized_selector_used and selector != original_selector:
+                    # FALLBACK: Only fall back if element was NOT found in DOM
+                    # If element WAS found and scrolled, proceed to click (don't fall back to text selector)
+                    if not element_found_in_dom and optimized_selector_used and selector != original_selector:
                         logger.warning(f"  ⚠️ Optimized selector not found (likely dynamic CSS classes)")
                         logger.info(f"  ⚙️ Falling back to original query + discovery method: {original_selector}")
                         selector = original_selector
                         optimized_selector_used = False
-                        await self.page.wait_for_selector(selector, state='visible', timeout=10000)
+                        # Retry with scroll-first strategy
+                        await self.page.wait_for_selector(selector, state='attached', timeout=5000)
+                        try:
+                            locator = self.page.locator(selector).first
+                            await locator.scroll_into_view_if_needed(timeout=3000)
+                            await self.page.wait_for_timeout(500)
+                        except:
+                            pass
+                        # For checkboxes, don't require visibility
+                        if not (selector.startswith('input[type') or '[type=' in selector):
+                            await self.page.wait_for_selector(selector, state='visible', timeout=5000)
                     # If registry gave us a bad ID selector that failed, try the original query
                     elif selector.startswith("#") and not original_selector.startswith("#"):
                         logger.info(f"  Registry ID selector failed, trying original: {original_selector}")
                         selector = original_selector
-                        await self.page.wait_for_selector(selector, state='visible', timeout=10000)
+                        await self.page.wait_for_selector(selector, state='attached', timeout=5000)
+                        try:
+                            locator = self.page.locator(selector).first
+                            await locator.scroll_into_view_if_needed(timeout=3000)
+                            await self.page.wait_for_timeout(500)
+                        except:
+                            pass
+                        await self.page.wait_for_selector(selector, state='visible', timeout=5000)
                     else:
                         # No fallback - let it fail naturally for AI to handle
                         logger.info(f"  Selector not found: {selector}")
-                        raise e
+                    raise e
                 
                 # PRE-CLICK VALIDATION: Verify element is visible and capture state
                 element_name = original_selector.replace("text=", "").replace("_", " ")
@@ -1457,15 +1730,16 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             
             logger.info(f"  ✅ Pre-validation passed: Element exists and is {'visible' if pre_validation['visible'] else 'hidden'}")
             
-            # Get preserved locator and clicked text for reuse
-            preserved_locator = pre_validation.get("locator")
+            # Get selector to reconstruct locator for post-click (avoid stale references)
+            preserved_selector = pre_validation.get("selector")
             clicked_text = pre_validation.get("text_content", "")
             
             # ENHANCED TAB DETECTION: If not already detected via selector, check actual element role
-            if not is_tab_click and preserved_locator:
+            if not is_tab_click and preserved_selector:
                 try:
-                    element_role = await preserved_locator.get_attribute('role')
-                    aria_selected = await preserved_locator.get_attribute('aria-selected')
+                    temp_locator = self.page.locator(preserved_selector).nth(0)
+                    element_role = await temp_locator.get_attribute('role')
+                    aria_selected = await temp_locator.get_attribute('aria-selected')
                     
                     if element_role == 'tab' or aria_selected is not None:
                         is_tab_click = True
@@ -1483,69 +1757,10 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             except:
                                 pass
                 except Exception as e:
-                    logger.debug(f"  Could not check preserved_locator role: {e}")
+                    logger.debug(f"  Could not check preserved_selector role: {e}")
             
             # STORY CONTEXT: Check if story mentions this element as a "tab"
-            if not is_tab_click and self.story:
-                element_name = original_selector.replace("text=", "").replace("_", " ")
-                story_lower = self.story.lower()
-                element_name_lower = element_name.lower().strip()
-                # Look for pattern like "click on the [element] tab"
-                if element_name_lower and element_name_lower in story_lower:
-                    import re
-                    
-                    # Find all mentions of the element name and extract context (±80 chars)
-                    element_positions = [m.start() for m in re.finditer(re.escape(element_name_lower), story_lower)]
-                    
-                    for pos in element_positions:
-                        # Extract context window around this mention
-                        context_start = max(0, pos - 80)
-                        context_end = min(len(story_lower), pos + len(element_name_lower) + 80)
-                        context = story_lower[context_start:context_end]
-                        
-                        # Check for NEGATIVE keywords (sidebar/filter) in this context
-                        negative_keywords = ['side filter', 'sidebar', 'filter panel', 'accordion', 'dropdown']
-                        has_negative_keyword = any(keyword in context for keyword in negative_keywords)
-                        
-                        if has_negative_keyword:
-                            logger.info(f"  ⛔ NOT a tab (nearby context mentions filter/sidebar: '{context[max(0,pos-context_start-20):pos-context_start+len(element_name_lower)+20]}')")
-                            continue  # Skip this mention, check next one
-                        
-                        # Check for POSITIVE keywords (table tab) in this context
-                        positive_keywords = ['data table', 'table tab', 'tab in table', 'table with tabs', 'in the table']
-                        has_positive_keyword = any(keyword in context for keyword in positive_keywords)
-                        
-                        if has_positive_keyword:
-                            is_tab_click = True
-                            logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near table/tab keywords)")
-                            break  # Found a tab mention, stop searching
-                        
-                        # Check proximity of "tab" word in this context
-                        if 'tab' in context:
-                            # Check if "tab" is within 50 chars of element name in this context
-                            pattern = rf'\b{re.escape(element_name_lower)}\b.{{0,50}}\btab\b|\btab\b.{{0,50}}\b{re.escape(element_name_lower)}\b'
-                            if re.search(pattern, context):
-                                is_tab_click = True
-                                logger.info(f"  🎯 Tab detected (by story context: '{element_name}' near 'tab' in context)")
-                                break  # Found a tab mention, stop searching
-                    
-                    # Capture initial tab state for validation if tab detected
-                    if is_tab_click and not initial_tab_state:
-                            try:
-                                selected_tab = await self.page.locator('[role="tab"][aria-selected="true"]').text_content()
-                                initial_tab_state = {
-                                    "selected_tab": selected_tab.strip() if selected_tab else None,
-                                    "target_element": original_selector
-                                }
-                                logger.info(f"  🎯 Current tab: {initial_tab_state['selected_tab']}")
-                            except:
-                                # If no semantic tabs, still set state to enable validation
-                                initial_tab_state = {
-                                    "selected_tab": None,
-                                    "target_element": original_selector
-                                }
-                                logger.info(f"  🎯 Tab state captured (no semantic tabs found, will use DOM-based validation)")
-            
+            # Use the CURRENT step context (already extracted above as story_context)
             # Capture initial state (for verification)
             initial_html = await self.page.content()
             initial_url = self.page.url
@@ -1556,7 +1771,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # Generic: matches Cases(50), Products(100), Files(20), etc.
                 count_locator = self.page.locator('text=/\\w+\\s*\\(\\d+\\)/')
                 if await count_locator.count() > 0:
-                    count_text = await count_locator.first.text_content()
+                    count_text = await count_locator.nth(0).text_content()
                     match = re.search(r'\\((\\d+)\\)', count_text)
                     if match:
                         initial_count = int(match.group(1))
@@ -1567,11 +1782,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             # ACCORDION DETECTION: Check if element is an accordion/expandable
             is_accordion = False
             initial_aria_expanded = None
+            current_aria_expanded = None  # Initialize here for later access
+            accordion_opened = False  # Initialize here for later access
             accordion_locator = None
             try:
-                # Check if the element or its clickable parent has aria-expanded
-                if preserved_locator:
-                    accordion_locator = preserved_locator
+                # CRITICAL FIX: Reuse existing locator from pre_validation to avoid re-querying the element
+                # Creating a new locator was causing the accordion to auto-expand on some pages
+                if pre_validation.get("locator"):
+                    accordion_locator = pre_validation["locator"]
+                    logger.info(f"  ♻️ Reusing existing locator for accordion detection (avoids re-query)")
+                elif preserved_selector:
+                    accordion_locator = self.page.locator(preserved_selector).nth(0)
                 else:
                     accordion_locator = self.page.locator(selector)
                 
@@ -1579,6 +1800,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 if initial_aria_expanded is not None:
                     is_accordion = True
                     logger.info(f"  🎯 Accordion detected: aria-expanded={initial_aria_expanded}")
+                    
+                    # ✨ FIX: If accordion is ALREADY OPEN, don't click it (prevents closing)
+                    if initial_aria_expanded == 'true':
+                        logger.info(f"  ✅ Accordion is already expanded - skipping click to avoid toggling it closed")
+                        result_text = f"✅ Accordion already open: {element_description}"
+                        return result_text
             except Exception as e:
                 # Not an accordion or can't determine
                 pass
@@ -1623,18 +1850,43 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 "is_tab_click": is_tab_click
             }
             
-            # Updated strategies using preserved locator for better reliability
+            # Updated strategies - use validated locator directly to avoid selector ambiguity
+            async def javascript_click():
+                """Strategy 1: JavaScript click (for accordions that respond to JS but not Playwright clicks)"""
+                # Use the exact locator we already validated - no information loss
+                if pre_validation.get("locator"):
+                    await pre_validation["locator"].evaluate("el => el.click()")
+                elif preserved_selector:
+                    temp_loc = self.page.locator(preserved_selector).nth(0)
+                    await temp_loc.evaluate("el => el.click()")
+                else:
+                    await self.page.eval_on_selector(selector, "el => el.click()")
+            
             async def click_with_preserved_locator():
-                """Strategy 1: Direct click using preserved locator"""
-                if preserved_locator:
-                    await preserved_locator.click()
+                """Strategy 2: Direct click using validated locator"""
+                # Use the exact locator we already validated
+                if pre_validation.get("locator"):
+                    await pre_validation["locator"].click()
+                elif preserved_selector:
+                    temp_loc = self.page.locator(preserved_selector).nth(0)
+                    await temp_loc.click()
                 else:
                     await self.page.click(selector)
             
             async def click_at_exact_coordinates():
-                """Strategy 2: Click at exact element center coordinates"""
-                if preserved_locator:
-                    box = await preserved_locator.bounding_box()
+                """Strategy 3: Click at exact element center coordinates"""
+                # Use the exact locator we already validated
+                if pre_validation.get("locator"):
+                    box = await pre_validation["locator"].bounding_box()
+                    if box:
+                        center_x = box['x'] + box['width'] / 2
+                        center_y = box['y'] + box['height'] / 2
+                        await self.page.mouse.click(center_x, center_y)
+                    else:
+                        await self._click_parent_or_sibling(selector)
+                elif preserved_selector:
+                    temp_loc = self.page.locator(preserved_selector).nth(0)
+                    box = await temp_loc.bounding_box()
                     if box:
                         center_x = box['x'] + box['width'] / 2
                         center_y = box['y'] + box['height'] / 2
@@ -1645,19 +1897,40 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     await self._click_parent_or_sibling(selector)
             
             async def force_click_with_preserved():
-                """Strategy 3: Force click using preserved locator"""
-                if preserved_locator:
-                    await preserved_locator.click(force=True)
+                """Strategy 4: Force click using validated locator"""
+                # Use the exact locator we already validated
+                if pre_validation.get("locator"):
+                    await pre_validation["locator"].click(force=True)
+                elif preserved_selector:
+                    temp_loc = self.page.locator(preserved_selector).nth(0)
+                    await temp_loc.click(force=True)
                 else:
                     await self.page.click(selector, force=True)
             
-            strategies = [
-                {"desc": "direct click", "method": click_with_preserved_locator},
-                {"desc": "exact coordinates", "method": click_at_exact_coordinates},
-                {"desc": "force click", "method": force_click_with_preserved},
-            ]
+            # Use JavaScript click first for accordions and checkboxes (bypasses visibility issues)
+            is_checkbox = selector.startswith('input[type=\'checkbox\']') or 'checkbox' in selector.lower()
+            
+            if is_accordion or is_checkbox:
+                strategies = [
+                    {"desc": "javascript click", "method": javascript_click},
+                    {"desc": "force click", "method": force_click_with_preserved},
+                    {"desc": "direct click", "method": click_with_preserved_locator},
+                    {"desc": "exact coordinates", "method": click_at_exact_coordinates},
+                ]
+            else:
+                strategies = [
+                    {"desc": "direct click", "method": click_with_preserved_locator},
+                    {"desc": "exact coordinates", "method": click_at_exact_coordinates},
+                    {"desc": "force click", "method": force_click_with_preserved},
+                ]
             
             last_error = None
+            # Log if we're using the validated locator (better precision)
+            if pre_validation.get("locator"):
+                logger.info(f"  🎯 Using validated locator directly (avoids selector ambiguity)")
+            elif preserved_selector:
+                logger.info(f"  ⚙️ Using preserved selector: {preserved_selector[:100]}")
+            
             for i, strategy in enumerate(strategies):
                 try:
                     logger.info(f"  Trying strategy {i+1}: {strategy['desc']}")
@@ -1713,16 +1986,18 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 logger.warning(f"  ⚠️ Accordion did NOT expand: aria-expanded still {current_aria_expanded}")
                         else:
                             # Generic check for any aria-expanded elements
-                            if preserved_locator and await preserved_locator.count() > 0:
-                                attr = await preserved_locator.get_attribute('aria-expanded')
-                                if attr == 'true':
-                                    aria_expanded = True
-                                else:
-                                    # Check parent elements
-                                    parent_locator = preserved_locator.locator('..')
-                                    if await parent_locator.count() > 0:
-                                        attr = await parent_locator.get_attribute('aria-expanded')
-                                        aria_expanded = (attr == 'true')
+                            if preserved_selector:
+                                temp_loc = self.page.locator(preserved_selector).nth(0)
+                                if await temp_loc.count() > 0:
+                                    attr = await temp_loc.get_attribute('aria-expanded')
+                            if attr == 'true':
+                                aria_expanded = True
+                            else:
+                                # Check parent elements
+                                parent_locator = temp_loc.locator('..')
+                                if await parent_locator.count() > 0:
+                                    attr = await parent_locator.get_attribute('aria-expanded')
+                                    aria_expanded = (attr == 'true')
                     except Exception as e:
                         logger.debug(f"  Could not check aria-expanded: {e}")
                     
@@ -1776,10 +2051,16 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         
                         logger.info(f"  ✅ Click verified: {', '.join(reasons)}")
                         
-                        # POST-CLICK GREEN SCREENSHOT: Generic handler for elements that stay or disappear
-                        if preserved_locator:
+                        # ✨ Track last clicked element for parent-child relationship matching
+                        self.last_clicked_element = element_name
+                        logger.debug(f"  📝 Tracked last clicked: {element_name}")
+                        
+                                # POST-CLICK GREEN SCREENSHOT: Use clicked element for screenshot
+                        # (For tree climbing, this is the parent button that was actually clicked)
+                        if preserved_selector:
+                            fresh_locator = self.page.locator(preserved_selector).nth(0)
                             post_click_result = await self._capture_post_click_screenshot(
-                                preserved_locator, 
+                                fresh_locator, 
                                 element_name,
                                 clicked_text
                             )
@@ -1796,6 +2077,12 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                 
                                 # Generate final working selector from the element that was actually clicked
                                 final_selector = await self._generate_final_selector(chosen_locator)
+                                
+                                # IMPORTANT: Preserve original selector if it's a simple text selector
+                                # to maintain case sensitivity (e.g., text=TREATMENT vs text=Treatment)
+                                if original_selector.startswith('text=') and final_selector and final_selector.startswith('text='):
+                                    logger.info(f"  📝 Preserving original text selector for case sensitivity: {original_selector}")
+                                    final_selector = original_selector
                                 
                                 if final_selector:
                                     # Determine discovery method based on what happened
@@ -1820,8 +2107,14 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                             metadata["candidates_count"] = len(candidates)
                                             metadata["chosen_index"] = best_index if 'best_index' in locals() else 0
                                     
-                                    # Track the discovery
-                                    self._track_discovery(
+                                    # Extract element attributes for XPath generation
+                                    # CRITICAL: Use original nested element for XPath, not the parent used for clicking
+                                    element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
+                                    element_attrs = await self._extract_element_attributes(element_for_xpath)
+                                    metadata["element_attrs"] = element_attrs
+                                    
+                                    # Track the discovery (uses Playwright LIVE DOM, no BeautifulSoup!)
+                                    await self._track_discovery(
                                         element_name=element_name,
                                         original_query=original_selector,
                                         final_selector=final_selector,
@@ -1834,8 +2127,15 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             except Exception as e:
                                 logger.warning(f"  ⚠️ Failed to track discovery: {e}")
                         
-                        # POST-CLICK VALIDATION: Tab-specific validation first
-                        if is_tab_click and initial_tab_state:
+                        # POST-CLICK VALIDATION: Accordion takes priority over tab
+                        # If accordion was detected AND it expanded, skip tab validation (even if tab was also detected)
+                        accordion_expanded_successfully = (
+                            accordion_opened or 
+                            (current_aria_expanded and initial_aria_expanded and current_aria_expanded != initial_aria_expanded)
+                        )
+                        
+                        # POST-CLICK VALIDATION: Tab-specific validation (only if not an accordion)
+                        if is_tab_click and initial_tab_state and not accordion_expanded_successfully:
                             try:
                                 logger.info(f"  🔍 Running tab-specific validation...")
                                 # Check if the target element (or text) is now selected
@@ -2003,6 +2303,61 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     logger.info(f"  Strategy {i+1} failed: {str(e)[:100]}")
                     continue
             
+            # Special handling for UI-only buttons (CSS changes, dropdowns, etc)
+            ui_only_patterns = ['collapse view', 'expand view', 'more', 'show more', 'show less']
+            is_ui_only = any(pattern in selector.lower() for pattern in ui_only_patterns)
+            
+            if is_ui_only and not click_succeeded:
+                # Check if click executed without throwing fatal error
+                # For UI-only buttons, we consider it successful if no exception was thrown
+                if last_error is None:
+                    logger.info(f"  ✅ UI-only button clicked successfully: {selector}")
+                    click_succeeded = True
+                    
+                    # For "More" button, wait for and verify dropdown menu appears
+                    if 'more' in selector.lower():
+                        await self.page.wait_for_timeout(1000)  # Wait for animation
+                        logger.info(f"  ⏳ Waiting for dropdown menu to appear...")
+                        
+                        # Check if dropdown menu appeared
+                        dropdown_appeared = False
+                        dropdown_selectors = [
+                            '[role="menu"]',
+                            '[role="listbox"]',
+                            '.dropdown-menu',
+                            '[class*="dropdown"][class*="open"]',
+                            '[class*="popover"]',
+                            '[class*="menu"][class*="open"]'
+                        ]
+                        
+                        for dropdown_sel in dropdown_selectors:
+                            try:
+                                count = await self.page.locator(dropdown_sel).count()
+                                if count > 0:
+                                    # Check if it's actually visible
+                                    is_visible = await self.page.locator(dropdown_sel).nth(0).is_visible()
+                                    if is_visible:
+                                        logger.info(f"  ✅ Dropdown menu appeared: {dropdown_sel}")
+                                        dropdown_appeared = True
+                                        break
+                            except Exception as e:
+                                continue
+                        
+                        if not dropdown_appeared:
+                            logger.warning(f"  ⚠️ Dropdown menu may not have appeared after clicking More")
+                            # Take screenshot for debugging
+                            try:
+                                self.screenshot_counter += 1
+                                filename = f"{self.screenshot_counter:03d}_more_clicked_no_dropdown.png"
+                                filepath = self.screenshots_dir / filename
+                                await self.page.screenshot(path=str(filepath), full_page=False)
+                                logger.info(f"  📸 Debug screenshot: {filename}")
+                            except:
+                                pass
+                    
+                    # Return success message
+                    return f"✅ UI button clicked: {selector} (CSS-only change)"
+            
             # If all strategies tried and none verified
             logger.error(f"  ❌ All click strategies failed to produce expected result")
             return f"❌ Click FAILED: {selector} - No strategies produced verifiable result"
@@ -2037,7 +2392,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             else:
                 logger.warning(f"  ⚠️ Fill mismatch: expected '{text}', got '{actual_value}'")
                 return f"⚠️ Filled {selector} - Expected '{text}', got '{actual_value}'"
-
+        
         elif tool_name == "browser_verify_table":
             table_selector = tool_input.get('table_selector', 'visible_table')
             column_name = tool_input['column_name']
@@ -2057,26 +2412,31 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 # Find the table
                 if table_selector == 'visible_table':
                     # Auto-detect: Find first visible table
-                    table = self.page.locator('table').first
+                    table = self.page.locator('table').nth(0)
                 else:
-                    table = self.page.locator(table_selector).first
+                    table = self.page.locator(table_selector).nth(0)
                 
                 # Wait for table to be visible
                 await table.wait_for(state='visible', timeout=10000)
                 
-                # Find column index by header text
+                # Find column index by header text using shared utility
+                from utils.table_verification import find_column_index
+                
                 headers = await table.locator('thead th, thead td').all_text_contents()
-                column_index = -1
-                for i, header in enumerate(headers):
-                    if column_name.lower() in header.lower():
-                        column_index = i
-                        break
+                column_index = find_column_index(headers, column_name)
+                
+                if column_index != -1:
+                    # Log whether it was exact or partial match
+                    if column_name.lower() == headers[column_index].lower().strip():
+                        logger.info(f"  ✅ Found exact column match: '{headers[column_index].strip()}' at index {column_index}")
+                    else:
+                        logger.info(f"  ⚠️ Found partial column match: '{headers[column_index].strip()}' at index {column_index}")
                 
                 if column_index == -1:
                     logger.warning(f"  ⚠️ Column '{column_name}' not found in table headers: {headers}")
                     
                     # Store verification discovery
-                    self._track_discovery(
+                    await self._track_discovery(
                         element_name=f"verify_table_{column_name}",
                         original_query=f"verify column {column_name}",
                         final_selector=table_selector,
@@ -2124,7 +2484,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     logger.info(f"  ✅ Verification PASSED: {matching_rows}/{total_rows} rows match")
                     
                     # Store verification discovery
-                    self._track_discovery(
+                    await self._track_discovery(
                         element_name=f"verify_table_{column_name}",
                         original_query=f"verify column {column_name} = {expected_value}",
                         final_selector=table_selector,
@@ -2146,7 +2506,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     logger.warning(f"  ⚠️ Verification FAILED: {matching_rows}/{total_rows} rows match")
                     
                     # Store verification discovery
-                    self._track_discovery(
+                    await self._track_discovery(
                         element_name=f"verify_table_{column_name}",
                         original_query=f"verify column {column_name} = {expected_value}",
                         final_selector=table_selector,
@@ -2171,7 +2531,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 logger.error(f"  ❌ Table verification error: {e}")
                 
                 # Store verification discovery with error
-                self._track_discovery(
+                await self._track_discovery(
                     element_name=f"verify_table_{column_name}",
                     original_query=f"verify column {column_name} = {expected_value}",
                     final_selector=table_selector if table_selector != 'visible_table' else 'table',
@@ -2186,7 +2546,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 )
                 
                 return f"❌ VERIFICATION ERROR: {str(e)}"
-
+        
         elif tool_name == "browser_screenshot":
             self.screenshot_counter += 1
             name = tool_input.get('name', 'screenshot')
@@ -2208,7 +2568,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 count_locator = self.page.locator('text=/\\w+\\s*\\(\\d+\\)/')
                 count_info = ""
                 if await count_locator.count() > 0:
-                    count_text = await count_locator.first.text_content()
+                    count_text = await count_locator.nth(0).text_content()
                     match = re.search(r'\\((\\d+)\\)', count_text)
                     if match:
                         count_value = match.group(1)
@@ -2365,17 +2725,37 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         """
         AGENTIC LOOP - LLM makes real-time decisions
         """
-        # Store story for AI disambiguation
-        self.story = story
+        # Parse story and extract metadata for each step
+        self.parse_story_metadata(story)
         
         logger.info(f"Execution {self.execution_id} starting")
         logger.info(f"Story: {story}")
         
         await self.start_browser()
         
+        # Format story with action hints from parsed metadata
+        enhanced_story = []
+        for i, line in enumerate(story.strip().split('\n'), 1):
+            metadata = self.parsed_steps.get(i, {})
+            action_hint = ""
+            if metadata.get('type') == 'checkbox':
+                action_hint = " [ACTION: Click checkbox]"
+            elif metadata.get('type') == 'accordion':
+                action_hint = " [ACTION: Click to expand]"
+            elif metadata.get('type') == 'tab':
+                action_hint = " [ACTION: Click tab]"
+            elif 'wait' in line.lower():
+                action_hint = " [ACTION: Wait/No click]"
+            elif 'verify' in line.lower():
+                action_hint = " [ACTION: Use browser_verify_table]"
+            enhanced_story.append(line + action_hint)
+        
+        formatted_story = '\n'.join(enhanced_story)
+        logger.info(f"📝 Enhanced story with action hints:\n{formatted_story}")
+        
         messages = [{
             "role": "user",
-            "content": [{"text": f"Execute this test scenario:\n\n{story}\n\nUse browser tools. Take screenshots at key steps."}]
+            "content": [{"text": f"Execute this test scenario:\n\n{formatted_story}\n\nFollow the [ACTION] hints for each step."}]
         }]
         
         results = {
@@ -2389,30 +2769,32 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         
         system_prompt = """You are a QA automation agent. Use browser tools to execute tests.
 
-SMART ELEMENT SELECTION:
-- Use simple text= selectors - the system intelligently validates each element
-- Even for single matches, you'll see descriptions to verify it's the RIGHT element
-- System checks: Is it clickable? Is it a tab/accordion/button? Is parent better?
-- Descriptions show: LOCATION, TYPE, and ATTRIBUTES
-- Match story keywords to element attributes:
-  * "sidebar filter" → LOCATION: "LEFT SIDEBAR", TYPE: "FILTER ACCORDION"
-  * "tab" → TYPE: "DATA TABLE TAB", ROLE: tab
-  * "expand/dropdown" → EXPANDABLE: "YES" (has aria-expanded)
-- If element isn't interactive, system checks parent automatically
-- Be specific in stories: "click sidebar filter dropdown" vs "click tab"
+CRITICAL: EXTRACT EXACT ELEMENT NAMES
+Read each step carefully and extract the EXACT element name to click:
 
-VERIFICATION:
-- Use browser_verify_table() to verify table column data
-- Example: "Verify all rows in 'Sample Type' column contain 'Primary'"
-  → browser_verify_table(column_name="Sample Type", expected_value="Primary")
-- The system will check all rows and report PASS/FAIL with details
-- Verification results are automatically saved for Playwright code generation
+Examples:
+- Step: "Select the Acute leukemia, NOS checkbox" → Click: text=Acute leukemia, NOS
+- Step: "Click on DIAGNOSIS to expand" → Click: text=DIAGNOSIS  
+- Step: "Click on Diagnosis tab" → Click: text=Diagnosis
+- Step: "Click Continue button" → Click: text=Continue
 
-After navigating, use browser_snapshot() to see the page.
-Use browser_evaluate() to find selectors when needed.
-Take screenshots at important steps.
-Be adaptive and methodical."""
+DO NOT use words from previous steps or context. ONLY use the exact element name in the current step.
+
+ACTION HINTS:
+- [ACTION: Click checkbox] → Extract checkbox name, use browser_click("text=<exact name>")
+- [ACTION: Click to expand] → Extract accordion name, use browser_click("text=<exact name>")
+- [ACTION: Click tab] → Extract tab name, use browser_click("text=<exact name>")
+- [ACTION: Wait/No click] → Use browser_evaluate to wait (e.g., await new Promise(r => setTimeout(r, 2000)))
+- [ACTION: Use browser_verify_table] → Use browser_verify_table(column_name="<name>", expected_value="<value>")
+
+ELEMENT SELECTION:
+- Always use text= selectors with the EXACT element name from the step
+- System validates and finds the correct element automatically
+- If element not found, system will use discovery methods
+
+Take screenshots at key moments (after clicks, before verification)."""
         
+        logger.info("🔄 Starting agentic loop...")
         # AGENTIC LOOP
         for iteration in range(1, max_iterations + 1):
             logger.info(f"Iteration {iteration}/{max_iterations}")
@@ -2451,7 +2833,8 @@ Be adaptive and methodical."""
                             "iteration": iteration,
                             "tool": tool_name,
                             "input": tool_input,
-                            "result": result_text
+                            "result": result_text,
+                            "screenshots": []  # Track screenshots for this action
                         }
                         
                         # Add page context for click actions
@@ -2461,6 +2844,13 @@ Be adaptive and methodical."""
                                 action_entry["page_title"] = await self.page.title()
                             except:
                                 pass
+                        
+                        # Extract screenshot filenames from result text
+                        if "screenshot:" in result_text.lower() or ".png" in result_text:
+                            import re
+                            screenshot_matches = re.findall(r'(\d+_[\w\-]+\.png)', result_text)
+                            if screenshot_matches:
+                                action_entry["screenshots"] = screenshot_matches
                         
                         results["actions_taken"].append(action_entry)
                         
@@ -2551,6 +2941,63 @@ Be adaptive and methodical."""
                 logger.info(f"  💾 Discovery metadata saved to: {discovery_file}")
             except Exception as e:
                 logger.warning(f"  ⚠️ Could not save discovery file: {e}")
+            
+            # Save discovered XPaths to registry
+            if self.discoveries and self.current_url:
+                try:
+                    logger.info(f"  💾 Updating element registry with {len(self.discoveries)} discovered XPaths...")
+                    
+                    # Extract domain and page from URL
+                    domain = self.current_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
+                    
+                    # Determine page name (use 'home' for root/explore pages)
+                    url_path = self.current_url.split('/')[-1].split('#')[0]
+                    page = 'home' if not url_path or url_path in ['explore', ''] else url_path
+                    
+                    # Load existing registry
+                    element_map = self.element_registry.load_map(domain, page)
+                    if not element_map:
+                        logger.warning(f"  ⚠️ No existing registry for {domain}/{page}, skipping update")
+                    else:
+                        added_count = 0
+                        for discovery in self.discoveries:
+                            if discovery.get('xpath'):
+                                element_name = discovery['name']
+                                
+                                # Create element entry
+                                element_entry = {
+                                    "selector": discovery['final_selector'],
+                                    "xpath": discovery['xpath'],
+                                    "uniqueness_method": discovery.get('uniqueness_method', 'unknown'),
+                                    "type": discovery.get('metadata', {}).get('type', 'unknown'),
+                                    "description": f"Discovered by AI in test {self.execution_id}",
+                                    "source": "ai_discovery",
+                                    "discovery_method": discovery['discovery_method'],
+                                    "usage_count": 1,
+                                    "alternatives": []
+                                }
+                                
+                                # Add to registry (skip if already exists)
+                                if element_name not in element_map.get('elements', {}):
+                                    element_map['elements'][element_name] = element_entry
+                                    added_count += 1
+                                    logger.info(f"    ✅ Added to registry: {element_name}")
+                                else:
+                                    logger.info(f"    ⏭️ Already in registry: {element_name}")
+                        
+                        if added_count > 0:
+                            # Update statistics
+                            element_map['statistics']['total_elements'] = len(element_map['elements'])
+                            element_map['statistics']['discovered_elements'] = element_map['statistics'].get('discovered_elements', 0) + added_count
+                            
+                            # Save updated registry
+                            self.element_registry.save_map(domain, page, element_map)
+                            logger.info(f"  ✅ Registry updated: Added {added_count} new XPath entries")
+                        else:
+                            logger.info(f"  ℹ️ No new entries added (all already in registry)")
+                            
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Could not update registry: {e}")
         
         await self.close_browser()
         logger.info(f"Finished: {results['status']}")

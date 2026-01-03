@@ -3,563 +3,1329 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Execution Results - AI Agent QA</title>
+    <title>Execution Results - Test Automation Generator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        .live-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: #4CAF50;
-            border-radius: 50%;
-            animation: pulse 1.5s infinite;
-            margin-right: 8px;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-        .screenshots-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        .screenshot-item {
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            padding: 10px;
-            background: #f9f9f9;
-        }
-        .screenshot-item img {
-            width: 100%;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .screenshot-item img:hover {
-            transform: scale(1.02);
-        }
-        .action-item {
-            background: #f5f5f5;
-            border-left: 4px solid #2196F3;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 4px;
-        }
-        .action-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-        .iteration {
-            background: #2196F3;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-        }
-        .status-running { background: #FF9800; color: white; padding: 8px 16px; border-radius: 4px; }
-        .status-completed { background: #4CAF50; color: white; padding: 8px 16px; border-radius: 4px; }
-        .status-error { background: #f44336; color: white; padding: 8px 16px; border-radius: 4px; }
-    </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🤖 AI Agent QA - Results</h1>
-            <p class="subtitle"><a href="/">← Back to Home</a></p>
+            <h1>Test Automation Generator</h1>
+            <p class="subtitle">
+                <a href="/">← Back to Home</a> | 
+                <span style="opacity: 0.8;">Powered by NCI & ESI</span>
+            </p>
         </header>
 
         <main>
+            <div id="results-content">
             <div class="card">
-                <h2>
-                    <span id="live-indicator" class="live-indicator" style="display: none;"></span>
-                    Execution: <span id="execution-id">{{ execution_id }}</span>
-                </h2>
-                
-                <div id="results-content">
-                    <p class="loading">Loading results...</p>
+                    <div class="loading-skeleton">
+                        <div class="skeleton-header"></div>
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line" style="width: 80%;"></div>
+                        <div class="skeleton-line" style="width: 60%;"></div>
+                    </div>
+                    <p class="loading" style="text-align: center; padding: 20px;">
+                        <span class="spinner"></span> Loading execution results...
+                    </p>
                 </div>
             </div>
         </main>
 
         <footer>
-            <p>Architecture 2: LLM-driven autonomous execution</p>
+            <p>National Cancer Institute & Essential Software Inc.</p>
+            <p style="font-size: 0.85em; margin-top: 5px; opacity: 0.7;">
+                AI-Driven Test Generation | LLM-Powered Element Discovery
+            </p>
         </footer>
     </div>
 
     <script>
         const executionId = "{{ execution_id }}";
         let pollInterval;
-        let lastActionCount = 0;
-        let lastScreenshotCount = 0;
+        let currentResults = null;
+        
+        // ===================================
+        // SAFE DATA ACCESS HELPERS
+        // ===================================
+        
+        function safeGet(obj, path, defaultValue = null) {
+            try {
+                const value = path.split('.').reduce((o, p) => o?.[p], obj);
+                return value !== undefined && value !== null ? value : defaultValue;
+            } catch {
+                return defaultValue;
+            }
+        }
+        
+        function safeArray(arr) {
+            return Array.isArray(arr) ? arr : [];
+        }
+        
+        function safeNumber(val, defaultValue = 0) {
+            const num = Number(val);
+            return isNaN(num) ? defaultValue : num;
+        }
+        
+        function safeString(val, defaultValue = '') {
+            return val != null ? String(val) : defaultValue;
+        }
+        
+        // ===================================
+        // DATA FETCHING
+        // ===================================
         
         async function pollResults() {
             try {
-                // Try to get full results first
                 let response = await fetch(`/api/executions/${executionId}/results`);
                 let results;
                 
                 if (response.ok) {
                     results = await response.json();
                 } else {
-                    // Fallback to status endpoint if results not available
                     response = await fetch(`/api/executions/${executionId}/status`);
+                    if (response.ok) {
                     const status = await response.json();
                     results = {
                         execution_id: executionId,
-                        status: status.status,
-                        story: status.story,
-                        actions_taken: [],
-                        screenshots: []
-                    };
+                            status: safeGet(status, 'status', 'unknown'),
+                            story: safeGet(status, 'story', 'No story available'),
+                            actions_taken: safeArray(status.actions_taken),
+                            screenshots: safeArray(status.screenshots),
+                            discoveries: safeArray(status.discoveries),
+                            error: safeGet(status, 'error')
+                        };
+                    } else {
+                        throw new Error('Failed to fetch execution data');
+                    }
                 }
                 
+                currentResults = results;
                 displayResults(results);
                 
-                // If still running, continue polling
                 if (results.status === 'running') {
-                    document.getElementById('live-indicator').style.display = 'inline-block';
+                    document.getElementById('live-indicator')?.style.setProperty('display', 'inline-block');
                 } else {
-                    document.getElementById('live-indicator').style.display = 'none';
+                    document.getElementById('live-indicator')?.style.setProperty('display', 'none');
                     clearInterval(pollInterval);
                 }
             } catch (error) {
                 console.error('Error loading results:', error);
+                displayError(error.message);
             }
         }
+        
+        // ===================================
+        // ERROR STATE DISPLAY
+        // ===================================
+        
+        function displayError(message) {
+            const container = document.getElementById('results-content');
+            container.innerHTML = `
+                <div class="status-banner status-error">
+                    <div class="status-icon">❌</div>
+                    <div class="status-content">
+                        <h2>Unable to Load Execution Results</h2>
+                        <p>${safeString(message, 'An unknown error occurred')}</p>
+                        <div class="status-actions">
+                            <button class="btn-primary" onclick="location.reload()">
+                                🔄 Retry
+                            </button>
+                            <button class="btn-secondary" onclick="location.href='/'">
+                                ← Back to Home
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // ===================================
+        // MAIN DISPLAY FUNCTION
+        // ===================================
         
         function displayResults(results) {
             const container = document.getElementById('results-content');
             
+            // Calculate metrics with safe defaults
+            const actions = safeArray(results.actions_taken);
+            const screenshots = safeArray(results.screenshots);
+            const discoveries = safeArray(results.discoveries);
+            
+            const totalSteps = actions.length;
+            const passedSteps = actions.filter(a => safeString(a.result).includes('✅')).length;
+            const failedSteps = actions.filter(a => safeString(a.result).includes('❌')).length;
+            const successRate = totalSteps > 0 ? Math.round((passedSteps / totalSteps) * 100) : 0;
+            const duration = safeNumber(results.duration, 0).toFixed(1);
+            const status = safeString(results.status, 'unknown');
+            const story = safeString(results.story, 'No test scenario provided');
+            const error = safeGet(results, 'error');
+            
+            // Determine overall status
+            let overallStatus = 'success';
+            let statusIcon = '✅';
+            let statusTitle = 'Test Completed Successfully';
+            let statusClass = 'status-success';
+            
+            if (status === 'running') {
+                overallStatus = 'running';
+                statusIcon = '⏳';
+                statusTitle = 'Test Execution In Progress';
+                statusClass = 'status-running';
+            } else if (status === 'error' || status === 'timeout') {
+                overallStatus = 'error';
+                statusIcon = '❌';
+                statusTitle = 'Test Execution Failed';
+                statusClass = 'status-error';
+            } else if (failedSteps > 0) {
+                overallStatus = 'partial';
+                statusIcon = '⚠️';
+                statusTitle = 'Test Partially Completed';
+                statusClass = 'status-warning';
+            } else if (totalSteps === 0) {
+                overallStatus = 'empty';
+                statusIcon = '⚪';
+                statusTitle = 'No Test Data Available';
+                statusClass = 'status-empty';
+            }
+            
             let html = `
-                <div class="results-header">
-                    <div class="status-badge status-${results.status}">${results.status}</div>
-                    <p><strong>Story:</strong> ${results.story}</p>
-                    ${results.duration ? `<p><strong>Duration:</strong> ${results.duration.toFixed(2)}s</p>` : ''}
-                </div>
-            `;
-            
-            if (results.summary) {
-                html += `
-                    <div class="summary">
-                        <h3>✅ Summary</h3>
-                        <p>${results.summary}</p>
-                    </div>
-                `;
-            }
-            
-            if (results.error) {
-                html += `
-                    <div class="error-box">
-                        <h3>❌ Error</h3>
-                        <pre>${results.error}</pre>
-                    </div>
-                `;
-            }
-            
-            if (results.actions_taken && results.actions_taken.length > 0) {
-                html += `
-                    <div class="actions">
-                        <h3>🎬 Actions Taken (${results.actions_taken.length})</h3>
-                        <div class="actions-list">
-                `;
-                
-                results.actions_taken.forEach((action, index) => {
-                    const isNew = index >= lastActionCount;
-                    html += `
-                        <div class="action-item" ${isNew ? 'style="animation: fadeIn 0.5s;"' : ''}>
-                            <div class="action-header">
-                                <strong>${index + 1}. ${action.tool}</strong>
-                                <span class="iteration">Iteration ${action.iteration}</span>
-                            </div>
-                            <div class="action-input">
-                                <code>${JSON.stringify(action.input)}</code>
-                            </div>
-                            <div class="action-result" style="margin-top: 8px; color: #666;">
-                                ${action.result.substring(0, 200)}${action.result.length > 200 ? '...' : ''}
-                            </div>
+                <!-- Status Banner -->
+                <div class="status-banner ${statusClass}">
+                    <div class="status-icon">${statusIcon}</div>
+                    <div class="status-content">
+                        <h2>
+                            ${statusTitle}
+                            <span id="live-indicator" class="live-indicator" style="display: none;"></span>
+                        </h2>
+                        <div class="status-meta">
+                            <span class="meta-item"><strong>ID:</strong> ${executionId}</span>
+                            <span class="meta-separator">•</span>
+                            <span class="meta-item">${new Date().toLocaleString()}</span>
                         </div>
-                    `;
-                });
-                
-                lastActionCount = results.actions_taken.length;
-                
-                html += `
-                        </div>
-                    </div>
-                `;
-            }
-            
-            if (results.screenshots && results.screenshots.length > 0) {
-                html += `
-                    <div class="screenshots">
-                        <h3>📸 Screenshots (${results.screenshots.length})</h3>
-                        <div class="screenshots-grid">
-                `;
-                
-                results.screenshots.forEach((screenshot, index) => {
-                    // Extract filename from screenshot string like "Screenshot saved: 001_file.png (123 bytes)"
-                    const match = screenshot.match(/([0-9]+_[\w-]+\.png)/);
-                    const filename = match ? match[1] : `screenshot_${index + 1}.png`;
-                    
-                    const isNew = index >= lastScreenshotCount;
-                    html += `
-                        <div class="screenshot-item" ${isNew ? 'style="animation: fadeIn 0.5s;"' : ''}>
-                            <img src="/api/screenshots/${filename}" alt="Screenshot ${index + 1}" 
-                                 onclick="window.open('/api/screenshots/${filename}', '_blank')">
-                            <p style="text-align: center; margin-top: 8px; font-size: 12px;">${filename}</p>
-                        </div>
-                    `;
-                });
-                
-                lastScreenshotCount = results.screenshots.length;
-                
-                html += `
-                        </div>
-                    </div>
-                `;
-            }
-            
-            // Discoveries section
-            if (results.discoveries && results.discoveries.length > 0 && results.status === 'completed') {
-                html += `
-                    <div class="discoveries" style="margin-top: 30px; border: 2px solid #4CAF50; border-radius: 8px; padding: 20px; background: #f0f9f0;">
-                        <h3>📝 Discoveries (${results.discoveries.length})</h3>
-                        <p style="color: #666; margin-bottom: 15px;">
-                            The AI agent discovered these elements using tree climbing and disambiguation. 
-                            Approve to save them to the registry for faster future runs.
-                        </p>
-                        <ul style="list-style: none; padding: 0;">
-                `;
-                
-                results.discoveries.forEach((discovery, index) => {
-                    const method = discovery.discovery_method || 'unknown';
-                    const depth = discovery.metadata?.tree_depth || 1;
-                    
-                    // Check if this is a verification discovery
-                    if (method === 'table_verification') {
-                        const metadata = discovery.metadata || {};
-                        const result = metadata.result || 'UNKNOWN';
-                        const resultIcon = result === 'PASS' ? '✅' : '❌';
-                        const resultColor = result === 'PASS' ? '#4CAF50' : '#f44336';
-                        const totalRows = metadata.total_rows || 0;
-                        const matchingRows = metadata.matching_rows || 0;
-                        const columnName = metadata.column_name || 'unknown';
-                        const expectedValue = metadata.expected_value || '';
-                        const screenshot = metadata.screenshot || '';
                         
-                        html += `
-                            <li style="background: white; border: 2px solid ${resultColor}; border-radius: 4px; padding: 15px; margin: 8px 0;">
-                                <div style="display: flex; justify-content: space-between; align-items: start;">
-                                    <div style="flex: 1;">
-                                        <strong style="color: ${resultColor};">${resultIcon} VERIFICATION: ${discovery.name}</strong>
-                                        <div style="color: #666; font-size: 13px; margin-top: 8px;">
-                                            <strong>Column:</strong> ${columnName}<br>
-                                            <strong>Expected:</strong> All rows contain "${expectedValue}"<br>
-                                            <strong>Result:</strong> ${matchingRows}/${totalRows} rows matched
-                                        </div>
-                                        ${metadata.mismatches ? `
-                                        <div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 12px;">
-                                            <strong>Mismatches:</strong> ${metadata.mismatches.join(', ')}
-                                        </div>
-                                        ` : ''}
-                                        ${screenshot ? `
-                                        <div style="margin-top: 10px;">
-                                            <img src="/api/screenshots/${screenshot.split('/').pop()}" 
-                                                 style="max-width: 300px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;"
-                                                 onclick="window.open('/api/screenshots/${screenshot.split('/').pop()}', '_blank')"
-                                                 alt="Verification screenshot">
-                                        </div>
-                                        ` : ''}
-                                    </div>
-                                </div>
-                            </li>
-                        `;
-                    } else {
-                        // Regular discovery (click, etc.)
-                        const methodLabel = method === 'tree_climbing' ? `🌳 Tree Climbing (depth ${depth})` : '🤖 AI Disambiguation';
+                        <!-- Progress Bar -->
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${successRate}%"></div>
+                            </div>
+                            <div class="progress-label">${passedSteps}/${totalSteps} Steps (${successRate}%)</div>
+                        </div>
                         
-                        html += `
-                            <li style="background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin: 8px 0;">
-                                <div style="display: flex; justify-content: space-between; align-items: start;">
-                                    <div style="flex: 1;">
-                                        <strong>${discovery.name}</strong>
-                                        <div style="color: #666; font-size: 12px; margin-top: 4px;">
-                                            ${methodLabel}
-                                        </div>
-                                        <div style="margin-top: 8px; font-family: monospace; font-size: 11px;">
-                                            <div>📥 Query: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.original_query}</code></div>
-                                            <div style="margin-top: 4px;">📤 Optimized: <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">${discovery.final_selector.substring(0, 80)}${discovery.final_selector.length > 80 ? '...' : ''}</code></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </li>
-                        `;
-                    }
-                });
-                
-                html += `
-                        </ul>
-                        <div style="margin-top: 20px; text-align: center;">
-                            <button id="approve-btn" onclick="approveDiscoveries()" 
-                                    style="background: #4CAF50; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 10px;">
+                        <!-- Quick Stats -->
+                        <div class="quick-stats">
+                            <div class="stat-item">
+                                <div class="stat-value">${totalSteps}</div>
+                                <div class="stat-label">Total Steps</div>
+                            </div>
+                            <div class="stat-item stat-success">
+                                <div class="stat-value">${passedSteps}</div>
+                                <div class="stat-label">Passed</div>
+                            </div>
+                            ${failedSteps > 0 ? `
+                            <div class="stat-item stat-error">
+                                <div class="stat-value">${failedSteps}</div>
+                                <div class="stat-label">Failed</div>
+                            </div>
+                            ` : ''}
+                            <div class="stat-item">
+                                <div class="stat-value">${duration}s</div>
+                                <div class="stat-label">Duration</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${screenshots.length}</div>
+                                <div class="stat-label">Screenshots</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${discoveries.length}</div>
+                                <div class="stat-label">Discoveries</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        ${status === 'completed' && discoveries.length > 0 ? `
+                        <div class="status-actions">
+                            <button class="btn-primary" onclick="approveDiscoveries()">
                                 ✅ Approve & Update Registry
                             </button>
-                            <button id="generate-test-btn" onclick="generatePlaywrightTest()" 
-                                    style="background: #2196F3; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                            <button class="btn-primary" onclick="generatePlaywrightTest()">
                                 🎭 Generate Playwright Test
                             </button>
-                            <p id="approve-msg" style="margin-top: 10px; color: #4CAF50; display: none;"></p>
-                            <p id="generate-msg" style="margin-top: 10px; display: none;"></p>
+                            <button class="btn-secondary" onclick="viewRegistry()">
+                                📋 View Registry
+                            </button>
+                            <button class="btn-secondary" onclick="downloadRawData()">
+                                📥 Download Raw Data
+                            </button>
                         </div>
+                        ` : status === 'error' || overallStatus === 'partial' ? `
+                        <div class="status-actions">
+                            <button class="btn-primary" onclick="retryTest()">
+                                🔄 Retry Test
+                            </button>
+                            <button class="btn-secondary" onclick="viewRawData()">
+                                📄 View Raw Data
+                            </button>
+                            <button class="btn-secondary" onclick="location.href='/'">
+                                ← Edit Story
+                            </button>
+                        </div>
+                        ` : ''}
+                        
+                        <div id="action-messages" style="margin-top: 15px;"></div>
                     </div>
-                `;
-            }
+                </div>
+                
+                <!-- Test Story Card -->
+                ${story ? `
+                <div class="card story-card">
+                    <h3 style="color: var(--nci-blue); margin-bottom: 15px;">📝 Test Scenario</h3>
+                    <div class="story-content">${story.replace(/\n/g, '<br>')}</div>
+                </div>
+                ` : ''}
+                
+                <!-- Main Content Card with Tabs -->
+                <div class="card">
+                    <div class="tab-navigation">
+                        <button class="tab-button active" onclick="switchTab('overview')">
+                            📊 Overview
+                        </button>
+                        <button class="tab-button" onclick="switchTab('steps')">
+                            🎬 Steps (${totalSteps})
+                        </button>
+                        <button class="tab-button" onclick="switchTab('discoveries')">
+                            🔍 Discoveries (${discoveries.length})
+                        </button>
+                        <button class="tab-button" onclick="switchTab('screenshots')">
+                            📸 Screenshots (${screenshots.length})
+                        </button>
+                        <button class="tab-button" onclick="switchTab('playwright')">
+                            🎭 Playwright
+                        </button>
+                    </div>
+                    
+                    <!-- Tab 1: Overview -->
+                    <div id="tab-overview" class="tab-content active">
+                        ${renderOverviewTab(results, totalSteps, passedSteps, failedSteps)}
+                    </div>
+                    
+                    <!-- Tab 2: Steps -->
+                    <div id="tab-steps" class="tab-content">
+                        ${renderStepsTab(results)}
+                    </div>
+                    
+                    <!-- Tab 3: Discoveries -->
+                    <div id="tab-discoveries" class="tab-content">
+                        ${renderDiscoveriesTab(results)}
+                    </div>
+                    
+                    <!-- Tab 4: Screenshots -->
+                    <div id="tab-screenshots" class="tab-content">
+                        ${renderScreenshotsTab(results)}
+                    </div>
+                    
+                    <!-- Tab 5: Playwright -->
+                    <div id="tab-playwright" class="tab-content">
+                        ${renderPlaywrightTab(results)}
+                    </div>
+                </div>
+            `;
             
             container.innerHTML = html;
         }
         
-        // Approve discoveries and update registry
-        async function approveDiscoveries() {
-            const btn = document.getElementById('approve-btn');
-            const msg = document.getElementById('approve-msg');
+        // ===================================
+        // TAB RENDERERS
+        // ===================================
+        
+        function renderOverviewTab(results, totalSteps, passedSteps, failedSteps) {
+            const error = safeGet(results, 'error');
+            const summary = safeGet(results, 'summary');
+            const actions = safeArray(results.actions_taken);
             
-            // Disable button
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">📊 Execution Summary</h3>';
+            
+            // Error section
+            if (error) {
+                html += `
+                    <div class="alert alert-error">
+                        <div class="alert-icon">❌</div>
+                        <div class="alert-content">
+                            <h4>Error Details</h4>
+                            <pre>${safeString(error)}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Summary section
+            if (summary) {
+                html += `
+                    <div class="alert alert-info">
+                        <div class="alert-icon">💡</div>
+                        <div class="alert-content">
+                            <h4>AI Summary</h4>
+                            <p style="white-space: pre-wrap; line-height: 1.8;">${safeString(summary)}</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Playwright comparison (if exists)
+            const playwrightComparison = safeGet(results, 'playwright_comparison');
+            if (playwrightComparison && playwrightComparison.status) {
+                const pwStatus = safeString(playwrightComparison.status, 'unknown');
+                const aiStatus = results.status;
+                const match = playwrightComparison.match === true;
+                
+                html += `
+                    <h4 style="margin: 25px 0 15px 0; color: var(--text-primary);">🔄 AI vs Playwright Comparison</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
+                        <div style="border: 2px solid var(--esi-teal); border-radius: 8px; padding: 20px; background: var(--bg-secondary);">
+                            <h5 style="margin: 0 0 15px; color: var(--esi-teal);">🤖 AI Agent Execution</h5>
+                            <div style="font-size: 1.2em; font-weight: 600; margin: 10px 0;">
+                                Status: ${aiStatus === 'completed' ? '✅ Completed' : '❌ ' + aiStatus}
+                            </div>
+                            <div style="margin: 10px 0;">Steps: ${totalSteps} (${passedSteps} passed, ${failedSteps} failed)</div>
+                        </div>
+                        <div style="border: 2px solid var(--info); border-radius: 8px; padding: 20px; background: var(--bg-secondary);">
+                            <h5 style="margin: 0 0 15px; color: var(--info);">🎭 Playwright Test</h5>
+                            <div style="font-size: 1.2em; font-weight: 600; margin: 10px 0;">
+                                Status: ${pwStatus === 'passed' ? '✅ Passed' : '❌ ' + pwStatus}
+                            </div>
+                            <div style="margin: 10px 0;">Assertions: ${safeNumber(playwrightComparison.assertions_passed, 0)} passed, ${safeNumber(playwrightComparison.assertions_failed, 0)} failed</div>
+                        </div>
+                    </div>
+                    <div style="background: ${match ? '#E8F5E9' : '#FFF3E0'}; padding: 15px; border-radius: 8px; border-left: 4px solid ${match ? 'var(--success)' : 'var(--warning)'}; margin-bottom: 25px;">
+                        <strong>${match ? '✅' : '⚠️'} Match:</strong> ${match ? 'Both tests produced the same result' : 'Results differ - review recommended'}
+                    </div>
+                `;
+            }
+            
+            // Step timeline
+            if (actions.length > 0) {
+                html += `
+                    <h4 style="margin: 25px 0 15px 0; color: var(--text-primary);">🎬 Step Timeline</h4>
+                    <div class="step-timeline">
+                `;
+                
+                actions.forEach((action, index) => {
+                    const passed = safeString(action.result).includes('✅');
+                    const status = passed ? 'passed' : 'failed';
+                    const result = safeString(action.result, 'No result');
+                    
+                    html += `
+                        <div class="step-indicator ${status}" title="${result.substring(0, 100)}">
+                            ${index + 1}
+                        </div>
+                    `;
+                    
+                    if (index < actions.length - 1) {
+                        html += '<div class="step-connector"></div>';
+                    }
+                });
+                
+                html += '</div>';
+            } else {
+                html += renderEmptyState('🎬', 'No Steps Recorded', 'No actions were taken during this execution.');
+            }
+            
+            // Screenshot comparison section
+            const aiScreenshots = actions.flatMap(action => safeArray(action.screenshots || []));
+            const pwScreenshots = safeArray(results.playwright_screenshots);
+            
+            console.log('📊 Overview Tab - AI Screenshots:', aiScreenshots.length, aiScreenshots);
+            console.log('📊 Overview Tab - PW Screenshots:', pwScreenshots.length, pwScreenshots);
+            
+            if (aiScreenshots.length > 0 || pwScreenshots.length > 0) {
+                html += `
+                    <h4 style="margin: 25px 0 15px 0; color: var(--text-primary);">📸 Screenshot Comparison</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
+                        <div>
+                            <h5 style="color: var(--esi-teal); margin-bottom: 10px;">🤖 AI Screenshots (${aiScreenshots.length})</h5>
+                            ${aiScreenshots.length > 0 ? `
+                                <div style="display: grid; gap: 10px;">
+                                    ${aiScreenshots.slice(0, 3).map(screenshot => `
+                                        <div style="border: 2px solid var(--esi-teal); border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${screenshot}', '_blank')">
+                                            <img src="/api/screenshots/${screenshot}" 
+                                                 alt="${screenshot}"
+                                                 style="width: 100%; height: auto; display: block;"
+                                                 onerror="this.style.display='none'">
+                                            <div style="padding: 8px; background: var(--bg-tertiary); font-size: 0.75em; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                ${screenshot}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                    ${aiScreenshots.length > 3 ? `<div style="text-align: center; color: var(--text-secondary); padding: 10px;">+ ${aiScreenshots.length - 3} more (view in Steps tab)</div>` : ''}
+                                </div>
+                            ` : '<div style="text-align: center; color: var(--text-secondary); padding: 30px;">No screenshots captured</div>'}
+                        </div>
+                        <div>
+                            <h5 style="color: var(--info); margin-bottom: 10px;">🎭 Playwright Screenshots (${pwScreenshots.length})</h5>
+                            ${pwScreenshots.length > 0 ? `
+                                <div style="display: grid; gap: 10px;">
+                                    ${pwScreenshots.slice(0, 3).map(screenshot => {
+                                        const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
+                                        return `
+                                            <div style="border: 2px solid var(--info); border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${filename}', '_blank')">
+                                                <img src="/api/screenshots/${filename}" 
+                                                     alt="${filename}"
+                                                     style="width: 100%; height: auto; display: block;"
+                                                     onerror="this.style.display='none'">
+                                                <div style="padding: 8px; background: var(--bg-tertiary); font-size: 0.75em; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                    ${filename}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                    ${pwScreenshots.length > 3 ? `<div style="text-align: center; color: var(--text-secondary); padding: 10px;">+ ${pwScreenshots.length - 3} more (view in Playwright tab)</div>` : ''}
+                                </div>
+                            ` : '<div style="text-align: center; color: var(--text-secondary); padding: 30px;">No screenshots captured</div>'}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            return html;
+        }
+        
+        function renderStepsTab(results) {
+            const actions = safeArray(results.actions_taken);
+            
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎬 Step-by-Step Execution</h3>';
+            
+            if (actions.length === 0) {
+                return html + renderEmptyState('🎬', 'No Steps Available', 'No execution steps were recorded for this test.');
+            }
+            
+            html += '<div class="discovery-grid">';
+            
+            actions.forEach((action, index) => {
+                const tool = safeString(action.tool, 'unknown');
+                const input = safeGet(action, 'input', {});
+                const result = safeString(action.result, 'No result');
+                const iteration = safeNumber(action.iteration, index + 1);
+                const passed = result.includes('✅');
+                const borderColor = passed ? 'var(--success)' : 'var(--error)';
+                const screenshots = safeArray(action.screenshots);
+                
+                html += `
+                    <div class="action-item" style="border-left-color: ${borderColor};">
+                        <div class="action-header">
+                            <strong class="action-name">${index + 1}. ${tool}</strong>
+                            <span class="iteration-badge">Iteration ${iteration}</span>
+                            ${passed ? '<span style="color: var(--success); font-size: 1.2em; margin-left: 8px;">✅</span>' : '<span style="color: var(--error); font-size: 1.2em; margin-left: 8px;">❌</span>'}
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <strong style="font-size: 0.85em; color: var(--text-secondary);">Input:</strong>
+                            <div class="selector-row" style="margin-top: 4px;">
+                                ${JSON.stringify(input)}
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <strong style="font-size: 0.85em; color: var(--text-secondary);">Result:</strong>
+                            <div style="color: var(--text-secondary); font-size: 0.9em; margin-top: 4px; line-height: 1.6;">
+                                ${result}
+                            </div>
+                        </div>
+                        ${screenshots.length > 0 ? `
+                        <div style="margin-top: 15px;">
+                            <strong style="font-size: 0.85em; color: var(--text-secondary);">📸 Screenshots (${screenshots.length}):</strong>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin-top: 10px;">
+                                ${screenshots.map(screenshot => `
+                                    <div style="border: 2px solid ${borderColor}; border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${screenshot}', '_blank')">
+                                        <img src="/api/screenshots/${screenshot}" 
+                                             alt="${screenshot}"
+                                             style="width: 100%; height: auto; display: block;"
+                                             onerror="this.parentElement.innerHTML='<div style=\\'padding: 20px; text-align: center; color: var(--text-secondary);\\'>📷 Not Found</div>'">
+                                        <div style="padding: 8px; background: var(--bg-tertiary); font-size: 0.75em; text-align: center; color: var(--text-secondary);">
+                                            ${screenshot}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
+        }
+        
+        function renderDiscoveriesTab(results) {
+            const discoveries = safeArray(results.discoveries);
+            
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🔍 AI Element Discovery</h3>';
+            
+            if (discoveries.length === 0) {
+                return html + renderEmptyState('🔍', 'No Discoveries Yet', 
+                    'The AI agent will save discovered elements here for future test optimization.');
+            }
+            
+            html += `
+                <p style="color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;">
+                    The AI discovered these elements using advanced techniques like <strong>tree climbing</strong> and <strong>LLM disambiguation</strong>. 
+                    Approved discoveries are saved to the registry for faster future runs.
+                </p>
+                <div class="discovery-grid">
+            `;
+            
+            discoveries.forEach(discovery => {
+                const name = safeString(discovery.name, 'Unnamed');
+                const method = safeString(discovery.discovery_method, 'unknown');
+                const isVerification = method === 'table_verification';
+                
+                if (isVerification) {
+                    const metadata = safeGet(discovery, 'metadata', {});
+                    const result = safeString(metadata.result, 'UNKNOWN');
+                    const resultIcon = result === 'PASS' ? '✅' : '❌';
+                    const resultColor = result === 'PASS' ? 'var(--success)' : 'var(--error)';
+                    const columnName = safeString(metadata.column_name, 'N/A');
+                    const expectedValue = safeString(metadata.expected_value, 'N/A');
+                    const matchingRows = safeNumber(metadata.matching_rows, 0);
+                    const totalRows = safeNumber(metadata.total_rows, 0);
+                    const reason = safeString(metadata.reason);
+                    const screenshot = safeString(metadata.screenshot);
+                    
+                    html += `
+                        <div class="discovery-item verification ${result === 'PASS' ? '' : 'failed'}" style="border-left-color: ${resultColor};">
+                            <div class="discovery-header">
+                                <strong class="discovery-name" style="color: ${resultColor};">
+                                    ${resultIcon} VERIFICATION: ${name}
+                                </strong>
+                                <span class="discovery-badge" style="background: ${resultColor};">Table Check</span>
+                            </div>
+                            <div class="discovery-details">
+                                <div><strong>Column:</strong> ${columnName}</div>
+                                <div><strong>Expected:</strong> All rows contain "${expectedValue}"</div>
+                                <div><strong>Result:</strong> ${matchingRows}/${totalRows} rows matched</div>
+                                ${reason ? `<div style="color: var(--error); font-weight: 600; margin-top: 8px;">${reason}</div>` : ''}
+                            </div>
+                            ${screenshot ? `
+                                <img src="/api/screenshots/${screenshot.split('/').pop()}" 
+                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                                     style="max-width: 400px; margin-top: 15px; border-radius: 6px; border: 2px solid ${resultColor}; cursor: pointer;"
+                                     onclick="window.open('/api/screenshots/${screenshot.split('/').pop()}', '_blank')">
+                                <div style="display: none; margin-top: 15px; padding: 15px; background: var(--bg-tertiary); border-radius: 6px; text-align: center; color: var(--text-secondary);">
+                                    📷 Screenshot not available
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                } else {
+                    const originalQuery = safeString(discovery.original_query, 'N/A');
+                    const finalSelector = safeString(discovery.final_selector, 'N/A');
+                    const depth = safeNumber(safeGet(discovery, 'metadata.tree_depth'), 1);
+                    const methodLabel = method === 'tree_climbing' ? `🌳 Tree Climbing (depth ${depth})` : '🤖 AI Disambiguation';
+                    
+                    html += `
+                        <div class="discovery-item">
+                            <div class="discovery-header">
+                                <strong class="discovery-name">${name}</strong>
+                                <span class="discovery-badge">${methodLabel}</span>
+                            </div>
+                            <div class="discovery-details">
+                                <div class="selector-row">
+                                    📥 Original: <code>${originalQuery}</code>
+                                </div>
+                                <div class="selector-row">
+                                    📤 Optimized: <code>${finalSelector.substring(0, 100)}${finalSelector.length > 100 ? '...' : ''}</code>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            html += '</div>';
+            return html;
+        }
+        
+        function renderScreenshotsTab(results) {
+            console.log('🔍 renderScreenshotsTab called with results:', results);
+            console.log('🔍 Has playwright_screenshots field?', 'playwright_screenshots' in results);
+            console.log('🔍 playwright_screenshots value:', results.playwright_screenshots);
+            
+            const screenshots = safeArray(results.screenshots);
+            // Also check for validation/playwright screenshots
+            const validationScreenshots = safeArray(safeGet(results, 'validation.screenshots', []));
+            const playwrightApiScreenshots = safeArray(results.playwright_screenshots);
+            
+            console.log('🔍 playwrightApiScreenshots after safeArray:', playwrightApiScreenshots);
+            
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">📸 Test Screenshots</h3>';
+            
+            // Separate AI and Playwright screenshots from all sources
+            const aiScreenshots = screenshots.filter(s => !safeString(s).includes('pw_'));
+            
+            // Combine Playwright screenshots from all sources
+            let playwrightScreenshots = [];
+            
+            // From original screenshots array
+            playwrightScreenshots.push(...screenshots.filter(s => safeString(s).includes('pw_')));
+            
+            // From validation.screenshots (array of objects with filename)
+            playwrightScreenshots.push(...validationScreenshots.map(s => {
+                if (typeof s === 'string') return s;
+                return safeGet(s, 'filename', safeGet(s, 'path', ''));
+            }).filter(s => s && s.includes('pw_')));
+            
+            // From playwright_screenshots (array of objects with filename)
+            playwrightScreenshots.push(...playwrightApiScreenshots.map(s => {
+                if (typeof s === 'string') return s;
+                return safeGet(s, 'filename', safeGet(s, 'path', ''));
+            }).filter(s => s));
+            
+            // Debug: Log what we found
+            if (playwrightApiScreenshots.length > 0) {
+                console.log('🎭 Playwright screenshots from API:', playwrightApiScreenshots);
+                console.log('🎭 Extracted filenames:', playwrightScreenshots);
+            }
+            
+            // Remove duplicates
+            playwrightScreenshots = [...new Set(playwrightScreenshots)];
+            
+            if (screenshots.length === 0 && playwrightScreenshots.length === 0) {
+                return html + renderEmptyState('📸', 'No Screenshots Captured', 
+                    'No screenshots were taken during this test execution.');
+            }
+            
+            // AI Screenshots
+            if (aiScreenshots.length > 0) {
+                html += `
+                    <h4 style="margin-bottom: 15px; color: var(--esi-teal);">🤖 AI Discovery Screenshots (${aiScreenshots.length})</h4>
+                    <div class="screenshots-grid" style="margin-bottom: 40px;">
+                `;
+                
+                aiScreenshots.forEach((screenshot, index) => {
+                    const match = safeString(screenshot).match(/([0-9]+_[\w-]+\.png)/);
+                    const filename = match ? match[1] : `screenshot_${index + 1}.png`;
+                    
+                    html += `
+                        <div class="screenshot-item ai-screenshot">
+                            <div class="screenshot-type-badge ai">AI Discovery</div>
+                            <img src="/api/screenshots/${filename}" 
+                                 alt="${filename}"
+                                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'150\\'%3E%3Crect fill=\\'%23f0f0f0\\' width=\\'200\\' height=\\'150\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%23999\\' font-family=\\'Arial\\'%3E📷 Not Found%3C/text%3E%3C/svg%3E'"
+                                 onclick="window.open('/api/screenshots/${filename}', '_blank')">
+                            <div class="screenshot-label">${filename}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+                
+            // Playwright Screenshots
+            if (playwrightScreenshots.length > 0) {
+                html += `
+                    <h4 style="margin-bottom: 15px; color: var(--info);">🎭 Playwright Screenshots (${playwrightScreenshots.length})</h4>
+                    <div class="screenshots-grid">
+                `;
+                
+                playwrightScreenshots.forEach((screenshot, index) => {
+                    const match = safeString(screenshot).match(/([pw_\w-]+\.png)/);
+                    const filename = match ? match[1] : `pw_screenshot_${index + 1}.png`;
+                    
+                    html += `
+                        <div class="screenshot-item playwright-screenshot">
+                            <div class="screenshot-type-badge playwright">Playwright</div>
+                            <img src="/api/screenshots/${filename}" 
+                                 alt="${filename}"
+                                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'150\\'%3E%3Crect fill=\\'%23f0f8ff\\' width=\\'200\\' height=\\'150\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%232196F3\\' font-family=\\'Arial\\'%3E📷 Not Found%3C/text%3E%3C/svg%3E'"
+                                 onclick="window.open('/api/screenshots/${filename}', '_blank')">
+                            <div class="screenshot-label">${filename}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+            
+            return html;
+        }
+        
+        function renderPlaywrightTab(results) {
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎭 Playwright Test Generation</h3>';
+            
+            const validation = safeGet(results, 'playwright_validation');
+            const comparison = safeGet(results, 'playwright_comparison');
+            const screenshots = safeArray(results.playwright_screenshots);
+            
+            // Check if Playwright results already exist
+            if (validation && validation.status) {
+                const status = safeString(validation.status, 'unknown');
+                const duration = safeNumber(validation.duration, 0);
+                const assertionsPassed = safeNumber(validation.assertions_passed, 0);
+                const assertionsFailed = safeNumber(validation.assertions_failed, 0);
+                const isMatch = comparison && comparison.match === true;
+                const recommendation = safeString(comparison?.recommendation, 'No recommendation available');
+                
+                html += `
+                    <div class="alert ${status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-top: 25px;">
+                        <div class="alert-icon">${status === 'passed' ? '✅' : '❌'}</div>
+                        <div class="alert-content">
+                            <h4>Validation Results</h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 15px 0;">
+                                <div style="text-align: center;">
+                                    <div style="font-size: 1.4em; font-weight: 700; color: ${status === 'passed' ? 'var(--success)' : 'var(--error)'};">
+                                        ${status === 'passed' ? '✅ PASSED' : '❌ FAILED'}
+                                    </div>
+                                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Status</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 1.3em; font-weight: 600;">⏱️ ${duration}s</div>
+                                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Duration</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 1.3em; font-weight: 600; color: var(--success);">✅ ${assertionsPassed}</div>
+                                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Passed</div>
+                                </div>
+                                ${assertionsFailed > 0 ? `
+                                <div style="text-align: center;">
+                                    <div style="font-size: 1.3em; font-weight: 600; color: var(--error);">❌ ${assertionsFailed}</div>
+                                    <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Failed</div>
+                                </div>
+                                ` : ''}
+                            </div>
+                            <div style="background: ${isMatch ? '#E8F5E9' : '#FFF3E0'}; padding: 15px; border-radius: 8px; border-left: 4px solid ${isMatch ? 'var(--success)' : 'var(--warning)'}; margin-top: 15px;">
+                                <strong>🎯 Recommendation:</strong> ${recommendation}
+                            </div>
+                            ${validation.test_file ? `
+                            <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center;">
+                                <a href="/api/executions/${executionId}/generated-test" target="_blank" 
+                                   class="btn-secondary" style="display: inline-block; text-decoration: none;">
+                                    👁️ View Code
+                                </a>
+                                <a href="/api/executions/${executionId}/download-test" 
+                                   class="btn-primary" style="display: inline-block; text-decoration: none;"
+                                   download>
+                                    📥 Download .py File
+                                </a>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    
+                    ${status === 'failed' && (validation.stdout || validation.stderr) ? `
+                    <div style="margin-top: 30px;">
+                        <h4 style="color: var(--error); margin-bottom: 15px;">❌ Test Execution Errors</h4>
+                        ${validation.stdout ? `
+                        <div style="margin-bottom: 20px;">
+                            <h5 style="color: var(--text-primary); margin-bottom: 10px;">📋 Test Output (stdout)</h5>
+                            <pre style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; border-left: 4px solid var(--info); overflow-x: auto; max-height: 400px; font-size: 0.85em; line-height: 1.6;">${safeString(validation.stdout).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        </div>
+                        ` : ''}
+                        ${validation.stderr ? `
+                        <div style="margin-bottom: 20px;">
+                            <h5 style="color: var(--error); margin-bottom: 10px;">⚠️ Error Output (stderr)</h5>
+                            <pre style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; border-left: 4px solid var(--error); overflow-x: auto; max-height: 400px; font-size: 0.85em; line-height: 1.6;">${safeString(validation.stderr).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        </div>
+                        ` : ''}
+                        <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; font-size: 0.9em; color: var(--text-secondary);">
+                            <strong>Exit Code:</strong> ${validation.exit_code || 0}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${screenshots.length > 0 ? `
+                    <div style="margin-top: 30px;">
+                        <h4 style="color: var(--nci-blue); margin-bottom: 15px;">🎭 Playwright Test Screenshots (${screenshots.length})</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+                            ${screenshots.map((screenshot, index) => {
+                                const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
+                                return `
+                                    <div style="border: 2px solid var(--info); border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${filename}', '_blank')">
+                                        <img src="/api/screenshots/${filename}" 
+                                             alt="${filename}"
+                                             style="width: 100%; height: auto; display: block;"
+                                             onerror="this.parentElement.innerHTML='<div style=\\'padding: 30px; text-align: center; color: var(--text-secondary);\\'>📷 Screenshot Not Found</div>'">
+                                        <div style="padding: 10px; background: var(--bg-tertiary); font-size: 0.85em; text-align: center;">
+                                            ${filename}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div style="text-align: center; margin-top: 30px;">
+                        <button class="btn-secondary" onclick="generatePlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
+                            🔄 Regenerate Test
+                        </button>
+                    </div>
+                `;
+            } else {
+                // No Playwright results yet - show generation button
+                html += `
+                    <div class="alert alert-info" style="text-align: center;">
+                        <div class="alert-icon" style="font-size: 3em;">🎭</div>
+                        <div class="alert-content">
+                            <h4>Generate Executable Playwright Test</h4>
+                            <p style="max-width: 600px; margin: 15px auto;">
+                                Convert AI discoveries into a production-ready Playwright test script. 
+                                The generated code will be validated automatically and compared with AI results.
+                            </p>
+                            <button class="btn-primary" onclick="generatePlaywrightTest()" style="font-size: 1.1em; padding: 16px 32px; margin-top: 10px;">
+                                🎭 Generate Playwright Test
+                            </button>
+                            <div id="playwright-status" style="margin-top: 20px;"></div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '<div id="playwright-results-section"></div>';
+            
+            return html;
+        }
+        
+        function renderEmptyState(icon, title, message) {
+            return `
+                <div class="empty-state">
+                    <div class="empty-icon">${icon}</div>
+                    <h4 class="empty-title">${title}</h4>
+                    <p class="empty-message">${message}</p>
+                </div>
+            `;
+        }
+        
+        // ===================================
+        // TAB SWITCHING
+        // ===================================
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // ===================================
+        // ACTION HANDLERS
+        // ===================================
+        
+        async function approveDiscoveries() {
+            const btn = event.target;
+            const originalText = btn.textContent;
+            
             btn.disabled = true;
-            btn.style.opacity = '0.6';
-            btn.style.cursor = 'not-allowed';
             btn.textContent = '⏳ Updating Registry...';
             
             try {
                 const response = await fetch(`/api/executions/${executionId}/approve-discoveries`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 });
                 
                 const result = await response.json();
                 
                 if (response.ok) {
-                    msg.textContent = `✅ Success! Registry updated with ${result.discoveries_updated} discoveries. Next test run will be 70% faster!`;
-                    msg.style.color = '#4CAF50';
-                    msg.style.display = 'block';
+                    showActionMessage(`✅ Registry Updated! ${result.discoveries_updated} discoveries saved. Future tests will be 70% faster!`, 'success');
                     btn.textContent = '✅ Registry Updated';
-                    btn.style.background = '#888';
+                    btn.style.background = 'var(--neutral)';
                 } else {
                     throw new Error(result.error || 'Failed to update registry');
                 }
             } catch (error) {
-                console.error('Error approving discoveries:', error);
-                msg.textContent = `❌ Error: ${error.message}`;
-                msg.style.color = '#f44336';
-                msg.style.display = 'block';
-                
-                // Re-enable button on error
+                showActionMessage(`❌ Error: ${error.message}`, 'error');
                 btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.textContent = '✅ Approve & Update Registry';
+                btn.textContent = originalText;
             }
         }
         
-        function displayPlaywrightResults(validation, comparison, screenshots) {
-            // Check if section already exists
-            let playwrightSection = document.getElementById('playwright-section');
-            if (!playwrightSection) {
-                // Create new section after the generate-msg
-                const container = document.querySelector('.results-container');
-                playwrightSection = document.createElement('div');
-                playwrightSection.id = 'playwright-section';
-                playwrightSection.style.cssText = 'margin-top: 30px; border: 2px solid #2196F3; border-radius: 8px; padding: 20px; background: #f0f8ff;';
-                
-                // Find where to insert (after generate-msg)
-                const generateMsg = document.getElementById('generate-msg');
-                if (generateMsg && generateMsg.parentNode) {
-                    generateMsg.parentNode.insertBefore(playwrightSection, generateMsg.nextSibling);
-                } else {
-                    container.appendChild(playwrightSection);
-                }
-            }
+        async function generatePlaywrightTest() {
+            const statusDiv = document.getElementById('playwright-status');
+            if (!statusDiv) return;
             
-            // Build content
-            let html = `
-                <h3 style="color: #2196F3; margin-top: 0;">🎭 Playwright Test Validation Results</h3>
+            statusDiv.innerHTML = '<div style="text-align: center;"><span class="spinner"></span> Generating test code and validating...</div>';
+            
+            try {
+                const response = await fetch(`/api/executions/${executionId}/generate-and-validate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ validate: true })
+                });
                 
-                <div style="background: white; border-radius: 6px; padding: 15px; margin-bottom: 20px;">
-                    <h4 style="margin-top: 0; color: #333;">📊 Test Execution Summary</h4>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
-                        <div style="background: ${validation.status === 'passed' ? '#e8f5e9' : '#ffebee'}; padding: 12px; border-radius: 4px;">
-                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Status</div>
-                            <div style="font-size: 18px; font-weight: bold; color: ${validation.status === 'passed' ? '#4CAF50' : '#f44336'};">
-                                ${validation.status === 'passed' ? '✅ PASSED' : '❌ FAILED'}
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showActionMessage(`✅ Test Generated Successfully!`, 'success');
+                    displayPlaywrightResults(result);
+                    
+                    // Reload main results to update Overview tab with Playwright data
+                    await loadResults();
+                } else {
+                    throw new Error(result.error || 'Failed to generate test');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-error">
+                        <div class="alert-icon">❌</div>
+                        <div class="alert-content">
+                            <h4>Generation Failed</h4>
+                            <p>${error.message}</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        function displayPlaywrightResults(result) {
+            const container = document.getElementById('playwright-results-section');
+            if (!container) return;
+            
+            const validation = safeGet(result, 'validation', {});
+            const comparison = safeGet(result, 'comparison', {});
+            const screenshots = safeArray(result.playwright_screenshots);
+            
+            const status = safeString(validation.status, 'unknown');
+            const duration = safeNumber(validation.duration, 0);
+            const assertionsPassed = safeNumber(validation.assertions_passed, 0);
+            const assertionsFailed = safeNumber(validation.assertions_failed, 0);
+            const isMatch = comparison.match === true;
+            const recommendation = safeString(comparison.recommendation, 'No recommendation available');
+            
+            let html = `
+                <div class="alert ${status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-top: 25px;">
+                    <div class="alert-icon">${status === 'passed' ? '✅' : '❌'}</div>
+                    <div class="alert-content">
+                        <h4>Validation Results</h4>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 15px 0;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.4em; font-weight: 700; color: ${status === 'passed' ? 'var(--success)' : 'var(--error)'};">
+                                    ${status === 'passed' ? '✅ PASSED' : '❌ FAILED'}
+                                </div>
+                                <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Status</div>
                             </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.3em; font-weight: 600;">⏱️ ${duration}s</div>
+                                <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Duration</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.3em; font-weight: 600; color: var(--success);">✅ ${assertionsPassed}</div>
+                                <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Passed</div>
+                            </div>
+                            ${assertionsFailed > 0 ? `
+                            <div style="text-align: center;">
+                                <div style="font-size: 1.3em; font-weight: 600; color: var(--error);">❌ ${assertionsFailed}</div>
+                                <div style="font-size: 0.85em; color: var(--text-secondary); margin-top: 4px;">Failed</div>
+                            </div>
+                            ` : ''}
                         </div>
-                        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
-                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Duration</div>
-                            <div style="font-size: 18px; font-weight: bold; color: #333;">⏱️ ${validation.duration}s</div>
+                        <div style="background: ${isMatch ? '#E8F5E9' : '#FFF3E0'}; padding: 15px; border-radius: 8px; border-left: 4px solid ${isMatch ? 'var(--success)' : 'var(--warning)'}; margin-top: 15px;">
+                            <strong>🎯 Recommendation:</strong> ${recommendation}
                         </div>
-                        <div style="background: #e8f5e9; padding: 12px; border-radius: 4px;">
-                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Assertions Passed</div>
-                            <div style="font-size: 18px; font-weight: bold; color: #4CAF50;">✅ ${validation.assertions_passed}</div>
-                        </div>
-                        ${validation.assertions_failed > 0 ? `
-                        <div style="background: #ffebee; padding: 12px; border-radius: 4px;">
-                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Assertions Failed</div>
-                            <div style="font-size: 18px; font-weight: bold; color: #f44336;">❌ ${validation.assertions_failed}</div>
+                        ${result.test_path ? `
+                        <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center;">
+                            <a href="/api/executions/${executionId}/generated-test" target="_blank" 
+                               class="btn-secondary" style="display: inline-block; text-decoration: none;">
+                                👁️ View Code
+                            </a>
+                            <a href="/api/executions/${executionId}/download-test" 
+                               class="btn-primary" style="display: inline-block; text-decoration: none;"
+                               download>
+                                📥 Download .py File
+                            </a>
                         </div>
                         ` : ''}
                     </div>
                 </div>
                 
-                <div style="background: ${comparison.match ? '#e8f5e9' : '#fff3e0'}; border-radius: 6px; padding: 15px; margin-bottom: 20px;">
-                    <h4 style="margin-top: 0; color: #333;">🎯 Recommendation</h4>
-                    <div style="font-size: 16px; font-weight: bold; color: ${comparison.match ? '#4CAF50' : '#FF9800'};">
-                        ${comparison.recommendation}
+                ${screenshots.length > 0 ? `
+                <div style="margin-top: 30px;">
+                    <h4 style="color: var(--nci-blue); margin-bottom: 15px;">🎭 Playwright Test Screenshots (${screenshots.length})</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+                        ${screenshots.map((screenshot, index) => {
+                            const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
+                            return `
+                                <div style="border: 2px solid var(--info); border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${filename}', '_blank')">
+                                    <img src="/api/screenshots/${filename}" 
+                                         alt="${filename}"
+                                         style="width: 100%; height: auto; display: block;"
+                                         onerror="this.parentElement.innerHTML='<div style=\\'padding: 30px; text-align: center; color: var(--text-secondary);\\'>📷 Screenshot Not Found</div>'">
+                                    <div style="padding: 10px; background: var(--bg-tertiary); font-size: 0.85em; text-align: center;">
+                                        ${filename}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
-                    ${comparison.differences && comparison.differences.length > 0 ? `
-                    <div style="margin-top: 10px;">
-                        <strong>Differences:</strong>
-                        <ul style="margin: 8px 0; padding-left: 20px;">
-                            ${comparison.differences.map(diff => `<li style="color: #666;">${diff}</li>`).join('')}
-                        </ul>
+                </div>
+                ` : ''}
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        function showActionMessage(message, type) {
+            const container = document.getElementById('action-messages');
+            if (!container) return;
+            
+            const colors = {
+                success: { bg: '#E8F5E9', text: 'var(--success)', border: 'var(--success)' },
+                error: { bg: '#FFEBEE', text: 'var(--error)', border: 'var(--error)' },
+                warning: { bg: '#FFF3E0', text: 'var(--warning)', border: 'var(--warning)' },
+                info: { bg: '#E3F2FD', text: 'var(--info)', border: 'var(--info)' }
+            };
+            
+            const color = colors[type] || colors.info;
+            
+            container.innerHTML = `
+                <div style="background: ${color.bg}; color: ${color.text}; padding: 15px; border-radius: 8px; border-left: 4px solid ${color.border}; animation: fadeIn 0.3s;">
+                    ${message}
+                </div>
+            `;
+        }
+        
+        function retryTest() {
+            if (confirm('Retry this test with the same story?')) {
+                location.href = '/';
+            }
+        }
+        
+        function downloadRawData() {
+            if (currentResults) {
+                const dataStr = JSON.stringify(currentResults, null, 2);
+                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+                const exportFileDefaultName = `execution_${executionId}.json`;
+                
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', exportFileDefaultName);
+                linkElement.click();
+                
+                showActionMessage('📥 Raw data downloaded successfully!', 'success');
+            }
+        }
+        
+        function viewRawData() {
+            if (currentResults) {
+                const dataStr = JSON.stringify(currentResults, null, 2);
+                const newWindow = window.open('', '_blank');
+                newWindow.document.write(`
+                    <html>
+                    <head><title>Raw Execution Data - ${executionId}</title></head>
+                    <body style="font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4;">
+                    <h2 style="color: #4fc3f7;">Raw Execution Data</h2>
+                    <pre style="white-space: pre-wrap; word-wrap: break-word;">${dataStr}</pre>
+                    </body>
+                    </html>
+                `);
+            }
+        }
+        
+        // ===================================
+        // REGISTRY VIEWER/EDITOR
+        // ===================================
+        
+        async function viewRegistry() {
+            try {
+                // Fetch list of registries
+                const response = await fetch('/api/registry');
+                if (!response.ok) throw new Error('Failed to load registries');
+                
+                const data = await response.json();
+                const registries = data.registries || [];
+                
+                if (registries.length === 0) {
+                    showActionMessage('⚠️ No registries found', 'warning');
+                    return;
+                }
+                
+                // For now, load the first registry (or find clinicalcommons)
+                let registry = registries.find(r => r.domain.includes('clinicalcommons')) || registries[0];
+                
+                // Load registry content
+                const regResponse = await fetch(`/api/registry/${registry.domain}/${registry.page}`);
+                if (!regResponse.ok) throw new Error('Failed to load registry content');
+                
+                const regData = await regResponse.json();
+                
+                // Display modal
+                showRegistryModal(registry.domain, registry.page, regData);
+                
+            } catch (error) {
+                console.error('Error loading registry:', error);
+                showActionMessage('❌ Failed to load registry: ' + error.message, 'error');
+            }
+        }
+        
+        function showRegistryModal(domain, page, regData) {
+            // Create modal HTML
+            const modalHTML = `
+                <div id="registry-modal" style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                    animation: fadeIn 0.3s;
+                " onclick="if(event.target.id === 'registry-modal') closeRegistryModal()">
+                    <div style="
+                        background: var(--card-bg, #fff);
+                        border-radius: 12px;
+                        padding: 30px;
+                        max-width: 900px;
+                        width: 90%;
+                        max-height: 80vh;
+                        overflow-y: auto;
+                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    " onclick="event.stopPropagation()">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2 style="margin: 0;">📋 Element Registry</h2>
+                            <button onclick="closeRegistryModal()" style="
+                                background: none;
+                                border: none;
+                                font-size: 24px;
+                                cursor: pointer;
+                                padding: 5px 10px;
+                            ">✕</button>
+                        </div>
+                        
+                        <div style="background: var(--code-bg, #f5f5f5); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <p style="margin: 0;"><strong>Domain:</strong> ${domain}</p>
+                            <p style="margin: 10px 0 0;"><strong>Page:</strong> ${page}</p>
+                            <p style="margin: 10px 0 0; opacity: 0.7; font-size: 0.9em;">Total Elements: ${Object.keys(regData.elements || {}).length}</p>
+                        </div>
+                        
+                        <div id="registry-elements">
+                            ${renderRegistryElements(domain, page, regData.elements || {})}
+                        </div>
                     </div>
-                    ` : ''}
                 </div>
             `;
             
-            // Add screenshots section
-            if (screenshots && screenshots.length > 0) {
-                html += `
-                    <div style="background: white; border-radius: 6px; padding: 15px;">
-                        <h4 style="margin-top: 0; color: #333;">📸 Playwright Screenshots (${screenshots.length})</h4>
-                        <div class="screenshots-grid">
-                `;
-                
-                screenshots.forEach((screenshot, index) => {
-                    html += `
-                        <div class="screenshot-item" style="animation: fadeIn 0.5s;">
-                            <img src="/api/screenshots/${screenshot.filename}" alt="Playwright Screenshot ${index + 1}" 
-                                 onclick="window.open('/api/screenshots/${screenshot.filename}', '_blank')"
-                                 style="width: 100%; border-radius: 4px; cursor: pointer; border: 2px solid #2196F3;">
-                            <p style="text-align: center; margin-top: 8px; font-size: 12px; color: #2196F3; font-weight: bold;">${screenshot.filename}</p>
-                        </div>
-                    `;
-                });
-                
-                html += `
-                        </div>
-                    </div>
-                `;
-            }
-            
-            // Show execution output
-            if (validation.stdout) {
-                html += `
-                    <div style="background: white; border-radius: 6px; padding: 15px; margin-top: 20px;">
-                        <h4 style="margin-top: 0; color: #333;">📝 Execution Output</h4>
-                        <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; line-height: 1.5; max-height: 300px; overflow-y: auto;">${validation.stdout}</pre>
-                    </div>
-                `;
-            }
-            
-            playwrightSection.innerHTML = html;
-            playwrightSection.style.display = 'block';
-            
-            // Scroll to the new section
-            setTimeout(() => {
-                playwrightSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 300);
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
         
-        async function generatePlaywrightTest() {
-            const btn = document.getElementById('generate-test-btn');
-            const msg = document.getElementById('generate-msg');
+        function renderRegistryElements(domain, page, elements) {
+            const elementKeys = Object.keys(elements);
             
-            // Disable button
-            btn.disabled = true;
-            btn.style.opacity = '0.6';
-            btn.style.cursor = 'not-allowed';
-            btn.textContent = '⏳ Generating Test...';
+            if (elementKeys.length === 0) {
+                return '<p style="text-align: center; opacity: 0.7;">No elements in registry</p>';
+            }
+            
+            return elementKeys.map(key => {
+                const element = elements[key];
+                const selector = element.selector || 'N/A';
+                const usageCount = element.usage_count || 0;
+                const lastUsed = element.last_used ? new Date(element.last_used).toLocaleString() : 'Never';
+                
+                return `
+                    <div class="registry-element-card" style="
+                        border: 1px solid var(--border-color, #ddd);
+                        border-radius: 8px;
+                        padding: 15px;
+                        margin-bottom: 15px;
+                        background: var(--bg-color, #fff);
+                    ">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                            <div style="flex: 1;">
+                                <h4 style="margin: 0 0 10px; color: var(--primary-color, #2196F3); font-size: 1.1em;">${key}</h4>
+                                <div style="display: flex; gap: 15px; font-size: 0.9em; opacity: 0.7;">
+                                    <span>📊 Used: ${usageCount}x</span>
+                                    <span>🕒 ${lastUsed}</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="editRegistryElement('${domain}', '${page}', '${key.replace(/'/g, "\\'")}', '${selector.replace(/'/g, "\\'")}')" class="btn-secondary" style="padding: 8px 15px; font-size: 0.9em;">
+                                    ✏️ Edit
+                                </button>
+                                <button onclick="deleteRegistryElement('${domain}', '${page}', '${key.replace(/'/g, "\\'")}');" class="btn-secondary" style="padding: 8px 15px; font-size: 0.9em; background: var(--error-color, #f44336); color: white;">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div style="background: var(--code-bg, #f5f5f5); padding: 12px; border-radius: 6px; font-family: monospace; font-size: 0.9em; overflow-x: auto;">
+                            <strong>Selector:</strong><br>
+                            <code>${selector}</code>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function closeRegistryModal() {
+            const modal = document.getElementById('registry-modal');
+            if (modal) modal.remove();
+        }
+        
+        async function editRegistryElement(domain, page, elementKey, currentSelector) {
+            const newSelector = prompt(`Edit selector for "${elementKey}":`, currentSelector);
+            
+            if (newSelector && newSelector !== currentSelector) {
+                try {
+                    const response = await fetch(`/api/registry/${domain}/${page}/element`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            element_key: elementKey,
+                            selector: newSelector
+                        })
+                    });
+                    
+                    if (!response.ok) throw new Error('Failed to update element');
+                    
+                    showActionMessage('✅ Element updated successfully!', 'success');
+                    
+                    // Reload registry modal
+                    closeRegistryModal();
+                    setTimeout(() => viewRegistry(), 500);
+                    
+                } catch (error) {
+                    console.error('Error updating element:', error);
+                    showActionMessage('❌ Failed to update element: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        async function deleteRegistryElement(domain, page, elementKey) {
+            if (!confirm(`Are you sure you want to delete "${elementKey}" from the registry?`)) {
+                return;
+            }
             
             try {
-                const response = await fetch(`/api/executions/${executionId}/generate-and-validate`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetch(`/api/registry/${domain}/${page}/element`, {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        validate: true
+                        element_key: elementKey
                     })
                 });
                 
-                const result = await response.json();
+                if (!response.ok) throw new Error('Failed to delete element');
                 
-                if (response.ok) {
-                    const validation = result.validation;
-                    const comparison = result.comparison;
-                    const playwrightScreenshots = result.playwright_screenshots || [];
-                    
-                    let message = `✅ Test Generated: ${result.test_file}<br>`;
-                    message += `📊 Validation: ${validation.status} (${validation.duration}s)<br>`;
-                    message += `✅ Assertions: ${validation.assertions_passed} passed`;
-                    
-                    if (validation.assertions_failed > 0) {
-                        message += `, ${validation.assertions_failed} failed`;
-                    }
-                    
-                    message += `<br>🎯 ${comparison.recommendation}`;
-                    
-                    msg.innerHTML = message;
-                    msg.style.color = comparison.match ? '#4CAF50' : '#FF9800';
-                    msg.style.display = 'block';
-                    msg.style.padding = '15px';
-                    msg.style.background = comparison.match ? '#e8f5e9' : '#fff3e0';
-                    msg.style.borderRadius = '4px';
-                    msg.style.textAlign = 'left';
-                    
-                    btn.textContent = '✅ Test Generated';
-                    btn.style.background = '#888';
-                    
-                    // Add view code button
-                    if (result.test_path) {
-                        setTimeout(() => {
-                            msg.innerHTML += `<br><br><a href="/api/executions/${executionId}/generated-test" target="_blank" style="color: #2196F3; text-decoration: underline;">📄 View Generated Code</a>`;
-                        }, 1000);
-                    }
-                    
-                    // Display Playwright validation section
-                    displayPlaywrightResults(validation, comparison, playwrightScreenshots);
-                } else {
-                    throw new Error(result.error || 'Failed to generate test');
-                }
+                showActionMessage('✅ Element deleted successfully!', 'success');
+                
+                // Reload registry modal
+                closeRegistryModal();
+                setTimeout(() => viewRegistry(), 500);
+                
             } catch (error) {
-                console.error('Error generating test:', error);
-                msg.innerHTML = `❌ Error: ${error.message}`;
-                msg.style.color = '#f44336';
-                msg.style.display = 'block';
-                
-                // Re-enable button on error
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.textContent = '🎭 Generate Playwright Test';
+                console.error('Error deleting element:', error);
+                showActionMessage('❌ Failed to delete element: ' + error.message, 'error');
             }
         }
         
         // Start polling
         pollResults();
-        pollInterval = setInterval(pollResults, 2000); // Poll every 2 seconds
+        pollInterval = setInterval(pollResults, 2000);
     </script>
-    
-    <style>
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
 </body>
 </html>
-
