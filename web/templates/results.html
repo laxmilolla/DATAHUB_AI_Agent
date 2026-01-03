@@ -799,11 +799,10 @@
                                    class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                     👁️ View Code
                                 </a>
-                                <a href="/api/executions/${executionId}/download-test" 
-                                   class="btn-primary" style="display: inline-block; text-decoration: none;"
-                                   download>
+                                <button onclick="downloadPlaywrightTest('${executionId}')" 
+                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                     📥 Download .py File
-                                </a>
+                                </button>
                             </div>
                             ` : ''}
                         </div>
@@ -1031,11 +1030,10 @@
                                class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                 👁️ View Code
                             </a>
-                            <a href="/api/executions/${executionId}/download-test" 
-                               class="btn-primary" style="display: inline-block; text-decoration: none;"
-                               download>
+                            <button onclick="downloadPlaywrightTest('${executionId}')" 
+                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                 📥 Download .py File
-                            </a>
+                            </button>
                         </div>
                         ` : ''}
                     </div>
@@ -1106,6 +1104,75 @@
                 
                 showActionMessage('📥 Raw data downloaded successfully!', 'success');
             }
+        }
+        
+        function downloadPlaywrightTest(execId) {
+            console.log('🔵 downloadPlaywrightTest called with execId:', execId);
+            showActionMessage('⏳ Starting download...', 'info');
+            
+            // First, get the filename from metadata API
+            console.log('📡 Fetching metadata from /api/executions/' + execId + '/generated-test');
+            fetch(`/api/executions/${execId}/generated-test`)
+                .then(response => {
+                    console.log('📥 Metadata response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch metadata: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(metadata => {
+                    console.log('✅ Metadata received:', metadata);
+                    // Extract filename from metadata
+                    let filename = 'test.py'; // Default fallback
+                    if (metadata.filename) {
+                        // Extract just the filename from full path
+                        const pathParts = metadata.filename.split('/');
+                        filename = pathParts[pathParts.length - 1];
+                        console.log('📝 Extracted filename:', filename);
+                    } else if (metadata.test_name) {
+                        filename = `${metadata.test_name}.py`;
+                        console.log('📝 Using test_name:', filename);
+                    }
+                    
+                    // Use direct URL approach instead of blob - Chrome respects download attribute better
+                    const downloadUrl = `/api/executions/${execId}/download-test`;
+                    console.log('🔗 Creating direct download link to:', downloadUrl);
+                    
+                    // Create a link to the actual endpoint (not blob URL)
+                    // This way Chrome will use the Content-Disposition header from the server
+                    const linkElement = document.createElement('a');
+                    linkElement.style.display = 'none';
+                    linkElement.href = downloadUrl;
+                    linkElement.download = filename; // Set filename as fallback
+                    linkElement.setAttribute('download', filename); // Also set as attribute
+                    linkElement.setAttribute('target', '_blank'); // Open in new tab if download fails
+                    document.body.appendChild(linkElement);
+                    
+                    console.log('🖱️ Clicking direct download link...');
+                    console.log('📋 Link element:', {
+                        href: linkElement.href,
+                        download: linkElement.download,
+                        hasAttribute: linkElement.hasAttribute('download')
+                    });
+                    
+                    // Trigger download
+                    linkElement.click();
+                    console.log('✅ Download triggered');
+                    
+                    // Cleanup
+                    setTimeout(() => {
+                        document.body.removeChild(linkElement);
+                        console.log('🧹 Cleaned up link element');
+                    }, 1000);
+                    
+                    showActionMessage(`📥 Download started: ${filename}`, 'success');
+                    console.log('✅ Download process completed');
+                })
+                .catch(error => {
+                    console.error('❌ Download error:', error);
+                    console.error('Error stack:', error.stack);
+                    showActionMessage('❌ Download failed: ' + error.message, 'error');
+                });
         }
         
         function viewRawData() {

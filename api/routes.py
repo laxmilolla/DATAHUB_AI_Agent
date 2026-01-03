@@ -637,12 +637,18 @@ def download_generated_test(exec_id):
         filename = test_file.name
         
         # Send file with proper headers for download
-        return send_file(
-            test_file,
+        # Convert Path to string for Flask compatibility
+        response = send_file(
+            str(test_file),
             as_attachment=True,
             download_name=filename,
             mimetype='text/x-python'
         )
+        # Prevent browser caching - force fresh download every time
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
         
     except Exception as e:
         print(f"Error downloading generated test: {e}")
