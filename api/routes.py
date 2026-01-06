@@ -655,6 +655,44 @@ def download_generated_test(exec_id):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/registry/<domain>/<page>/download', methods=['GET'])
+def download_registry_json(domain, page):
+    """Download registry JSON file"""
+    try:
+        from flask import send_file
+        project_root = current_app.config['PROJECT_ROOT']
+        
+        # Try both naming conventions: {page}_page.json and {page}.json
+        registry_file = project_root / 'element_maps' / domain / f'{page}_page.json'
+        if not registry_file.exists():
+            registry_file = project_root / 'element_maps' / domain / f'{page}.json'
+        
+        if not registry_file.exists():
+            return jsonify({'error': f'Registry file not found: {domain}/{page}'}), 404
+        
+        # Use the actual filename for download
+        download_filename = registry_file.name
+        
+        # Send file with proper headers for download
+        response = send_file(
+            str(registry_file),
+            as_attachment=True,
+            download_name=download_filename,
+            mimetype='application/json'
+        )
+        
+        # Prevent browser caching
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error downloading registry JSON: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/registry', methods=['GET'])
 def list_registries():
     """List all available registries (domains/pages)"""

@@ -60,18 +60,55 @@ class TestRunner:
             assertions_passed = stdout.count('✅')
             assertions_failed = stdout.count('❌')
             
-            # Extract Playwright screenshots from output
-            screenshots = []
+            # Extract Playwright screenshots from output (stdout parsing)
+            screenshots_from_stdout = []
             for line in stdout.split('\n'):
                 if '📸 Screenshot:' in line:
                     # Extract filename from "📸 Screenshot: storage/screenshots/pw_XXX.png"
                     screenshot_path = line.split('Screenshot:')[1].strip()
                     screenshot_name = screenshot_path.split('/')[-1]  # Get just filename
-                    screenshots.append({
+                    screenshots_from_stdout.append({
                         'filename': screenshot_name,
                         'path': screenshot_path,
                         'full_path': str(self.project_root / screenshot_path)
                     })
+            
+            # ALSO scan screenshots directory for files created during test execution
+            # This captures screenshots even when tests fail before print statements execute
+            screenshots_dir = self.project_root / 'storage' / 'screenshots'
+            screenshots_from_disk = []
+            if screenshots_dir.exists():
+                # Get test start time (subtract duration to get start)
+                test_start_time = start_time
+                
+                # Find all pw_step* and pw_* screenshot files created/modified during test
+                # Include all variants: regular, _failed, _pre_attempt, _verify, etc.
+                for screenshot_file in screenshots_dir.glob('pw_*.png'):
+                    try:
+                        # Check if file was modified during test execution window
+                        file_mtime = screenshot_file.stat().st_mtime
+                        # Include files created/modified within 5 minutes of test start (to account for test duration)
+                        if file_mtime >= test_start_time - 60:  # 1 minute buffer before test start
+                            screenshot_name = screenshot_file.name
+                            screenshot_path = f"storage/screenshots/{screenshot_name}"
+                            
+                            # Only add if not already in stdout screenshots (avoid duplicates)
+                            if not any(s['filename'] == screenshot_name for s in screenshots_from_stdout):
+                                screenshots_from_disk.append({
+                                    'filename': screenshot_name,
+                                    'path': screenshot_path,
+                                    'full_path': str(screenshot_file),
+                                    'source': 'disk'  # Mark as from disk scan
+                                })
+                    except Exception as e:
+                        # Skip files that can't be accessed
+                        continue
+            
+            # Combine screenshots: stdout first (more accurate), then disk (for failed tests)
+            screenshots = screenshots_from_stdout + screenshots_from_disk
+            
+            # Sort by filename to maintain step order (pw_step1_*, pw_step2_*, etc.)
+            screenshots.sort(key=lambda x: x['filename'])
             
             test_result = {
                 'status': 'passed' if passed else 'failed',

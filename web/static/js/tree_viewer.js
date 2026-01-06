@@ -651,6 +651,35 @@
     };
 
     /**
+     * Download registry JSON file
+     */
+    window.downloadRegistryJSON = function() {
+        if (!treeCurrentDomain || !treeCurrentPage) {
+            alert('❌ No registry loaded. Please select a registry first.');
+            return;
+        }
+        
+        // Build download URL
+        const downloadUrl = `/api/registry/${encodeURIComponent(treeCurrentDomain)}/${encodeURIComponent(treeCurrentPage)}/download`;
+        
+        // Create a temporary anchor element to trigger download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        // The server will determine the correct filename (handles both {page}.json and {page}_page.json)
+        link.download = `${treeCurrentPage}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setStatus('📥 Downloading registry JSON...', 'info');
+        
+        // Clear status after 2 seconds
+        setTimeout(() => {
+            setStatus('', 'info');
+        }, 2000);
+    };
+
+    /**
      * Set status message
      */
     function setStatus(message, type) {

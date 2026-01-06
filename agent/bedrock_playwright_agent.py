@@ -1060,42 +1060,51 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             logger.warning(f"     {traceback.format_exc()}")
             return {}
     
+    def _extract_xpath_from_result(self, result_string: str) -> str:
+        """Extract XPath from AI result string (e.g., '✅ Clicked xpath=//div[...] - Verified')"""
+        if not result_string or 'Clicked' not in result_string:
+            return None
+        
+        clicked_match = re.search(r'(?:✅\s*)?Clicked\s+(.+?)(?:\s+-\s+|$)', result_string)
+        if clicked_match:
+            selector_raw = clicked_match.group(1).strip().rstrip('.,;').strip()
+            # Extract XPath if it's an xpath= selector
+            if selector_raw.startswith('xpath='):
+                return selector_raw.replace('xpath=', '').strip()
+            elif selector_raw.startswith('//') or ('[@' in selector_raw and ']' in selector_raw):
+                return selector_raw
+        return None
+    
     async def _track_discovery(self, element_name: str, original_query: str, final_selector: str, 
-                         discovery_method: str, metadata: dict):
-        """Track a successful discovery for later registry update - Generate XPath using LIVE DOM"""
+                         discovery_method: str, metadata: dict, clicked_xpath: str = None):
+        """Track a successful discovery for later registry update - Use clicked XPath if available"""
         
-        # Generate XPath from the discovered element
-        xpath_result = None
-        try:
-            # Extract element attributes if available
-            element_attrs = metadata.get('element_attrs', {})
-            
-            if element_attrs:
-                logger.info(f"  🔨 Building XPath for '{element_name}' using LIVE Playwright DOM...")
-                # Use XPath builder with Playwright's LIVE DOM (no BeautifulSoup!)
-                xpath_builder = XPathBuilder(self.page)
-                xpath_result = await xpath_builder.build_unique_xpath(element_attrs, element_name)
-                
-                logger.info(f"  ✅ Generated unique XPath")
-                logger.info(f"     Method: {xpath_result['uniqueness_method']}")
-                logger.info(f"     XPath: {xpath_result['xpath']}")
-            else:
-                logger.warning(f"  ⚠️ No element_attrs in metadata - cannot generate XPath")
-                logger.warning(f"     Available metadata keys: {list(metadata.keys())}")
+        # PRIORITY: Use clicked XPath from result string (what AI actually clicked)
+        xpath_to_use = clicked_xpath
+        uniqueness_method = "clicked_xpath" if clicked_xpath else None
         
-        except Exception as e:
-            logger.warning(f"  ⚠️ Failed to generate XPath: {e}")
-            logger.warning(f"  Falling back to CSS selector")
-            import traceback
-            logger.warning(f"     {traceback.format_exc()}")
+        # Fallback: Generate XPath from the discovered element
+        if not xpath_to_use:
+            xpath_result = None
+            try:
+                element_attrs = metadata.get('element_attrs', {})
+                if element_attrs:
+                    logger.info(f"  🔨 Building XPath for '{element_name}' using LIVE Playwright DOM...")
+                    xpath_builder = XPathBuilder(self.page)
+                    xpath_result = await xpath_builder.build_unique_xpath(element_attrs, element_name)
+                    xpath_to_use = xpath_result['xpath']
+                    uniqueness_method = xpath_result['uniqueness_method']
+                    logger.info(f"  ✅ Generated unique XPath: {xpath_to_use}")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Failed to generate XPath: {e}")
         
         # Store discovery with XPath
         discovery = {
             "name": element_name,
             "original_query": original_query,
-            "final_selector": final_selector,  # Keep for backward compatibility
-            "xpath": xpath_result['xpath'] if xpath_result else None,
-            "uniqueness_method": xpath_result['uniqueness_method'] if xpath_result else None,
+            "final_selector": final_selector,
+            "xpath": xpath_to_use,
+            "uniqueness_method": uniqueness_method,
             "discovery_method": discovery_method,
             "metadata": metadata,
             "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -1104,8 +1113,8 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         self.discoveries.append(discovery)
         logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method}")
         logger.info(f"     Query: {original_query}")
-        if xpath_result:
-            logger.info(f"     XPath: {xpath_result['xpath']}")
+        if xpath_to_use:
+            logger.info(f"     XPath: {xpath_to_use}")
         else:
             logger.info(f"     Selector: {final_selector}")
     
@@ -2291,6 +2300,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                         if filter_validation and filter_validation["verdict"] in ["VERIFIED", "LIKELY"]:
                             result_msg += f" | Count: {filter_validation['initial_count']} → {filter_validation['new_count']}"
                         
+                        # Extract XPath from result and update discovery if tracking was done
+                        clicked_xpath = self._extract_xpath_from_result(result_msg)
+                        if clicked_xpath and self.discoveries:
+                            # Update most recent discovery for this element with clicked XPath
+                            for discovery in reversed(self.discoveries):
+                                if discovery.get('name') == element_name:
+                                    discovery['xpath'] = clicked_xpath
+                                    discovery['uniqueness_method'] = 'clicked_xpath'
+                                    logger.info(f"  ✅ Updated discovery with clicked XPath: {clicked_xpath[:100]}")
+                                    break
+                        
                         return result_msg
                     
                     # First strategy always gets a chance, others need verification
@@ -2950,9 +2970,14 @@ Take screenshots at key moments (after clicks, before verification)."""
                     # Extract domain and page from URL
                     domain = self.current_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
                     
-                    # Determine page name (use 'home' for root/explore pages)
+                    # Determine page name (use 'explore' for explore page, keep other paths as-is)
                     url_path = self.current_url.split('/')[-1].split('#')[0]
-                    page = 'home' if not url_path or url_path in ['explore', ''] else url_path
+                    if url_path == 'explore':
+                        page = 'explore'
+                    elif not url_path or url_path == '':
+                        page = 'home'
+                    else:
+                        page = url_path
                     
                     # Load existing registry
                     element_map = self.element_registry.load_map(domain, page)
@@ -2977,13 +3002,31 @@ Take screenshots at key moments (after clicks, before verification)."""
                                     "alternatives": []
                                 }
                                 
-                                # Add to registry (skip if already exists)
-                                if element_name not in element_map.get('elements', {}):
+                                # Check registry by XPath value (not just name)
+                                xpath_value = discovery['xpath']
+                                existing_key = None
+                                
+                                # Strategy 1: Check by XPath value
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    if elem_data.get('xpath') == xpath_value:
+                                        existing_key = key
+                                        logger.info(f"    🎯 Found existing entry by XPath: {key}")
+                                        break
+                                
+                                # Strategy 2: Check by name (fallback)
+                                if not existing_key and element_name in element_map.get('elements', {}):
+                                    existing_key = element_name
+                                    logger.info(f"    🎯 Found existing entry by name: {element_name}")
+                                
+                                if existing_key:
+                                    # Update existing entry with clicked XPath
+                                    element_map['elements'][existing_key].update(element_entry)
+                                    logger.info(f"    📝 Updated registry entry: {existing_key}")
+                                else:
+                                    # Add new entry
                                     element_map['elements'][element_name] = element_entry
                                     added_count += 1
                                     logger.info(f"    ✅ Added to registry: {element_name}")
-                                else:
-                                    logger.info(f"    ⏭️ Already in registry: {element_name}")
                         
                         if added_count > 0:
                             # Update statistics
