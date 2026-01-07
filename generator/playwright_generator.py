@@ -216,9 +216,55 @@ class PlaywrightGenerator:
         default_registry_path = self._get_registry_path(story_url)
         
         # Header
+        execution_id = execution['execution_id']
+        
+        # Extract test-specific values from discoveries (embed in test, not load from file)
+        # Find verification discovery
+        verify_discovery = None
+        verify_column_name = ''
+        verify_expected_value = ''
+        for disc in discoveries_list:
+            if disc.get('discovery_method') == 'table_verification':
+                verify_discovery = disc
+                metadata = disc.get('metadata', {})
+                verify_column_name = metadata.get('column_name', '')
+                verify_expected_value = metadata.get('expected_value', '')
+                break
+        
+        # Find optional element selectors (elements without element_id)
+        optional_selectors = {}  # element_name -> selector
+        for disc in discoveries_list:
+            if not disc.get('element_id'):
+                element_name = disc.get('name', '')
+                # Use original_query (what AI was instructed to use) for true mirroring
+                selector = disc.get('original_query') or disc.get('final_selector', '')
+                if selector and element_name:
+                    optional_selectors[element_name] = selector
+        
+        # Escape for Python string literals
+        verify_column_name_escaped = verify_column_name.replace("'", "\\'").replace('"', '\\"')
+        verify_expected_value_escaped = verify_expected_value.replace("'", "\\'").replace('"', '\\"')
+        
+        # Build test-specific constants section
+        test_constants = ""
+        if verify_column_name and verify_expected_value:
+            test_constants += f"# Verification values (test-specific, from story)\n"
+            test_constants += f"VERIFY_COLUMN_NAME = '{verify_column_name_escaped}'\n"
+            test_constants += f"VERIFY_EXPECTED_VALUE = '{verify_expected_value_escaped}'\n\n"
+        
+        if optional_selectors:
+            test_constants += f"# Optional element selectors (test-specific, elements not in registry)\n"
+            for name, selector in optional_selectors.items():
+                selector_escaped = selector.replace("'", "\\'").replace('"', '\\"')
+                # Create safe constant name (match what we'll use in code generation)
+                safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+                constant_name = f"OPTIONAL_{safe_name.upper()}_SELECTOR"
+                test_constants += f"{constant_name} = '{selector_escaped}'\n"
+            test_constants += "\n"
+        
         code = f'''"""
 Generated Playwright Test
-Source Execution: {execution['execution_id']}
+Source Execution: {execution_id}
 Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
 Status: {execution['status']}
 
@@ -232,7 +278,10 @@ import json
 from pathlib import Path
 
 # ============================================================================
-# CONFIGURATION: Set the path to your shared element registry JSON file
+# TEST-SPECIFIC VALUES (from story - embedded in test, not in registry)
+# ============================================================================
+{test_constants}# ============================================================================
+# SHARED REGISTRY (used by all tests - single source of truth)
 # ============================================================================
 # This allows all tests to use the same registry file (single source of truth)
 # Update this path to point to your registry JSON file location
@@ -240,13 +289,16 @@ REGISTRY_JSON_PATH = "{default_registry_path}"  # <-- USER: Update this path
 
 # Load shared element registry
 REGISTRY = {{}}
+REGISTRY_ID_INDEX = {{}}
 try:
     registry_path = Path(REGISTRY_JSON_PATH)
     if registry_path.exists():
         with open(registry_path, 'r') as f:
             registry_data = json.load(f)
             REGISTRY = registry_data.get('elements', {{}})
+            REGISTRY_ID_INDEX = registry_data.get('id_index', {{}})
         print(f"✅ Loaded registry: {{len(REGISTRY)}} elements from {{registry_path.name}}")
+        print(f"✅ Loaded id_index: {{len(REGISTRY_ID_INDEX)}} IDs")
     else:
         print(f"⚠️  Registry file not found: {{registry_path}}")
         print(f"   Please update REGISTRY_JSON_PATH to point to your registry JSON file")
@@ -254,13 +306,25 @@ except Exception as e:
     print(f"⚠️  Failed to load registry: {{e}}")
     print(f"   Please check REGISTRY_JSON_PATH: {{REGISTRY_JSON_PATH}}")
 
-def get_xpath(registry_key):
-    """Get XPath from registry by exact registry key"""
-    if registry_key and registry_key in REGISTRY:
-        xpath = REGISTRY[registry_key].get('xpath')
-        if xpath:
-            return xpath
-    return None
+def get_xpath_by_id(element_id):
+    """Get XPath from registry by unique ID - ONLY source of XPaths (strict, no fallbacks)"""
+    if not element_id:
+        raise Exception(f"❌ element_id is required")
+    
+    if element_id not in REGISTRY_ID_INDEX:
+        raise Exception(f"❌ element_id '{{element_id}}' not found in registry id_index")
+    
+    registry_key = REGISTRY_ID_INDEX[element_id]
+    
+    if registry_key not in REGISTRY:
+        raise Exception(f"❌ Registry key '{{registry_key}}' not found for element_id '{{element_id}}'")
+    
+    xpath = REGISTRY[registry_key].get('xpath')
+    
+    if not xpath:
+        raise Exception(f"❌ XPath missing for element_id '{{element_id}}' (registry_key: '{{registry_key}}')")
+    
+    return xpath
 
 
 def {test_name}():
@@ -398,6 +462,34 @@ if __name__ == '__main__':
             elif tool == 'browser_click':
                 # Find corresponding discovery for this click
                 discovery = self._find_discovery_by_step(step_num, step_text, discoveries, action)
+                
+                # If no discovery found, try to find element in registry by step text/action selector
+                if not discovery:
+                    selector = action.get('input', {}).get('selector', '')
+                    # Try to extract element name from step text or selector
+                    element_name_from_step = None
+                    if 'checkbox' in step_text.lower():
+                        # Extract checkbox name from step text (e.g., "Select the Acute leukemia, NOS checkbox")
+                        checkbox_match = re.search(r'select\s+(?:the\s+)?(.+?)\s+checkbox', step_text, re.IGNORECASE)
+                        if checkbox_match:
+                            element_name_from_step = checkbox_match.group(1).strip()
+                    
+                    # Try to find in registry
+                    if element_name_from_step and registry:
+                        for key, elem_data in registry.items():
+                            if element_name_from_step.lower() in key.lower() or key.lower() in element_name_from_step.lower():
+                                # Create a discovery-like dict from registry entry
+                                discovery = {
+                                    'name': key,
+                                    'element_id': elem_data.get('element_id'),
+                                    'xpath': elem_data.get('xpath'),
+                                    'original_query': selector,
+                                    'final_selector': elem_data.get('selector', selector),
+                                    'discovery_method': 'registry_lookup'
+                                }
+                                logger.info(f"  🔍 Found element in registry for Step {step_num}: {key} (ID: {discovery.get('element_id', 'N/A')})")
+                                break
+                
                 code += self._generate_click_step(step_num, step_text, action, discovery, registry, indent)
             
             elif tool == 'browser_verify_table':
@@ -435,21 +527,38 @@ if __name__ == '__main__':
     def _find_discovery_by_step(self, step_num: int, step_text: str, discoveries: List[Dict], action: Dict) -> Dict:
         """
         Find discovery metadata that matches this step.
-        Match by comparing action's selector with discovery's original_query.
-        This prevents wrong matches (e.g., checkbox being matched with table verification).
+        Match by comparing action's selector with discovery's original_query AND actual clicked selector.
+        Also considers step context (e.g., "tab" in step text should match tab discoveries).
+        This prevents wrong matches (e.g., checkbox being matched with table verification, tab vs accordion).
         """
         selector = action.get('input', {}).get('selector', '')
+        result = action.get('result', '')
         
         if not selector:
             return None
+        
+        # Extract actual clicked selector from result (what AI actually clicked)
+        actual_clicked_selector = None
+        if result and 'Clicked' in result:
+            clicked_match = re.search(r'(?:✅\s*)?Clicked\s+(.+?)(?:\s+-\s+|$)', result)
+            if clicked_match:
+                selector_raw = clicked_match.group(1).strip().rstrip('.,;').strip()
+                if selector_raw and (selector_raw.startswith(('xpath=', 'text=', 'css=', '#')) or 
+                                     '[' in selector_raw or selector_raw.startswith('.')):
+                    actual_clicked_selector = selector_raw.lower()
         
         # Normalize selector for comparison
         selector_normalized = selector.lower().strip()
         if selector_normalized.startswith('text='):
             selector_normalized = selector_normalized[5:].strip()
         
-        # Find discovery with matching original_query
-        # Use EXACT or VERY CLOSE match, not fuzzy substring match
+        # Extract step context keywords (e.g., "tab", "accordion", "checkbox")
+        step_lower = step_text.lower()
+        is_tab_step = 'tab' in step_lower
+        is_accordion_step = 'accordion' in step_lower or 'expand' in step_lower
+        is_checkbox_step = 'checkbox' in step_lower or 'select' in step_lower
+        
+        # Find discovery with matching original_query AND context
         best_match = None
         best_score = 0
         
@@ -462,25 +571,65 @@ if __name__ == '__main__':
             if disc.get('discovery_method') == 'table_verification':
                 continue
             
-            # Exact match (best)
-            if selector_normalized == disc_query:
-                return disc
+            # Check if discovery matches the actual clicked selector (highest priority)
+            disc_final_selector = disc.get('final_selector', '').lower()
+            disc_xpath = disc.get('xpath', '').lower()
+            matches_clicked_selector = False
             
-            # Very close match (selector is substring of discovery or vice versa)
-            # But both must be substantial (>3 chars) to avoid false positives
+            if actual_clicked_selector:
+                # Check if actual clicked selector matches discovery's final_selector or xpath
+                if (actual_clicked_selector in disc_final_selector or 
+                    disc_final_selector in actual_clicked_selector or
+                    actual_clicked_selector in disc_xpath or
+                    disc_xpath in actual_clicked_selector):
+                    matches_clicked_selector = True
+            
+            # Check discovery type from final_selector or metadata
+            disc_is_tab = 'tab' in disc_final_selector or 'role=\'tab\'' in disc_final_selector or '[role="tab"]' in disc_final_selector
+            disc_is_accordion = 'accordion' in disc.get('name', '').lower() or 'button' in disc_final_selector and 'aria-expanded' in disc_final_selector
+            disc_is_checkbox = 'checkbox' in disc_final_selector or 'input[type=\'checkbox\']' in disc_final_selector
+            
+            # Calculate match score
+            score = 0
+            
+            # PRIORITY 1: Exact match on original_query
+            if selector_normalized == disc_query:
+                score += 100
+            
+            # PRIORITY 2: Match on actual clicked selector (very high priority)
+            if matches_clicked_selector:
+                score += 90
+            
+            # PRIORITY 3: Context match (tab step should match tab discovery, etc.)
+            if is_tab_step and disc_is_tab:
+                score += 50
+            elif is_accordion_step and disc_is_accordion:
+                score += 50
+            elif is_checkbox_step and disc_is_checkbox:
+                score += 50
+            
+            # PRIORITY 4: Very close match (selector is substring of discovery or vice versa)
             if len(selector_normalized) > 3 and len(disc_query) > 3:
                 if selector_normalized in disc_query or disc_query in selector_normalized:
-                    # Calculate match quality (prefer longer matches)
                     overlap = min(len(selector_normalized), len(disc_query))
                     total = max(len(selector_normalized), len(disc_query))
-                    score = overlap / total
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_match = disc
+                    score += (overlap / total) * 30
+            
+            # Penalty for context mismatch
+            if is_tab_step and disc_is_accordion:
+                score -= 30  # Tab step shouldn't match accordion discovery
+            elif is_accordion_step and disc_is_tab:
+                score -= 30  # Accordion step shouldn't match tab discovery
+            
+            if score > best_score:
+                best_score = score
+                best_match = disc
         
-        # Only return match if score is high enough (>70% overlap)
-        if best_match and best_score > 0.7:
+        # Return best match if score is high enough
+        # Lower threshold if we have a clicked selector match (more reliable)
+        threshold = 50 if actual_clicked_selector else 70
+        if best_match and best_score >= threshold:
+            logger.info(f"  ✅ Matched Step {step_num} to discovery: {best_match.get('name')} (score={best_score:.1f})")
             return best_match
         
         return None
@@ -516,444 +665,146 @@ if __name__ == '__main__':
         return code
     
     def _generate_click_step(self, step_num: int, step_text: str, action: Dict, discovery: Dict, registry: Dict, indent: int) -> str:
-        """Generate click code from actual AI execution"""
+        """
+        Generate click code using PURE REGISTRY system - element_id only, no fallbacks
+        All XPaths come from JSON registry ONLY
+        """
         ind = ' ' * indent
-        input_params = action.get('input', {})
-        selector = input_params.get('selector', '')
-        result = action.get('result', '')
         
         # Determine if this is an optional click (e.g., popup dismissal)
         is_optional = 'optional' in step_text.lower() or 'if there is' in step_text.lower()
         
         # Extract element name for display
-        if selector.startswith('text='):
-            element_name = selector.replace('text=', '').strip()
-        elif selector.startswith('xpath='):
-            xpath_match = re.search(r"text\(\)\s*=\s*['\"]([^'\"]+)['\"]", selector)
-            element_name = xpath_match.group(1) if xpath_match else 'element'
-        else:
-            element_name = 'element'
+        element_name = discovery.get('name', 'element') if discovery else 'element'
         
-        # Track registry key for this element (exact key from discovery or registry lookup)
-        registry_key = None
-        selector_source = "AI action"
-        selector = ""  # Initialize selector
+        # Get element_id from discovery (REQUIRED for pure registry system)
+        element_id = discovery.get('element_id') if discovery else None
         
-        # PRIORITY 1: Extract ACTUAL selector from AI result (what AI actually clicked)
-        # AI result contains the actual XPath/selector that was clicked, not just input selector
-        # Examples:
-        #   "✅ Clicked xpath=//div[@id='Diagnosis' and @role='button'...] - Verified"
-        #   "✅ Clicked text=DIAGNOSIS - Verified"
-        #   "✅ Clicked input[type='checkbox'][id='...'] - Verified"
-        #   "✅ Clicked [role='tab']:has-text('Diagnosis') - Verified"
-        actual_clicked_selector = None
-        if result and 'Clicked' in result:
-            # Extract selector from result string
-            # Pattern matches: "✅ Clicked <selector> - <rest>" or "Clicked <selector> - <rest>"
-            # Captures full selector including spaces within quotes (for XPaths)
-            clicked_match = re.search(r'(?:✅\s*)?Clicked\s+(.+?)(?:\s+-\s+|$)', result)
-            if clicked_match:
-                selector_raw = clicked_match.group(1).strip()
-                # Clean up trailing punctuation/whitespace
-                selector_raw = selector_raw.rstrip('.,;').strip()
+        # Get selector from AI action (what AI actually used)
+        action_selector = action.get('input', {}).get('selector', '') if action else ''
+        
+        if not element_id:
+            # If no element_id, check if we can use AI's selector directly
+            if is_optional and action_selector:
+                # For optional elements, use selector from test-specific constants (embedded in test)
+                # Extract selector from discovery to determine constant name
+                discovery_selector = discovery.get('original_query', '') if discovery else ''
+                if not discovery_selector:
+                    discovery_selector = discovery.get('final_selector', '') if discovery else ''
+                selector_to_use = discovery_selector if discovery_selector else action_selector
                 
-                # Validate it looks like a selector (contains = or [ or starts with common patterns)
-                if selector_raw and (selector_raw.startswith(('xpath=', 'text=', 'css=', '#')) or 
-                                     '[' in selector_raw or selector_raw.startswith('.')):
-                    actual_clicked_selector = selector_raw
-                    logger.info(f"  🎯 Extracted actual clicked selector from AI result: {actual_clicked_selector[:100]}")
-                else:
-                    logger.debug(f"  ⚠️ Extracted text doesn't look like a selector: {selector_raw[:50]}")
-        
-        # PRIORITY 1: Use the EXACT selector from actions_taken (what AI actually clicked)
-        # This ensures Playwright uses the same selector that worked for AI
-        action_selector = input_params.get('selector', '')
-        original_selector = action_selector  # Keep original for fallback
-        
-        # Prepare fallback selectors (discovery XPath, registry XPath)
-        fallback_selectors = []
-        
-        logger.info(f"🔍 Step {step_num}: element_name='{element_name}', action_selector='{action_selector}', actual_clicked='{actual_clicked_selector}', discovery={'YES' if discovery else 'NO'}, registry={'YES' if registry else 'NO'}")
-        
-        # PRIORITY 1: Use ACTUAL clicked selector from AI result FIRST (for true mirroring)
-        # This ensures Playwright uses the EXACT same selector that AI actually clicked
-        # This is critical for 1:1 mirroring - both must click the same element
-        if actual_clicked_selector and actual_clicked_selector.strip():
-            selector = actual_clicked_selector
-            selector_source = "AI result (actual clicked selector - PRIMARY for mirroring)"
-            logger.info(f"  ✅ Using actual clicked selector from AI result (PRIMARY): {actual_clicked_selector[:100]}")
-            logger.info(f"  🎯 This ensures true mirroring - Playwright uses exact same selector AI clicked")
-        elif action_selector and action_selector.strip():
-            selector = action_selector
-            selector_source = "AI action (exact selector from actions_taken - PRIMARY for mirroring)"
-            logger.info(f"  ✅ Using AI action selector (PRIMARY): {action_selector[:100]}")
-            logger.info(f"  🎯 This ensures true mirroring - Playwright uses same selector as AI")
-            
-            # Track registry key from discovery if available (for fallback XPath lookup)
-            if discovery:
-                registry_key = discovery.get('name')
-                logger.info(f"  📝 Discovery found: registry_key='{registry_key}' (for fallback XPath)")
+                # Escape for Python string
+                selector_escaped = selector_to_use.replace("'", "\\'").replace('"', '\\"')
                 
-                # Prepare fallback: discovery XPath
-                if discovery.get('xpath'):
-                    fallback_selectors.append(f"xpath={discovery['xpath']}")
-                    logger.info(f"  📋 Fallback 1: Discovery XPath available")
-                # Prepare fallback: registry XPath via discovery key
-                elif registry_key and registry and registry_key in registry:
-                    registry_entry = registry[registry_key]
-                    if registry_entry.get('xpath'):
-                        fallback_selectors.append(f"xpath={registry_entry['xpath']}")
-                        logger.info(f"  📋 Fallback 1: Registry XPath via discovery key available")
-            
-            # Also try registry lookup for fallback XPath (even when using AI selector)
-            if registry:
-                logger.info(f"  🔍 Checking registry for fallback XPath: '{element_name}'")
-                registry_selector, matched_registry_key = self._get_selector_and_key_from_registry(element_name, registry)
-                if registry_selector and not registry_key:
-                    registry_key = matched_registry_key
-                    logger.info(f"  📋 Fallback 2: Registry XPath available: {matched_registry_key}")
-        
-        # PRIORITY 2: Use discovery if no action selector
-        elif discovery:
-            # Discovery has exact registry key in 'name' field
-            registry_key = discovery.get('name')  # This IS the exact registry key!
-            logger.info(f"  📝 Discovery found: registry_key='{registry_key}', has_xpath={bool(discovery.get('xpath'))}")
-            
-            # PRIORITY: Use original_query (what AI actually used) if available
-            if discovery.get('original_query'):
-                selector = discovery.get('original_query')
-                selector_source = "AI discovery (original_query)"
-                logger.info(f"  ✅ Using discovery original_query: {selector[:100]}")
-            # Fallback: Use discovery XPath if available
-            elif discovery.get('xpath'):
-                selector = f"xpath={discovery['xpath']}"
-                selector_source = "AI discovery XPath"
-                logger.info(f"  ✅ Using discovery XPath: {discovery['xpath'][:100]}")
+                # Find matching optional selector constant (embedded in test)
+                # Use discovery name if available, otherwise use element_name
+                disc_name = discovery.get('name', '') if discovery else ''
+                name_for_constant = disc_name if disc_name else element_name
+                safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', name_for_constant)
+                constant_name = f"OPTIONAL_{safe_name.upper()}_SELECTOR"
+                
+                code = f"{ind}# Step {step_num}: {step_text}\n"
+                code += f"{ind}# ⚠️  No element_id found - using test-specific selector (embedded in test, not hardcoded)\n"
+                code += f"{ind}# Use selector from test-specific constants (matches AI behavior)\n"
+                code += f"{ind}try:\n"
+                code += f"{ind}    selector = {constant_name}\n"
+                code += f"{ind}except NameError:\n"
+                code += f"{ind}    # Fallback if constant not defined\n"
+                code += f"{ind}    selector = '{selector_escaped}'\n"
+                code += f"{ind}\n"
+                code += f"{ind}try:\n"
+                code += f"{ind}    element = page.locator(selector).nth(0)\n"
+                code += f"{ind}    if element.is_visible(timeout=10000):\n"
+                code += f"{ind}        element.click()\n"
+                code += f"{ind}        print(f'✅ Step {step_num}: Clicked (using selector from discovery: {{selector}})')\n"
+                code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_{re.sub(r'[^a-zA-Z0-9_-]', '_', element_name)[:50]}.png')\n"
+                code += f"{ind}    else:\n"
+                code += f"{ind}        print(f'ℹ️  Step {step_num}: {element_name} not found (optional)')\n"
+                code += f"{ind}except Exception as e:\n"
+                code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional): {{e}}')\n\n"
+                return code
+            elif is_optional:
+                # Optional but no selector - skip
+                code = f"{ind}# Step {step_num}: {step_text}\n"
+                code += f"{ind}# ⚠️  No element_id and no selector found - skipping optional element\n"
+                code += f"{ind}print('ℹ️  Step {step_num}: {element_name} not found in registry (optional)')\n\n"
+                return code
             else:
-                # Fallback: check if registry key exists in registry and get XPath from there
-                if registry_key and registry and registry_key in registry:
-                    registry_entry = registry[registry_key]
-                    if registry_entry.get('xpath'):
-                        selector = f"xpath={registry_entry['xpath']}"
-                        selector_source = "registry (via discovery key)"
-                        logger.info(f"  ✅ Using registry XPath via discovery key: {registry_entry['xpath'][:100]}")
-                    else:
-                        selector_source = "AI action (no XPath in registry)"
-                        logger.info(f"  ⚠️ Discovery exists but no XPath in registry, using action selector")
-                else:
-                    selector_source = "AI action (discovery key not in registry)"
-                    logger.info(f"  ⚠️ Discovery key '{registry_key}' not found in registry, using action selector")
-        
-        # PRIORITY 3: Use registry lookup if no action selector and no discovery
-        elif registry:
-            # No action selector and no discovery - try registry lookup
-            logger.info(f"  ⚠️ No action selector or discovery for step {step_num}, checking registry for '{element_name}'")
-            logger.info(f"  📊 Registry has {len(registry)} elements")
-            registry_selector, matched_key = self._get_selector_and_key_from_registry(element_name, registry)
-            if registry_selector:
-                selector = registry_selector
-                registry_key = matched_key  # Track the exact registry key that was matched
-                selector_source = "registry (no action selector or discovery)"
-                logger.info(f"  ✅ Found in registry: key='{matched_key}', selector={selector[:100]}")
-            else:
-                logger.warning(f"  ⚠️ Element '{element_name}' not found in registry either")
-                logger.warning(f"  Tried to match '{element_name.lower()}' against {len(registry)} registry keys")
-        
-        # Ensure selector is set (fallback to action_selector if nothing else worked)
-        if not selector or not selector.strip():
-            selector = action_selector if action_selector else ""
-            if selector:
-                selector_source = "AI action (final fallback)"
-                logger.info(f"  ⚠️ Using action selector as final fallback: {selector[:100]}")
-            else:
-                logger.warning(f"  ⚠️ No selector found from any source for step {step_num}")
-        
-        # Track registry key from discovery if available (for XPath lookup fallback)
-        if discovery and not registry_key:
-            registry_key = discovery.get('name')
-            logger.info(f"  📝 Discovery found: registry_key='{registry_key}' (for XPath lookup)")
-            
-            # Prepare fallback: discovery XPath
-            if discovery.get('xpath'):
-                fallback_selectors.append(f"xpath={discovery['xpath']}")
-                logger.info(f"  📋 Fallback 1: Discovery XPath available")
-            # Prepare fallback: registry XPath via discovery key
-            elif registry_key and registry and registry_key in registry:
-                registry_entry = registry[registry_key]
-                if registry_entry.get('xpath'):
-                    fallback_selectors.append(f"xpath={registry_entry['xpath']}")
-                    logger.info(f"  📋 Fallback 1: Registry XPath via discovery key available")
-        
-        # Normalize text selectors for case-insensitivity (Playwright text= is case-sensitive)
-        # Convert text=DIAGNOSIS to xpath with normalize-space() for case-insensitive matching
-        normalized_selector = selector
-        if selector.startswith('text='):
-            text_value = selector.replace('text=', '').strip()
-            # Escape quotes in text_value for XPath
-            text_value_escaped = text_value.replace("'", "\\'")
-            # Convert to XPath with normalize-space() and translate() for case-insensitive matching
-            # This matches any element whose normalized lowercase text equals the search term
-            normalized_selector = f"xpath=//*[normalize-space(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'))='{text_value.lower()}']"
-            logger.info(f"  🔄 Normalized text selector '{text_value}' to case-insensitive XPath")
-        
-        # Clean selector (remove state-dependent attributes) - but preserve exact action selector
-        # If we have the exact action selector, don't clean it (use what AI used)
-        if selector_source != "AI action (exact selector from actions_taken)":
-            selector = self._clean_selector(selector)
-            normalized_selector = self._clean_selector(normalized_selector)
+                raise Exception(f"❌ Step {step_num}: Discovery missing element_id for '{element_name}' - cannot generate Playwright step. Registry must be complete.")
         
         # Sanitize for screenshot filename
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', element_name)[:50]
         screenshot_path = f"storage/screenshots/pw_step{step_num}_{safe_name}.png"
         
-        # Escape selectors for Python string (for fallback)
-        selector_escaped = selector.replace("'", "\\'")
-        normalized_selector_escaped = normalized_selector.replace("'", "\\'")
-        fallback_selectors_escaped = [s.replace("'", "\\'") for s in fallback_selectors]
+        # Detect element type from step text
+        is_checkbox = 'checkbox' in step_text.lower()
+        is_accordion = 'accordion' in step_text.lower() or 'expand' in step_text.lower()
+        is_nested_accordion = discovery and discovery.get('metadata', {}).get('nested', False) if discovery else False
         
-        # Escape registry key for Python string (if using registry)
-        registry_key_escaped = registry_key.replace("'", "\\'") if registry_key else None
+        # Escape element_id for Python string
+        element_id_escaped = element_id.replace("'", "\\'")
         
+        # Generate pure registry code
         code = f"{ind}# Step {step_num}: {step_text}\n"
+        code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
+        code += f"{ind}element_id = '{element_id_escaped}'\n"
+        code += f"{ind}xpath = get_xpath_by_id(element_id)  # Lookup from JSON registry ONLY\n"
+        code += f"{ind}selector = f'xpath={{xpath}}'\n"
+        code += f"{ind}\n"
+        code += f"{ind}try:\n"
+        code += f"{ind}    element = page.locator(selector).nth(0)\n"
         
-        # Add source note
-        if registry_key:
-            code += f"{ind}# Using registry key: '{registry_key_escaped}' (from {selector_source})\n"
-        else:
-            code += f"{ind}# Selector from {selector_source}: {selector[:100]}\n"
-        
-        # Detect element type from step text or selector
-        is_checkbox = 'checkbox' in step_text.lower() or 'input[type=\'checkbox\']' in selector.lower()
-        
-        # Detect accordion clicks (for expansion verification)
-        is_accordion = (
-            'accordion' in step_text.lower() or 
-            'expand' in step_text.lower() or
-            '[role="button"][aria-expanded]' in selector or
-            'ancestor::*[@id=' in selector  # Nested accordion indicator
-        )
-        
-        # Detect nested accordion (XPath contains ancestor::*[@id='...'])
-        # Check both the primary selector and step metadata from discovery
-        step_metadata = discovery.get('metadata', {}) if discovery else {}
-        is_nested_accordion = 'ancestor::*[@id=' in selector or (is_accordion and step_metadata.get('nested', False))
-        
-        # Generate locator code with fallback logic
-        # CRITICAL: Order matters for mirroring - AI selector MUST be first
-        # Order: AI selector (PRIMARY) -> Normalized -> Registry XPath (fallbacks)
-        code += f"{ind}# Build selector list for true mirroring (AI selector FIRST, then fallbacks)\n"
-        code += f"{ind}selectors_to_try = [\n"
-        
-        # PRIORITY 1: Add AI selector FIRST (for true mirroring)
-        # This ensures Playwright tries the exact same selector AI used
-        code += f"{ind}    '{selector_escaped}',  # AI selector (PRIMARY - same as AI used)\n"
-        
-        # PRIORITY 2: Add normalized selector as fallback (for case-insensitivity)
-        if normalized_selector != selector and selector.startswith('text='):
-            code += f"{ind}    '{normalized_selector_escaped}',  # Normalized (case-insensitive fallback)\n"
-        
-        # PRIORITY 3: Add discovery/registry XPaths as fallbacks
-        if fallback_selectors_escaped:
-            for fallback in fallback_selectors_escaped:
-                code += f"{ind}    '{fallback}',  # Fallback XPath\n"
-        elif registry_key:
-            # Add registry XPath lookup as fallback
-            code += f"{ind}    None,  # Will be set via registry lookup\n"
-        
-        code += f"{ind}]\n"
-        
-        # If we have registry key, add registry lookup logic
-        if registry_key:
-            code += f"{ind}# Try registry XPath lookup (fallback only)\n"
-            code += f"{ind}xpath = get_xpath('{registry_key_escaped}')\n"
-            code += f"{ind}if xpath:\n"
-            code += f"{ind}    registry_xpath = f'xpath={{xpath}}'\n"
-            code += f"{ind}    # Add registry XPath as fallback (after AI selector and normalized)\n"
-            code += f"{ind}    if len(selectors_to_try) > 1 and selectors_to_try[-1] is None:\n"
-            code += f"{ind}        selectors_to_try[-1] = registry_xpath\n"
+        if is_checkbox:
+            code += f"{ind}    # Checkbox: Wait for attached, then scroll into view\n"
+            code += f"{ind}    element.wait_for(state='attached', timeout=10000)\n"
+            code += f"{ind}    element.scroll_into_view_if_needed()\n"
+            code += f"{ind}    page.wait_for_timeout(500)\n"
+            code += f"{ind}    # Check if checkbox is already checked\n"
+            code += f"{ind}    is_checked = element.is_checked()\n"
+            code += f"{ind}    if is_checked:\n"
+            code += f"{ind}        print(f'ℹ️  Checkbox already checked, skipping')\n"
             code += f"{ind}    else:\n"
-            code += f"{ind}        selectors_to_try.append(registry_xpath)  # Add as last fallback\n"
-        
-        # Filter out None values
-        code += f"{ind}# Remove None values\n"
-        code += f"{ind}selectors_to_try = [s for s in selectors_to_try if s is not None]\n"
-        
-        if is_optional:
-            # Optional click - try all selectors, don't fail if not found
-            code += f"{ind}clicked = False\n"
-            code += f"{ind}for sel in selectors_to_try:\n"
-            code += f"{ind}    try:\n"
-            code += f"{ind}        element = page.locator(sel).nth(0)\n"
-            code += f"{ind}        if element.is_visible(timeout=2000):\n"
-            code += f"{ind}            element.click()\n"
-            code += f"{ind}            page.wait_for_timeout(500)\n"
-            code += f"{ind}            print(f'✅ Step {step_num}: Clicked: {element_name} (using: {{sel[:80]}}...)')\n"
-            code += f"{ind}            page.screenshot(path='{screenshot_path}')\n"
-            code += f"{ind}            clicked = True\n"
-            code += f"{ind}            break\n"
-            code += f"{ind}    except Exception:\n"
-            code += f"{ind}        continue\n"
-            code += f"{ind}if not clicked:\n"
-            code += f"{ind}    print('ℹ️  Step {step_num}: {element_name} not found (optional)')\n\n"
-        else:
-            # Required click - try multiple selectors if first fails
-            # Take screenshot BEFORE attempting click to capture current state
-            pre_attempt_path = screenshot_path.replace('.png', '_pre_attempt.png')
-            code += f"{ind}# Take screenshot before attempting click (captures state even if click fails)\n"
-            code += f"{ind}try:\n"
-            code += f"{ind}    page.screenshot(path='{pre_attempt_path}')\n"
-            code += f"{ind}    print('📸 Pre-attempt screenshot: {pre_attempt_path}')\n"
-            code += f"{ind}except Exception:\n"
-            code += f"{ind}    pass  # Ignore screenshot errors\n"
-            code += f"{ind}clicked = False\n"
-            code += f"{ind}last_error = None\n"
-            # Determine if this is a nested accordion BEFORE the loop (based on step metadata or primary selector)
-            code += f"{ind}# Check if this is a nested accordion (determine once before loop)\n"
-            code += f"{ind}is_nested_accordion_step = {is_nested_accordion}  # From step metadata or primary selector\n"
-            code += f"{ind}for sel in selectors_to_try:\n"
-            code += f"{ind}    try:\n"
-            
-            # CRITICAL: For XPaths with ancestor::* pattern, DON'T use .nth(1) - the XPath already targets the nested element
-            # Only use .nth(1) for non-XPath selectors (like text=) that might match multiple elements
-            code += f"{ind}        # Check if this selector targets a nested accordion\n"
-            code += f"{ind}        # If selector has ancestor::* pattern, XPath already targets nested element - use .nth(0)\n"
-            code += f"{ind}        # If selector is text= or other non-XPath, might need .nth(1) to skip parent\n"
-            code += f"{ind}        has_ancestor_pattern = 'ancestor::*[@id=' in sel\n"
-            code += f"{ind}        # Determine if this is a nested selector (for accordion logic later)\n"
-            code += f"{ind}        is_nested_selector = has_ancestor_pattern or (is_nested_accordion_step and not sel.startswith('xpath='))\n"
-            code += f"{ind}        if has_ancestor_pattern:\n"
-            code += f"{ind}            # XPath with ancestor::* already targets nested element - use .nth(0) or .first()\n"
-            code += f"{ind}            nth_index = 0\n"
-            code += f"{ind}        elif is_nested_accordion_step and not sel.startswith('xpath='):\n"
-            code += f"{ind}            # Non-XPath selector for nested accordion - might need .nth(1) to skip parent\n"
-            code += f"{ind}            nth_index = 1\n"
+            code += f"{ind}        element.click(force=True)\n"
+            code += f"{ind}        page.wait_for_timeout(1000)\n"
+            code += f"{ind}        if element.is_checked():\n"
+            code += f"{ind}            print(f'✅ Step {step_num}: Checkbox checked (element_id: {{element_id}})')\n"
             code += f"{ind}        else:\n"
-            code += f"{ind}            # Regular selector - use .nth(0)\n"
-            code += f"{ind}            nth_index = 0\n"
-            code += f"{ind}        element = page.locator(sel).nth(nth_index)\n"
-            
-            # CRITICAL: For checkboxes, skip visibility check due to virtual scrolling
-            # Virtual scrolling can mark elements as "hidden" even though they're clickable
-            if is_checkbox:
-                code += f"{ind}        # Checkbox: Wait for attached, then scroll into view (skip visibility check for virtual scrolling)\n"
-                code += f"{ind}        element.wait_for(state='attached', timeout=10000)\n"
-                code += f"{ind}        element.scroll_into_view_if_needed()\n"
-                code += f"{ind}        page.wait_for_timeout(500)  # Allow scroll to complete\n"
-                code += f"{ind}        # Check if checkbox is already checked\n"
-                code += f"{ind}        is_checked = element.is_checked()\n"
-                code += f"{ind}        if is_checked:\n"
-                code += f"{ind}            print(f'ℹ️  Checkbox already checked, skipping')\n"
-                code += f"{ind}        else:\n"
-                code += f"{ind}            # Mirror AI behavior: Use .click() FIRST (like AI does), not .check()\n"
-                code += f"{ind}            # AI agent uses click(), so Playwright should too for true mirroring\n"
-                code += f"{ind}            try:\n"
-                code += f"{ind}                # Use click() first (matches AI behavior)\n"
-                code += f"{ind}                element.click(force=True)\n"
-                code += f"{ind}                page.wait_for_timeout(1000)  # Wait for Material-UI to update\n"
-                code += f"{ind}                if element.is_checked():\n"
-                code += f"{ind}                    print(f'✅ Checkbox checked successfully (via click - mirrors AI)')\n"
-                code += f"{ind}                else:\n"
-                code += f"{ind}                    # Click didn't work, try .check() as fallback\n"
-                code += f"{ind}                    print(f'⚠️  click() did not change state, trying .check() fallback')\n"
-                code += f"{ind}                    element.check(force=True)\n"
-                code += f"{ind}                    page.wait_for_timeout(1000)\n"
-                code += f"{ind}                    if element.is_checked():\n"
-                code += f"{ind}                        print(f'✅ Checkbox checked via .check() fallback')\n"
-                code += f"{ind}                    else:\n"
-                code += f"{ind}                        # Last resort: JavaScript to set state and trigger handlers\n"
-                code += f"{ind}                        print(f'⚠️  Both click() and .check() failed, using JavaScript fallback')\n"
-                code += f"{ind}                        element.evaluate('el => el.checked = true')\n"
-                code += f"{ind}                        element.evaluate('el => el.dispatchEvent(new Event(\"change\", {{ bubbles: true }}))')\n"
-                code += f"{ind}                        element.evaluate('el => el.click()')  # Trigger click handler\n"
-                code += f"{ind}                        page.wait_for_timeout(500)\n"
-                code += f"{ind}                        if element.is_checked():\n"
-                code += f"{ind}                            print(f'✅ Checkbox checked via JavaScript fallback')\n"
-                code += f"{ind}                        else:\n"
-                code += f"{ind}                            print(f'⚠️  Checkbox state still not updated')\n"
-                code += f"{ind}            except Exception as click_error:\n"
-                code += f"{ind}                # click() failed, try .check() as fallback\n"
-                code += f"{ind}                print(f'⚠️  click() failed, trying .check() fallback: {{click_error}}')\n"
-                code += f"{ind}                try:\n"
-                code += f"{ind}                    element.check(force=True)\n"
-                code += f"{ind}                    page.wait_for_timeout(1000)\n"
-                code += f"{ind}                    if element.is_checked():\n"
-                code += f"{ind}                        print(f'✅ Checkbox checked via .check() fallback')\n"
-                code += f"{ind}                    else:\n"
-                code += f"{ind}                        # Last resort: JavaScript\n"
-                code += f"{ind}                        element.evaluate('el => el.checked = true')\n"
-                code += f"{ind}                        element.evaluate('el => el.dispatchEvent(new Event(\"change\", {{ bubbles: true }}))')\n"
-                code += f"{ind}                        element.evaluate('el => el.click()')\n"
-                code += f"{ind}                        page.wait_for_timeout(500)\n"
-                code += f"{ind}                        if element.is_checked():\n"
-                code += f"{ind}                            print(f'✅ Checkbox checked via JavaScript fallback')\n"
-                code += f"{ind}                        else:\n"
-                code += f"{ind}                            print(f'⚠️  Checkbox may not have updated: {{click_error}}')\n"
-                code += f"{ind}                except Exception as check_error:\n"
-                code += f"{ind}                    # Both click() and .check() failed, use JavaScript\n"
-                code += f"{ind}                    print(f'⚠️  .check() also failed, using JavaScript fallback: {{check_error}}')\n"
-                code += f"{ind}                    element.evaluate('el => el.checked = true')\n"
-                code += f"{ind}                    element.evaluate('el => el.dispatchEvent(new Event(\"change\", {{ bubbles: true }}))')\n"
-                code += f"{ind}                    element.evaluate('el => el.click()')\n"
-                code += f"{ind}                    page.wait_for_timeout(500)\n"
-                code += f"{ind}                    if element.is_checked():\n"
-                code += f"{ind}                        print(f'✅ Checkbox checked via JavaScript fallback')\n"
-                code += f"{ind}                    else:\n"
-                code += f"{ind}                        print(f'⚠️  Checkbox may not have updated: {{check_error}}')\n"
+            code += f"{ind}            raise Exception(f'Checkbox click did not change state')\n"
+            code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+        elif is_accordion:
+            code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+            if is_nested_accordion:
+                code += f"{ind}    # Nested accordion: always click\n"
+                code += f"{ind}    element.click()\n"
+                code += f"{ind}    page.wait_for_timeout(1000)\n"
+                code += f"{ind}    print(f'✅ Step {step_num}: Clicked nested accordion (element_id: {{element_id}})')\n"
             else:
-                code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
-                
-                # For accordions, check if already expanded before clicking
-                if is_accordion:
-                    code += f"{ind}        # Accordion detected: check if already expanded\n"
-                    code += f"{ind}        # For nested accordions, always click (don't skip) to ensure content is visible\n"
-                    code += f"{ind}        if is_nested_selector:\n"
-                    code += f"{ind}            # Nested accordion: always click to ensure it's expanded\n"
-                    code += f"{ind}            element.click()\n"
-                    code += f"{ind}            page.wait_for_timeout(1000)  # Wait for content to render\n"
-                    code += f"{ind}            print(f'✅ Clicked nested accordion')\n"
-                    code += f"{ind}        else:\n"
-                    code += f"{ind}            # Top-level accordion: check state before clicking\n"
-                    code += f"{ind}            initial_aria_expanded = element.get_attribute('aria-expanded')\n"
-                    code += f"{ind}            if initial_aria_expanded == 'true':\n"
-                    code += f"{ind}                print(f'ℹ️  Accordion already expanded (aria-expanded={{initial_aria_expanded}}), skipping click')\n"
-                    code += f"{ind}                # Wait for accordion content to be visible\n"
-                    code += f"{ind}                page.wait_for_timeout(1000)  # Wait for content to render\n"
-                    code += f"{ind}            else:\n"
-                    code += f"{ind}                # Accordion is closed, click to expand\n"
-                    code += f"{ind}                element.click()\n"
-                    code += f"{ind}                # Verify accordion expanded (aria-expanded: false→true)\n"
-                    code += f"{ind}                page.wait_for_timeout(500)  # Wait for state change\n"
-                    code += f"{ind}                current_aria_expanded = element.get_attribute('aria-expanded')\n"
-                    code += f"{ind}                if current_aria_expanded == 'true':\n"
-                    code += f"{ind}                    print(f'✅ Accordion expanded: {{initial_aria_expanded}} → {{current_aria_expanded}}')\n"
-                    code += f"{ind}                else:\n"
-                    code += f"{ind}                    print(f'⚠️  Accordion state unchanged: {{initial_aria_expanded}} → {{current_aria_expanded}}')\n"
-                    code += f"{ind}                # Wait for accordion content to appear\n"
-                    code += f"{ind}                page.wait_for_timeout(1000)  # Wait for content to render\n"
-                else:
-                    code += f"{ind}        element.click()\n"
-                    code += f"{ind}        page.wait_for_timeout(1000)  # Wait for UI update\n"
-            
-            code += f"{ind}        print(f'✅ Step {step_num}: Clicked: {element_name} (using: {{sel[:80]}}...)')\n"
-            code += f"{ind}        page.screenshot(path='{screenshot_path}')\n"
-            code += f"{ind}        print('📸 Screenshot: {screenshot_path}')\n"
-            code += f"{ind}        clicked = True\n"
-            code += f"{ind}        break\n"
-            code += f"{ind}    except Exception as e:\n"
-            code += f"{ind}        last_error = e\n"
-            code += f"{ind}        print(f'⚠️  Selector failed: {{sel[:80]}}... - {{str(e)[:100]}}')\n"
-            code += f"{ind}        continue\n"
-            code += f"{ind}if not clicked:\n"
-            code += f"{ind}    # Take screenshot even on failure to show what was visible\n"
-            failed_path = screenshot_path.replace('.png', '_failed.png')
-            code += f"{ind}    try:\n"
-            code += f"{ind}        page.screenshot(path='{failed_path}')\n"
-            code += f"{ind}        print('📸 Screenshot: {failed_path}')\n"
-            code += f"{ind}    except Exception:\n"
-            code += f"{ind}        pass  # Ignore screenshot errors\n"
-            code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} with all selectors')\n"
-            code += f"{ind}    print(f'Last error: {{last_error}}')\n"
-            code += f"{ind}    raise last_error\n\n"
+                code += f"{ind}    # Top-level accordion: check state\n"
+                code += f"{ind}    initial_aria_expanded = element.get_attribute('aria-expanded')\n"
+                code += f"{ind}    if initial_aria_expanded == 'true':\n"
+                code += f"{ind}        print(f'ℹ️  Accordion already expanded, skipping click')\n"
+                code += f"{ind}        page.wait_for_timeout(1000)\n"
+                code += f"{ind}    else:\n"
+                code += f"{ind}        element.click()\n"
+                code += f"{ind}        page.wait_for_timeout(500)\n"
+                code += f"{ind}        current_aria_expanded = element.get_attribute('aria-expanded')\n"
+                code += f"{ind}        if current_aria_expanded == 'true':\n"
+                code += f"{ind}            print(f'✅ Step {step_num}: Accordion expanded: {{initial_aria_expanded}} → {{current_aria_expanded}}')\n"
+                code += f"{ind}        page.wait_for_timeout(1000)\n"
+            code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+        else:
+            code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+            code += f"{ind}    element.click()\n"
+            code += f"{ind}    print(f'✅ Step {step_num}: Clicked {element_name} (element_id: {{element_id}})')\n"
+            code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+        
+        code += f"{ind}except Exception as e:\n"
+        if is_optional:
+            code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional): {{e}}')\n"
+        else:
+            code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}')\n"
+            code += f"{ind}    raise\n"
+        code += f"{ind}\n"
         
         return code
     
@@ -972,10 +823,20 @@ if __name__ == '__main__':
         column_name = metadata.get('column_name', 'unknown')
         expected_value = metadata.get('expected_value', '')
         
+        # Escape for Python string literals
+        column_name_escaped = column_name.replace("'", "\\'").replace('"', '\\"')
+        expected_value_escaped = expected_value.replace("'", "\\'").replace('"', '\\"')
+        
         code = f"{ind}# Step {step_num}: {step_text}\n"
-        code += f"{ind}# Verify: All rows in '{column_name}' column contain '{expected_value}'\n"
+        code += f"{ind}# Verify: All rows in column contain expected value (values from test-specific constants - NO HARDCODING)\n"
+        code += f"{ind}# Use verification values embedded in test (test-specific, not in registry)\n"
+        code += f"{ind}column_name = VERIFY_COLUMN_NAME\n"
+        code += f"{ind}expected_value = VERIFY_EXPECTED_VALUE\n"
+        code += f"{ind}if not column_name or not expected_value:\n"
+        code += f"{ind}    raise Exception('❌ Verification values missing: VERIFY_COLUMN_NAME or VERIFY_EXPECTED_VALUE not defined')\n"
+        code += f"{ind}\n"
         code += f"{ind}try:\n"
-        code += f"{ind}    print('🔍 Step {step_num}: Verifying table column...')\n"
+        code += f"{ind}    print(f'🔍 Step {step_num}: Verifying table column \"{{column_name}}\" contains \"{{expected_value}}\"...')\n"
         code += f"{ind}    \n"
         code += f"{ind}    # Find table\n"
         code += f"{ind}    table = page.locator('table').nth(0)\n"
@@ -986,21 +847,21 @@ if __name__ == '__main__':
         code += f"{ind}    \n"
         code += f"{ind}    # Try exact match (case-insensitive)\n"
         code += f"{ind}    for i, header in enumerate(headers):\n"
-        code += f"{ind}        if '{column_name}'.lower() == header.lower().strip():\n"
+        code += f"{ind}        if column_name.lower() == header.lower().strip():\n"
         code += f"{ind}            column_index = i\n"
         code += f"{ind}            break\n"
         code += f"{ind}    \n"
         code += f"{ind}    # Fallback: partial match\n"
         code += f"{ind}    if column_index == -1:\n"
         code += f"{ind}        for i, header in enumerate(headers):\n"
-        code += f"{ind}            if '{column_name}'.lower() in header.lower():\n"
+        code += f"{ind}            if column_name.lower() in header.lower():\n"
         code += f"{ind}                column_index = i\n"
         code += f"{ind}                break\n"
         code += f"{ind}    \n"
         code += f"{ind}    if column_index == -1:\n"
-        code += f"{ind}        raise Exception(f\"Column '{column_name}' not found. Available: {{headers}}\")\n"
+        code += f"{ind}        raise Exception(f\"Column '{{column_name}}' not found. Available: {{headers}}\")\n"
         code += f"{ind}    \n"
-        code += f"{ind}    print(f'📋 Step {step_num}: Found column \"{column_name}\" at index {{column_index}}')\n"
+        code += f"{ind}    print(f'📋 Step {step_num}: Found column \"{{column_name}}\" at index {{column_index}}')\n"
         code += f"{ind}    \n"
         code += f"{ind}    # Verify all rows\n"
         code += f"{ind}    rows = table.locator('tbody tr').all()\n"
@@ -1013,15 +874,15 @@ if __name__ == '__main__':
         code += f"{ind}        cells = row.locator('td').all()\n"
         code += f"{ind}        if column_index < len(cells):\n"
         code += f"{ind}            cell_text = cells[column_index].inner_text().strip()\n"
-        code += f"{ind}            if '{expected_value}'.lower() in cell_text.lower():\n"
+        code += f"{ind}            if expected_value.lower() in cell_text.lower():\n"
         code += f"{ind}                matching_rows += 1\n"
         code += f"{ind}            else:\n"
-        code += f"{ind}                print(f'⚠️  Row {{row_idx + 1}}: Expected \"{expected_value}\", got \"{{cell_text}}\"')\n"
+        code += f"{ind}                print(f'⚠️  Row {{row_idx + 1}}: Expected \"{{expected_value}}\", got \"{{cell_text}}\"')\n"
         code += f"{ind}    \n"
         code += f"{ind}    # Assert all rows match\n"
         code += f"{ind}    assert matching_rows == total_rows, f\"Only {{matching_rows}}/{{total_rows}} rows match\"\n"
         code += f"{ind}    \n"
-        code += f"{ind}    print(f'✅ Step {step_num}: VERIFICATION PASSED: All {{total_rows}} rows contain \"{expected_value}\"')\n"
+        code += f"{ind}    print(f'✅ Step {step_num}: VERIFICATION PASSED: All {{total_rows}} rows contain \"{{expected_value}}\"')\n"
         code += f"{ind}    page.screenshot(path='storage/screenshots/pw_step{step_num}_verify.png')\n"
         code += f"{ind}    print('📸 Screenshot: storage/screenshots/pw_step{step_num}_verify.png')\n"
         code += f"{ind}    \n"
