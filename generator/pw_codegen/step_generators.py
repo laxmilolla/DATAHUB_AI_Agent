@@ -96,7 +96,10 @@ def generate_click_step(
     ind = ' ' * indent
     
     # Determine if this is an optional click (e.g., popup dismissal)
-    is_optional = 'optional' in step_text.lower() or 'if there is' in step_text.lower()
+    is_optional = ('optional' in step_text.lower() or 
+                   'if there is' in step_text.lower() or 
+                   'if appears' in step_text.lower() or
+                   '(if appears)' in step_text.lower())
     
     # Extract element name for display
     element_name = discovery.get('name', 'element') if discovery else 'element'
