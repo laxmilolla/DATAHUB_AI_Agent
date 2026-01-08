@@ -60,13 +60,26 @@ class RegistryManager:
                 domain = discovery_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
                 
                 # Determine page name
-                url_path = discovery_url.split('/')[-1].split('#')[0]
-                if url_path == 'explore':
-                    page = 'explore'
-                elif not url_path or url_path == '':
+                # Remove query parameters and fragments
+                url_without_query = discovery_url.split('?')[0].split('#')[0]
+                # Get the path part (everything after domain)
+                path_part = url_without_query.replace('https://', '').replace('http://', '').split('/', 1)[1] if '/' in url_without_query.replace('https://', '').replace('http://', '') else ''
+                
+                if not path_part or path_part == '':
                     page = 'home'
+                elif path_part == 'explore':
+                    page = 'explore'
                 else:
-                    page = url_path
+                    # Use the last segment of the path as page name
+                    # For paths like /login/two_factor/authenticator, use 'authenticator'
+                    # For paths like /data-submissions, use 'data-submissions'
+                    page = path_part.rstrip('/').split('/')[-1]
+                    # Sanitize page name (remove invalid filename characters)
+                    # Replace invalid characters with underscores
+                    import re
+                    page = re.sub(r'[<>:"/\\|?*]', '_', page)
+                    # Remove query parameters if any slipped through
+                    page = page.split('?')[0].split('#')[0]
             
                 # Load existing registry or create new one
                 element_map = self.element_registry.load_map(domain, page)
