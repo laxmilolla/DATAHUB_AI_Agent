@@ -6,6 +6,7 @@ from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 import os
 import sys
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -44,7 +45,7 @@ def create_app():
     # Home route - render UI
     @app.route('/')
     def index():
-        return render_template('index.html')
+        return render_template('index.html', timestamp=int(time.time()))
     
     @app.route('/element-maps')
     def element_maps_page():
