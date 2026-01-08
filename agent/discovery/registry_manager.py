@@ -93,94 +93,94 @@ class RegistryManager:
                 if element_map:
                     added_count = 0
                     for discovery in page_discoveries:
-                    if discovery.get('xpath'):
-                        element_name = discovery['name']
-                        element_id = discovery.get('element_id')
-                        
-                        # Create element entry
-                        element_entry = {
-                            "selector": discovery['final_selector'],
-                            "xpath": discovery['xpath'],
-                            "uniqueness_method": discovery.get('uniqueness_method', 'unknown'),
-                            "type": discovery.get('metadata', {}).get('type', 'unknown'),
-                            "description": f"Discovered by AI in test {self.execution_id}",
-                            "source": "ai_discovery",
-                            "discovery_method": discovery['discovery_method'],
-                            "usage_count": 1,
-                            "alternatives": []
-                        }
-                        
-                        # Assign element_id if not present
-                        if element_id:
-                            element_entry['element_id'] = element_id
-                        elif discovery['xpath']:
-                            # Generate ID if missing
-                            element_entry['element_id'] = self.element_registry._generate_element_id(
-                                element_name, discovery['xpath']
-                            )
-                        
-                        # Check registry by XPath value (not just name)
-                        xpath_value = discovery['xpath']
-                        existing_key = None
-                        
-                        # Strategy 1: Check by element_id if available
-                        if element_entry.get('element_id'):
-                            element_id_to_find = element_entry['element_id']
-                            for key, elem_data in element_map.get('elements', {}).items():
-                                if elem_data.get('element_id') == element_id_to_find:
-                                    existing_key = key
-                                    logger.info(f"    🎯 Found existing entry by element_id: {key} (ID: {element_id_to_find})")
-                                    break
-                        
-                        # Strategy 2: Check by XPath value
-                        if not existing_key and xpath_value:
-                            for key, elem_data in element_map.get('elements', {}).items():
-                                if elem_data.get('xpath') == xpath_value:
-                                    existing_key = key
-                                    logger.info(f"    🎯 Found existing entry by XPath: {key}")
-                                    break
-                        
-                        # Strategy 3: Check by name (fallback)
-                        if not existing_key and element_name in element_map.get('elements', {}):
-                            existing_key = element_name
-                            logger.info(f"    🎯 Found existing entry by name: {element_name}")
-                        
-                        if existing_key:
-                            # Update existing entry
-                            existing_element = element_map['elements'][existing_key]
+                        if discovery.get('xpath'):
+                            element_name = discovery['name']
+                            element_id = discovery.get('element_id')
                             
-                            # BACKFILL: If discovery is missing element_id, get it from registry
-                            if not element_id and existing_element.get('element_id'):
-                                element_id = existing_element.get('element_id')
-                                discovery['element_id'] = element_id
-                                logger.info(f"    🔄 Backfilled element_id into discovery: {element_id}")
+                            # Create element entry
+                            element_entry = {
+                                "selector": discovery['final_selector'],
+                                "xpath": discovery['xpath'],
+                                "uniqueness_method": discovery.get('uniqueness_method', 'unknown'),
+                                "type": discovery.get('metadata', {}).get('type', 'unknown'),
+                                "description": f"Discovered by AI in test {self.execution_id}",
+                                "source": "ai_discovery",
+                                "discovery_method": discovery['discovery_method'],
+                                "usage_count": 1,
+                                "alternatives": []
+                            }
                             
-                            # 🔒 CRITICAL: NEVER overwrite existing XPath if it exists (manual XPath = absolute source of truth)
-                            existing_xpath = existing_element.get('xpath', '')
-                            discovery_xpath = element_entry.get('xpath', '')
+                            # Assign element_id if not present
+                            if element_id:
+                                element_entry['element_id'] = element_id
+                            elif discovery['xpath']:
+                                # Generate ID if missing
+                                element_entry['element_id'] = self.element_registry._generate_element_id(
+                                    element_name, discovery['xpath']
+                                )
                             
-                            # If registry already has an XPath, preserve it (manual XPath should never be overwritten)
-                            if preserve_manual and existing_xpath:
-                                # Keep existing XPath, update other fields only
-                                preserved_xpath = existing_xpath
-                                existing_element.update(element_entry)
-                                existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
-                                logger.info(f"    🔒 Preserved existing XPath (manual XPath = source of truth): {preserved_xpath[:80]}...")
+                            # Check registry by XPath value (not just name)
+                            xpath_value = discovery['xpath']
+                            existing_key = None
+                            
+                            # Strategy 1: Check by element_id if available
+                            if element_entry.get('element_id'):
+                                element_id_to_find = element_entry['element_id']
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    if elem_data.get('element_id') == element_id_to_find:
+                                        existing_key = key
+                                        logger.info(f"    🎯 Found existing entry by element_id: {key} (ID: {element_id_to_find})")
+                                        break
+                            
+                            # Strategy 2: Check by XPath value
+                            if not existing_key and xpath_value:
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    if elem_data.get('xpath') == xpath_value:
+                                        existing_key = key
+                                        logger.info(f"    🎯 Found existing entry by XPath: {key}")
+                                        break
+                            
+                            # Strategy 3: Check by name (fallback)
+                            if not existing_key and element_name in element_map.get('elements', {}):
+                                existing_key = element_name
+                                logger.info(f"    🎯 Found existing entry by name: {element_name}")
+                            
+                            if existing_key:
+                                # Update existing entry
+                                existing_element = element_map['elements'][existing_key]
+                                
+                                # BACKFILL: If discovery is missing element_id, get it from registry
+                                if not element_id and existing_element.get('element_id'):
+                                    element_id = existing_element.get('element_id')
+                                    discovery['element_id'] = element_id
+                                    logger.info(f"    🔄 Backfilled element_id into discovery: {element_id}")
+                                
+                                # 🔒 CRITICAL: NEVER overwrite existing XPath if it exists (manual XPath = absolute source of truth)
+                                existing_xpath = existing_element.get('xpath', '')
+                                discovery_xpath = element_entry.get('xpath', '')
+                                
+                                # If registry already has an XPath, preserve it (manual XPath should never be overwritten)
+                                if preserve_manual and existing_xpath:
+                                    # Keep existing XPath, update other fields only
+                                    preserved_xpath = existing_xpath
+                                    existing_element.update(element_entry)
+                                    existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
+                                    logger.info(f"    🔒 Preserved existing XPath (manual XPath = source of truth): {preserved_xpath[:80]}...")
+                                else:
+                                    # No existing XPath - update normally (including new XPath from discovery)
+                                    existing_element.update(element_entry)
+                                    logger.info(f"    ✅ Updated registry entry with new XPath: {discovery_xpath[:80] if discovery_xpath else 'N/A'}...")
+                                
+                                # Ensure element_id is preserved from registry if it exists
+                                if existing_element.get('element_id'):
+                                    element_entry['element_id'] = existing_element['element_id']
+                                    element_map['elements'][existing_key]['element_id'] = existing_element['element_id']
+                                logger.info(f"    📝 Updated registry entry: {existing_key}")
                             else:
-                                # No existing XPath - update normally (including new XPath from discovery)
-                                existing_element.update(element_entry)
-                                logger.info(f"    ✅ Updated registry entry with new XPath: {discovery_xpath[:80] if discovery_xpath else 'N/A'}...")
-                            
-                            # Ensure element_id is preserved from registry if it exists
-                            if existing_element.get('element_id'):
-                                element_entry['element_id'] = existing_element['element_id']
-                                element_map['elements'][existing_key]['element_id'] = existing_element['element_id']
-                            logger.info(f"    📝 Updated registry entry: {existing_key}")
-                        else:
-                            # Add new entry
-                            element_map['elements'][element_name] = element_entry
-                            added_count += 1
-                            logger.info(f"    ✅ Added to registry: {element_name} (ID: {element_entry.get('element_id', 'N/A')})")
+                                # Add new entry
+                                element_map['elements'][element_name] = element_entry
+                                added_count += 1
+                                logger.info(f"    ✅ Added to registry: {element_name} (ID: {element_entry.get('element_id', 'N/A')})")
                 
                     if added_count > 0:
                         logger.info(f"  ℹ️ Added {added_count} new entries to registry for {domain}/{page}")
