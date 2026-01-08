@@ -131,6 +131,7 @@ async function pollExecutionStatus(executionId) {
 
 async function loadExecutions() {
     const container = document.getElementById('executions-list');
+    const totalElement = document.getElementById('total-executions');
     
     if (!container) return;
     
@@ -138,10 +139,21 @@ async function loadExecutions() {
         const response = await fetch('/api/executions');
         const data = await response.json();
         
-        if (data.executions && data.executions.length > 0) {
+        const allExecutions = data.executions || [];
+        const totalCount = allExecutions.length;
+        
+        // Show total count
+        if (totalElement) {
+            totalElement.textContent = `Total: ${totalCount}`;
+        }
+        
+        // Show only top 10
+        const executions = allExecutions.slice(0, 10);
+        
+        if (executions.length > 0) {
             container.innerHTML = '';
             
-            data.executions.forEach(exec => {
+            executions.forEach(exec => {
                 const item = document.createElement('div');
                 item.className = 'execution-item';
                 item.style.cursor = 'pointer';
@@ -167,13 +179,30 @@ async function loadExecutions() {
                 
                 container.appendChild(item);
             });
+            
+            // Show message if there are more than 10
+            if (totalCount > 10) {
+                const moreMsg = document.createElement('p');
+                moreMsg.style.textAlign = 'center';
+                moreMsg.style.color = '#6c757d';
+                moreMsg.style.marginTop = '15px';
+                moreMsg.style.fontSize = '0.9em';
+                moreMsg.textContent = `Showing top 10 of ${totalCount} executions`;
+                container.appendChild(moreMsg);
+            }
         } else {
             container.innerHTML = '<p class="loading">No executions yet. Start your first test above!</p>';
+            if (totalElement) {
+                totalElement.textContent = '';
+            }
         }
         
     } catch (error) {
         console.error('Error loading executions:', error);
         container.innerHTML = '<p class="error">Error loading executions</p>';
+        if (totalElement) {
+            totalElement.textContent = '';
+        }
     }
 }
 
