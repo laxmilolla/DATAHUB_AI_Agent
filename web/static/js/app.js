@@ -130,7 +130,6 @@ async function pollExecutionStatus(executionId) {
 }
 
 let showAllExecutions = false;
-let allExecutionsData = [];
 
 async function loadExecutions(showAll = false) {
     const container = document.getElementById('executions-list');
@@ -144,7 +143,6 @@ async function loadExecutions(showAll = false) {
         
         const allExecutions = data.executions || [];
         const totalCount = allExecutions.length;
-        allExecutionsData = allExecutions;
         
         // Show total count
         if (totalElement) {
@@ -194,14 +192,6 @@ async function loadExecutions(showAll = false) {
                 moreMsg.style.fontSize = '0.9em';
                 moreMsg.textContent = `Showing top 10 of ${totalCount} executions. Click "Total: ${totalCount}" above to view all.`;
                 container.appendChild(moreMsg);
-            } else if (showAll && totalCount > 10) {
-                const showingMsg = document.createElement('p');
-                showingMsg.style.textAlign = 'center';
-                showingMsg.style.color = '#6c757d';
-                showingMsg.style.marginTop = '15px';
-                showingMsg.style.fontSize = '0.9em';
-                showingMsg.textContent = `Showing all ${totalCount} executions. Click "Total: ${totalCount}" to show top 10 only.`;
-                container.appendChild(showingMsg);
             }
         } else {
             container.innerHTML = '<p class="loading">No executions yet. Start your first test above!</p>';
@@ -220,7 +210,7 @@ async function loadExecutions(showAll = false) {
 }
 
 function toggleAllExecutions() {
-    loadExecutions(!showAllExecutions);
+    loadExecutions(true);
 }
 
 
