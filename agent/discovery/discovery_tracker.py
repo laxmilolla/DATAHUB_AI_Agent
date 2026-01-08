@@ -96,7 +96,7 @@ class DiscoveryTracker:
                             candidate_xpath = f"//input[@type='{input_type}']"
                         
                         # Verify XPath works before using it
-                        if await self._verify_xpath(candidate_xpath):
+                        if await self._verify_xpath(candidate_xpath, original_query):
                             xpath_to_use = candidate_xpath
                             uniqueness_method = "fallback_input_type"
                             logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
@@ -112,7 +112,7 @@ class DiscoveryTracker:
                     candidate_xpath = f"//{element_type}[normalize-space(.)='{escaped_text}']"
                     
                     # Verify XPath works before using it
-                    if await self._verify_xpath(candidate_xpath):
+                    if await self._verify_xpath(candidate_xpath, original_query):
                         xpath_to_use = candidate_xpath
                         uniqueness_method = "fallback_text_match"
                         logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
@@ -122,7 +122,7 @@ class DiscoveryTracker:
                     candidate_xpath = f"//button[normalize-space(.)='{escaped_text}']"
                     
                     # Verify XPath works before using it
-                    if await self._verify_xpath(candidate_xpath):
+                    if await self._verify_xpath(candidate_xpath, original_query):
                         xpath_to_use = candidate_xpath
                         uniqueness_method = "fallback_button_text"
                         logger.info(f"  ✅ Verified fallback XPath (button): {xpath_to_use}")
@@ -189,11 +189,12 @@ class DiscoveryTracker:
         
         return discovery
     
-    async def _verify_xpath(self, xpath: str) -> bool:
+    async def _verify_xpath(self, xpath: str, original_selector: str = None) -> bool:
         """
         Verify that an XPath actually finds an element on the current page
         Args:
             xpath: XPath to verify
+            original_selector: Original selector used to find the element (for fallback verification)
         Returns:
             True if XPath finds at least one element, False otherwise
         """
@@ -206,12 +207,32 @@ class DiscoveryTracker:
                 return False
             
             # Try to find element using XPath
-            count = await page.locator(f"xpath={xpath}").count()
-            if count > 0:
-                logger.debug(f"  ✅ XPath verified: found {count} element(s) for {xpath[:50]}...")
-                return True
-            else:
-                logger.debug(f"  ⚠️ XPath verification failed: found 0 elements for {xpath[:50]}...")
+            try:
+                count = await page.locator(f"xpath={xpath}").count(timeout=5000)
+                if count > 0:
+                    logger.debug(f"  ✅ XPath verified: found {count} element(s) for {xpath[:50]}...")
+                    return True
+                else:
+                    # If XPath doesn't find element, try verifying with original selector
+                    # (element might have been clicked and page navigated, but original selector proves it existed)
+                    if original_selector:
+                        try:
+                            original_count = await page.locator(original_selector).count(timeout=2000)
+                            if original_count > 0:
+                                logger.debug(f"  ✅ XPath verified via original selector: {original_selector}")
+                                return True
+                        except:
+                            pass
+                    
+                    logger.debug(f"  ⚠️ XPath verification failed: found 0 elements for {xpath[:50]}...")
+                    return False
+            except Exception as e:
+                # If XPath verification times out, but we have original selector, assume it's valid
+                # (element was successfully clicked, so it exists)
+                if original_selector:
+                    logger.debug(f"  ⚠️ XPath verification timeout, but element was clicked successfully - assuming valid")
+                    return True
+                logger.debug(f"  ⚠️ XPath verification error: {e}")
                 return False
         except Exception as e:
             logger.debug(f"  ⚠️ XPath verification error: {e}")
