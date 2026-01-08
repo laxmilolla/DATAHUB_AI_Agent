@@ -77,6 +77,31 @@ async function pollExecutionStatus(executionId) {
     const pollInterval = setInterval(async () => {
         try {
             const response = await fetch(`/api/executions/${executionId}/status`);
+            
+            // Handle 404 - execution not found (might have completed or been lost)
+            if (response.status === 404) {
+                clearInterval(pollInterval);
+                statusText.textContent = 'Status Unknown';
+                statusDetails.innerHTML = `
+                    <p>Execution ID: ${executionId}</p>
+                    <p class="error">Execution not found. It may have completed or been lost after server restart.</p>
+                    <p style="margin-top: 15px;">
+                        <a href="/results/${executionId}" style="color: #667eea; font-weight: 600;">
+                            Check Results Page →
+                        </a>
+                    </p>
+                `;
+                executeBtn.disabled = false;
+                executeBtn.querySelector('.btn-text').style.display = 'inline';
+                executeBtn.querySelector('.btn-loading').style.display = 'none';
+                loadExecutions();
+                return;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
             
             const status = data.status;
@@ -125,6 +150,17 @@ async function pollExecutionStatus(executionId) {
             
         } catch (error) {
             console.error('Error polling status:', error);
+            // After 5 failed attempts, stop polling
+            if (!window.pollFailures) window.pollFailures = 0;
+            window.pollFailures++;
+            if (window.pollFailures >= 5) {
+                clearInterval(pollInterval);
+                statusText.textContent = 'Error';
+                statusDetails.innerHTML = `<p class="error">Failed to get execution status. Check results page manually.</p>`;
+                executeBtn.disabled = false;
+                executeBtn.querySelector('.btn-text').style.display = 'inline';
+                executeBtn.querySelector('.btn-loading').style.display = 'none';
+            }
         }
     }, 2000); // Poll every 2 seconds
 }
