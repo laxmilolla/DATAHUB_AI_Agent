@@ -75,6 +75,7 @@ class ExecutionContext:
             "story": self.story,
             "actions_taken": self.actions_taken,
             "screenshots": self.screenshots,
+            "discoveries": getattr(self, 'discoveries', []),  # Include discoveries if set
             "status": self.status,
             "started_at": self.started_at,
             "completed_at": self.completed_at,

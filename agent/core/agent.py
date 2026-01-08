@@ -210,6 +210,8 @@ class Agent:
             if discoveries:
                 current_url = page.url
                 await self.registry_manager.save_discoveries(discoveries, current_url, preserve_manual=True)
+                # Store discoveries in execution context so they're included in results
+                self.context.discoveries = discoveries
             
             # Get results
             results = self.context.get_results()
