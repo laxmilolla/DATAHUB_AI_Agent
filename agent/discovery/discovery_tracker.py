@@ -40,45 +40,10 @@ class DiscoveryTracker:
         xpath_to_use = clicked_xpath
         uniqueness_method = "clicked_xpath" if clicked_xpath else None
         
-        # CRITICAL FIX: If tree climbing found a parent, generate XPath from PARENT element, not child
-        relationship = metadata.get('relationship', '')
-        if relationship == 'parent' and not xpath_to_use:
-            # Tree climbing found parent - we need XPath for the PARENT, not child
-            if final_selector and ('button' in final_selector or 'input' in final_selector or 'a' in final_selector):
-                try:
-                    # Convert selector to XPath format
-                    if final_selector.startswith('button['):
-                        attr_match = re.search(r"\[([^\]]+)\]", final_selector)
-                        if attr_match:
-                            attr_part = attr_match.group(1)
-                            name_match = re.search(r"name\s*=\s*['\"]([^'\"]+)['\"]", attr_part)
-                            if name_match:
-                                name_value = name_match.group(1)
-                                xpath_to_use = f"//button[@name='{name_value}']"
-                                uniqueness_method = "parent_selector_conversion"
-                                logger.info(f"  🔧 Converted parent selector to XPath: {xpath_to_use}")
-                    elif final_selector.startswith('text='):
-                        text_value = final_selector.replace('text=', '').strip().strip("'\"")
-                        xpath_to_use = f"//button[normalize-space(.)='{text_value}']"
-                        uniqueness_method = "parent_text_conversion"
-                        logger.info(f"  🔧 Converted parent text selector to XPath: {xpath_to_use}")
-                except Exception as e:
-                    logger.warning(f"  ⚠️ Failed to convert parent selector to XPath: {e}")
-            
-            # If conversion failed, try to generate XPath from clicked_element if provided
-            if not xpath_to_use and clicked_element:
-                try:
-                    logger.info(f"  🔨 Building XPath for parent element '{element_name}' using clicked element...")
-                    parent_attrs = await self.xpath_generator.extract_element_attributes(clicked_element)
-                    if parent_attrs:
-                        xpath_result = await self.xpath_generator.generate_xpath(parent_attrs, element_name)
-                        xpath_to_use = xpath_result['xpath']
-                        uniqueness_method = xpath_result['uniqueness_method']
-                        logger.info(f"  ✅ Generated unique XPath from parent element: {xpath_to_use}")
-                except Exception as e:
-                    logger.warning(f"  ⚠️ Failed to generate XPath from parent element: {e}")
+        # CRITICAL FIX: If tree climbing found a parent, element_attrs in metadata is already from original clicked element
+        # So we skip special parent handling and use normal path (element_attrs already correct)
         
-        # Fallback: Generate XPath from the discovered element (child)
+        # Fallback: Generate XPath from the discovered element (uses element_attrs from metadata)
         if not xpath_to_use:
             try:
                 element_attrs = metadata.get('element_attrs', {})

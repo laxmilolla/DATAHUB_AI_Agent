@@ -354,7 +354,9 @@ class BrowserClickTool:
                                     final_selector=final_selector or original_selector,
                                     discovery_method=discovery_method,
                                     metadata=metadata,
-                                    clicked_element=chosen_locator if original_element_for_xpath != chosen_locator else None
+                                    # CRITICAL: Pass original clicked element (not parent) for XPath generation
+                                    # The parent is only used for clicking, but XPath should target the actual element
+                                    clicked_element=original_element_for_xpath if original_element_for_xpath else chosen_locator
                                 )
                                 logger.info(f"  ✅ Discovery tracked: {element_name}")
                             except Exception as e:
