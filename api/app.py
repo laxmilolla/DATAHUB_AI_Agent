@@ -57,7 +57,12 @@ def create_app():
     
     @app.route('/results/<execution_id>')
     def results(execution_id):
-        return render_template('results.html', execution_id=execution_id)
+        response = app.make_response(render_template('results.html', execution_id=execution_id, timestamp=int(time.time())))
+        # Prevent browser caching
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     
     return app
 
