@@ -47,6 +47,10 @@ def create_app():
     def index():
         return render_template('index.html', timestamp=int(time.time()))
     
+    @app.route('/parser')
+    def parser_page():
+        return render_template('parser.html')
+    
     @app.route('/element-maps')
     def element_maps_page():
         return render_template('element_maps.html')
