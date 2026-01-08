@@ -1076,14 +1076,59 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         return None
     
     async def _track_discovery(self, element_name: str, original_query: str, final_selector: str, 
-                         discovery_method: str, metadata: dict, clicked_xpath: str = None):
+                         discovery_method: str, metadata: dict, clicked_xpath: str = None, clicked_element=None):
         """Track a successful discovery for later registry update - Use clicked XPath if available"""
         
         # PRIORITY: Use clicked XPath from result string (what AI actually clicked)
         xpath_to_use = clicked_xpath
         uniqueness_method = "clicked_xpath" if clicked_xpath else None
         
-        # Fallback: Generate XPath from the discovered element
+        # CRITICAL FIX: If tree climbing found a parent, generate XPath from PARENT element, not child
+        # Check if this was a tree climbing discovery with parent relationship
+        relationship = metadata.get('relationship', '')
+        if relationship == 'parent' and not xpath_to_use:
+            # Tree climbing found parent - we need XPath for the PARENT, not child
+            # Try to extract XPath from final_selector (e.g., "button[name='button']")
+            if final_selector and ('button' in final_selector or 'input' in final_selector or 'a' in final_selector):
+                try:
+                    # Convert selector to XPath format
+                    # e.g., "button[name='button']" -> "//button[@name='button']"
+                    if final_selector.startswith('button['):
+                        # Extract attribute and value
+                        attr_match = re.search(r"\[([^\]]+)\]", final_selector)
+                        if attr_match:
+                            attr_part = attr_match.group(1)
+                            # Handle name='value' or name="value"
+                            name_match = re.search(r"name\s*=\s*['\"]([^'\"]+)['\"]", attr_part)
+                            if name_match:
+                                name_value = name_match.group(1)
+                                xpath_to_use = f"//button[@name='{name_value}']"
+                                uniqueness_method = "parent_selector_conversion"
+                                logger.info(f"  🔧 Converted parent selector to XPath: {xpath_to_use}")
+                    elif final_selector.startswith('text='):
+                        # text=Grant -> //button[normalize-space(.)='Grant']
+                        text_value = final_selector.replace('text=', '').strip().strip("'\"")
+                        xpath_to_use = f"//button[normalize-space(.)='{text_value}']"
+                        uniqueness_method = "parent_text_conversion"
+                        logger.info(f"  🔧 Converted parent text selector to XPath: {xpath_to_use}")
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Failed to convert parent selector to XPath: {e}")
+            
+            # If conversion failed, try to generate XPath from clicked_element if provided
+            if not xpath_to_use and clicked_element:
+                try:
+                    logger.info(f"  🔨 Building XPath for parent element '{element_name}' using clicked element...")
+                    parent_attrs = await self._extract_element_attributes(clicked_element)
+                    if parent_attrs:
+                        xpath_builder = XPathBuilder(self.page)
+                        xpath_result = await xpath_builder.build_unique_xpath(parent_attrs, element_name)
+                        xpath_to_use = xpath_result['xpath']
+                        uniqueness_method = xpath_result['uniqueness_method']
+                        logger.info(f"  ✅ Generated unique XPath from parent element: {xpath_to_use}")
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Failed to generate XPath from parent element: {e}")
+        
+        # Fallback: Generate XPath from the discovered element (child)
         if not xpath_to_use:
             xpath_result = None
             try:
@@ -1098,9 +1143,35 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             except Exception as e:
                 logger.warning(f"  ⚠️ Failed to generate XPath: {e}")
         
-        # Store discovery with XPath
+        # Look up element_id from registry if element exists (try multiple strategies)
+        element_id = None
+        try:
+            domain, page = self._get_domain_and_page(self.current_url)
+            
+            # Strategy 1: Try exact name match
+            registry_element = self.element_registry.get_element(domain, page, element_name)
+            if registry_element:
+                element_id = registry_element.get('element_id')
+                if element_id:
+                    logger.info(f"  🆔 Found element_id in registry (by name): {element_id}")
+            
+            # Strategy 2: If not found and we have XPath, search by XPath
+            if not element_id and xpath_to_use:
+                element_map = self.element_registry.load_map(domain, page)
+                if element_map:
+                    for key, elem_data in element_map.get('elements', {}).items():
+                        if elem_data.get('xpath') == xpath_to_use:
+                            element_id = elem_data.get('element_id')
+                            if element_id:
+                                logger.info(f"  🆔 Found element_id in registry (by XPath): {element_id}")
+                                break
+        except Exception as e:
+            logger.debug(f"  ⚠️ Could not lookup element_id: {e}")
+        
+        # Store discovery with XPath and element_id
         discovery = {
             "name": element_name,
+            "element_id": element_id,  # ← NEW: Unique ID from registry
             "original_query": original_query,
             "final_selector": final_selector,
             "xpath": xpath_to_use,
@@ -1112,6 +1183,8 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
         
         self.discoveries.append(discovery)
         logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method}")
+        if element_id:
+            logger.info(f"     Element ID: {element_id}")
         logger.info(f"     Query: {original_query}")
         if xpath_to_use:
             logger.info(f"     XPath: {xpath_to_use}")
@@ -1120,6 +1193,7 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
     
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """Execute tool - Direct Playwright calls!"""
+        import re  # Ensure re is available as local variable throughout this function
         
         # Increment step number for every tool execution
         self.current_step_number += 1
@@ -1859,6 +1933,23 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                 "is_tab_click": is_tab_click
             }
             
+            # CRITICAL: Extract element properties BEFORE click (element still in DOM)
+            # This ensures discovery can be tracked even if element is detached after click
+            pre_click_final_selector = None
+            pre_click_element_attrs = {}
+            if chosen_locator:
+                try:
+                    logger.info(f"  📝 Extracting element properties before click...")
+                    pre_click_final_selector = await self._generate_final_selector(chosen_locator)
+                    
+                    # Extract element attributes BEFORE click (for XPath generation)
+                    element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
+                    pre_click_element_attrs = await self._extract_element_attributes(element_for_xpath)
+                    logger.info(f"  ✅ Extracted properties before click: final_selector={pre_click_final_selector[:80] if pre_click_final_selector else 'None'}")
+                except Exception as pre_click_error:
+                    logger.warning(f"  ⚠️ Could not extract properties before click: {pre_click_error}")
+                    # Will fallback to original_selector after click
+            
             # Updated strategies - use validated locator directly to avoid selector ambiguity
             async def javascript_click():
                 """Strategy 1: JavaScript click (for accordions that respond to JS but not Playwright clicks)"""
@@ -1932,6 +2023,109 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                     {"desc": "exact coordinates", "method": click_at_exact_coordinates},
                     {"desc": "force click", "method": force_click_with_preserved},
                 ]
+            
+            # TOTP Submission Detection: Check if this is a TOTP submission step
+            step_metadata = self.parsed_steps.get(self.current_step_number, {})
+            step_text = step_metadata.get('text', '')
+            is_totp_submission = False
+            
+            # Check for TOTP submission keywords in step text or selector
+            totp_submit_keywords = ["submit", "click submit", "press submit", "continue", "verify"]
+            submit_has_totp = any(keyword in step_text.lower() for keyword in totp_submit_keywords)
+            selector_is_submit = "submit" in selector.lower() or "button[type='submit']" in selector.lower()
+            
+            # Check if there's a TOTP field on the page (indicates TOTP form submission)
+            has_totp_field = False
+            try:
+                totp_field_check = await self.page.evaluate("""
+                    () => {
+                        const selectors = ['input[name="code"]', 'input[type="text"][name*="code"]', 
+                                          'input[type="tel"][name*="code"]', 'input.one-time-code',
+                                          'input#one-time-code', 'input[autocomplete="one-time-code"]'];
+                        for (const sel of selectors) {
+                            const el = document.querySelector(sel);
+                            if (el && el.offsetWidth > 0 && el.offsetHeight > 0 && el.type !== 'hidden') {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                has_totp_field = totp_field_check
+            except:
+                pass
+            
+            is_totp_submission = (submit_has_totp or selector_is_submit) and has_totp_field
+            
+            if is_totp_submission:
+                logger.info(f"  [TOTP_SUBMIT] Step {self.current_step_number} Detected TOTP submission - regenerating fresh TOTP code")
+                
+                # Extract secret key from story
+                import os
+                from utils.otp_helper import generate_otp
+                
+                secret_key = None
+                secret_pattern = r'(?:secret\s+key|key)\s+([A-Z0-9]{20,})'
+                
+                if self.story:
+                    match = re.search(secret_pattern, self.story, re.IGNORECASE)
+                    if match:
+                        secret_key = match.group(1)
+                        logger.info(f"  [TOTP_SUBMIT] Extracted secret key from story: {secret_key[:10]}...")
+                
+                if not secret_key:
+                    long_alnum_pattern = r'\b([A-Z0-9]{20,})\b'
+                    matches = re.findall(long_alnum_pattern, self.story if self.story else '')
+                    if matches:
+                        secret_key = max(matches, key=len)
+                        logger.info(f"  [TOTP_SUBMIT] Extracted potential secret key: {secret_key[:10]}...")
+                
+                if not secret_key:
+                    secret_key = os.getenv("TOTP_SECRET_KEY")
+                    if secret_key:
+                        logger.info(f"  [TOTP_SUBMIT] Using TOTP_SECRET_KEY from environment")
+                
+                if secret_key:
+                    try:
+                        # Generate fresh TOTP code RIGHT BEFORE submission
+                        fresh_totp_code = generate_otp(secret_key)
+                        logger.info(f"  [TOTP_SUBMIT] Generated fresh TOTP code: {fresh_totp_code} (right before Submit click)")
+                        
+                        # Find and update the TOTP field with fresh code
+                        totp_field_selectors = [
+                            "input[name='code']",
+                            "input[type='text'][name*='code']",
+                            "input[type='tel'][name*='code']",
+                            "input.one-time-code",
+                            "input#one-time-code",
+                            "input[autocomplete='one-time-code']"
+                        ]
+                        
+                        totp_updated = False
+                        for totp_selector in totp_field_selectors:
+                            try:
+                                totp_field = self.page.locator(totp_selector).first
+                                if await totp_field.count() > 0:
+                                    # Check if visible
+                                    is_visible = await totp_field.is_visible()
+                                    if is_visible:
+                                        await totp_field.fill('')
+                                        await totp_field.type(fresh_totp_code, delay=10)
+                                        await self.page.wait_for_timeout(200)
+                                        
+                                        # Verify
+                                        actual_value = await totp_field.input_value()
+                                        if actual_value == fresh_totp_code:
+                                            logger.info(f"  [TOTP_SUBMIT] ✅ Updated TOTP field with fresh code: {totp_selector}")
+                                            totp_updated = True
+                                            break
+                            except:
+                                continue
+                        
+                        if not totp_updated:
+                            logger.warning(f"  [TOTP_SUBMIT] ⚠️ Could not update TOTP field, proceeding with click anyway")
+                    except Exception as e:
+                        logger.error(f"  [TOTP_SUBMIT] Failed to regenerate TOTP: {e}")
             
             last_error = None
             # Log if we're using the validated locator (better precision)
@@ -2084,8 +2278,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             try:
                                 logger.info(f"  📝 Tracking discovery metadata...")
                                 
-                                # Generate final working selector from the element that was actually clicked
-                                final_selector = await self._generate_final_selector(chosen_locator)
+                                # Use pre-extracted properties (extracted BEFORE click when element was still in DOM)
+                                final_selector = pre_click_final_selector
+                                element_attrs = pre_click_element_attrs
                                 
                                 # IMPORTANT: Preserve original selector if it's a simple text selector
                                 # to maintain case sensitivity (e.g., text=TREATMENT vs text=Treatment)
@@ -2093,48 +2288,81 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                                     logger.info(f"  📝 Preserving original text selector for case sensitivity: {original_selector}")
                                     final_selector = original_selector
                                 
-                                if final_selector:
-                                    # Determine discovery method based on what happened
-                                    discovery_method = "unknown"
-                                    metadata = {}
-                                    
-                                    # Check if tree climbing was used
-                                    if len(candidates) > 1 or (len(candidates) == 1 and candidates[0].get("index") == 1):
-                                        # Multiple candidates or parent was chosen
-                                        if "PARENT" in candidates[-1].get("description", "").upper() or \
-                                           "ANCESTOR" in candidates[-1].get("description", "").upper():
-                                            discovery_method = "tree_climbing"
-                                            # Try to extract tree depth from description
-                                            desc = candidates[-1].get("description", "")
-                                            import re
-                                            depth_match = re.search(r'depth\s+(\d+)', desc, re.IGNORECASE)
-                                            if depth_match:
-                                                metadata["tree_depth"] = int(depth_match.group(1))
-                                            metadata["relationship"] = "parent" if "PARENT" in desc.upper() else "ancestor"
-                                        else:
-                                            discovery_method = "ai_disambiguation"
-                                            metadata["candidates_count"] = len(candidates)
-                                            metadata["chosen_index"] = best_index if 'best_index' in locals() else 0
-                                    
-                                    # Extract element attributes for XPath generation
-                                    # CRITICAL: Use original nested element for XPath, not the parent used for clicking
-                                    element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
-                                    element_attrs = await self._extract_element_attributes(element_for_xpath)
+                                # FALLBACK: Use original_selector if final_selector generation failed
+                                # This ensures discovery is ALWAYS tracked, even if element was detached
+                                if not final_selector:
+                                    logger.warning(f"  ⚠️ Could not generate final selector, using original: {original_selector}")
+                                    final_selector = original_selector
+                                
+                                # Determine discovery method based on what happened
+                                discovery_method = "unknown"
+                                metadata = {}
+                                
+                                # Check if tree climbing was used
+                                if len(candidates) > 1 or (len(candidates) == 1 and candidates[0].get("index") == 1):
+                                    # Multiple candidates or parent was chosen
+                                    if "PARENT" in candidates[-1].get("description", "").upper() or \
+                                       "ANCESTOR" in candidates[-1].get("description", "").upper():
+                                        discovery_method = "tree_climbing"
+                                        # Try to extract tree depth from description
+                                        desc = candidates[-1].get("description", "")
+                                        import re
+                                        depth_match = re.search(r'depth\s+(\d+)', desc, re.IGNORECASE)
+                                        if depth_match:
+                                            metadata["tree_depth"] = int(depth_match.group(1))
+                                        metadata["relationship"] = "parent" if "PARENT" in desc.upper() else "ancestor"
+                                    else:
+                                        discovery_method = "ai_disambiguation"
+                                        metadata["candidates_count"] = len(candidates)
+                                        metadata["chosen_index"] = best_index if 'best_index' in locals() else 0
+                                
+                                # Add element attributes to metadata (use pre-extracted, or try after click if missing)
+                                if element_attrs:
                                     metadata["element_attrs"] = element_attrs
-                                    
-                                    # Track the discovery (uses Playwright LIVE DOM, no BeautifulSoup!)
-                                    await self._track_discovery(
-                                        element_name=element_name,
-                                        original_query=original_selector,
-                                        final_selector=final_selector,
-                                        discovery_method=discovery_method,
-                                        metadata=metadata
-                                    )
                                 else:
-                                    logger.warning(f"  ⚠️ Could not generate final selector for tracking")
+                                    # Fallback: Try to extract attributes after click (may fail if element detached)
+                                    try:
+                                        element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
+                                        element_attrs = await self._extract_element_attributes(element_for_xpath)
+                                        metadata["element_attrs"] = element_attrs
+                                    except Exception as attr_error:
+                                        logger.warning(f"  ⚠️ Could not extract element attributes after click: {attr_error}")
+                                        metadata["element_attrs"] = {}
+                                
+                                # ALWAYS track discovery (never skip, even if final_selector is original_selector)
+                                # Pass clicked_element if tree climbing found a parent (for correct XPath generation)
+                                clicked_element_for_tracking = None
+                                if discovery_method == "tree_climbing" and chosen_locator:
+                                    # For tree climbing, the clicked element is the parent, not the child
+                                    try:
+                                        clicked_element_for_tracking = await chosen_locator.element_handle()
+                                    except:
+                                        pass
+                                
+                                await self._track_discovery(
+                                    element_name=element_name,
+                                    original_query=original_selector,
+                                    final_selector=final_selector,
+                                    discovery_method=discovery_method,
+                                    metadata=metadata,
+                                    clicked_element=clicked_element_for_tracking
+                                )
+                                logger.info(f"  ✅ Discovery tracked: {element_name} (final_selector: {final_selector[:80] if len(final_selector) > 80 else final_selector})")
                             
                             except Exception as e:
                                 logger.warning(f"  ⚠️ Failed to track discovery: {e}")
+                                # Last resort: Try to track with minimal info
+                                try:
+                                    await self._track_discovery(
+                                        element_name=element_name,
+                                        original_query=original_selector,
+                                        final_selector=original_selector,  # Use original as absolute fallback
+                                        discovery_method="unknown",
+                                        metadata={}
+                                    )
+                                    logger.info(f"  ✅ Discovery tracked with fallback: {element_name}")
+                                except Exception as fallback_error:
+                                    logger.error(f"  ❌ Failed to track discovery even with fallback: {fallback_error}")
                         
                         # POST-CLICK VALIDATION: Accordion takes priority over tab
                         # If accordion was detected AND it expanded, skip tab validation (even if tab was also detected)
@@ -2387,20 +2615,142 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             text = tool_input['text']
             logger.info(f"Fill: {selector} = {text}")
             
+            # TOTP Detection: Check if this is a TOTP step
+            step_metadata = self.parsed_steps.get(self.current_step_number, {})
+            step_text = step_metadata.get('text', '')
+            
+            # Look for TOTP-related keywords
+            totp_keywords = ["totp", "one-time", "one time", "2fa", "two-factor", "authenticator code", "security code"]
+            step_has_totp = any(keyword in step_text.lower() for keyword in totp_keywords)
+            text_has_totp = any(keyword in str(text).lower() for keyword in totp_keywords)
+            is_totp_step = step_has_totp or text_has_totp
+            
+            if is_totp_step:
+                logger.info(f"  [TOTP] Step {self.current_step_number} TOTP detected - generating code")
+                
+                # Extract secret key from step text or text parameter
+                import os
+                from utils.otp_helper import generate_otp
+                # Note: re is already imported at module level (line 15)
+                
+                secret_key = None
+                
+                # Pattern 1: "secret key LCBUDA6NSWXUO4AKLTU6F3UXXO7QMBCX"
+                secret_pattern = r'(?:secret\s+key|key)\s+([A-Z0-9]{20,})'
+                
+                # Try to extract from original story (not lowercased parsed_steps)
+                if self.story:
+                    match = re.search(secret_pattern, self.story, re.IGNORECASE)
+                    if match:
+                        secret_key = match.group(1)
+                        logger.info(f"  [TOTP] Extracted secret key from story: {secret_key[:10]}...")
+                
+                # Pattern 2: Look for long alphanumeric strings in step text
+                if not secret_key:
+                    long_alnum_pattern = r'\b([A-Z0-9]{20,})\b'
+                    matches = re.findall(long_alnum_pattern, self.story if self.story else '')
+                    if matches:
+                        secret_key = max(matches, key=len)
+                        logger.info(f"  [TOTP] Extracted potential secret key: {secret_key[:10]}...")
+                
+                # Try text parameter
+                if not secret_key:
+                    match = re.search(secret_pattern, str(text), re.IGNORECASE)
+                    if match:
+                        secret_key = match.group(1)
+                        logger.info(f"  [TOTP] Extracted secret key from text parameter: {secret_key[:10]}...")
+                
+                # Generate TOTP code
+                try:
+                    if secret_key:
+                        logger.info(f"  [TOTP] Generating TOTP code using secret key: {secret_key[:10]}...")
+                        totp_code = generate_otp(secret_key)
+                    else:
+                        # Use environment variable
+                        logger.info(f"  [TOTP] Generating TOTP code using TOTP_SECRET_KEY from environment")
+                        totp_code = generate_otp()
+                    
+                    logger.info(f"  [TOTP] Generated TOTP code: {totp_code} (length: {len(totp_code)})")
+                    original_text = text
+                    text = totp_code
+                    logger.info(f"  [TOTP] Replaced text '{original_text[:50]}...' with TOTP code")
+                except Exception as e:
+                    logger.error(f"  [TOTP] Failed to generate TOTP code: {e}")
+                    # Continue with original text if TOTP generation fails
+            
+            # For TOTP fields, improve selector to exclude hidden inputs
+            if is_totp_step:
+                # If selector matches hidden input, try to find visible input instead
+                if selector == "input[name='code']" or selector == 'input[name="code"]' or "input[name='code']" in selector:
+                    # Try multiple selectors for visible TOTP input (prioritized by specificity)
+                    totp_selectors = [
+                        "input.one-time-code-input__input",  # Most specific: class from login.gov
+                        "input[autocomplete='one-time-code']",  # Autocomplete attribute
+                        "input[type='text'][name='code']",  # Explicit text input with name
+                        "input[name='code']:not([type='hidden'])",  # Exclude hidden inputs
+                        "lg-one-time-code-input input[type='text']",  # Inside custom component, text type
+                        "lg-validated-field input[type='text']",  # Inside validated field, text type
+                        "lg-one-time-code-input input",  # Inside custom component (any input)
+                        "input.one-time-code",  # Alternative class name
+                    ]
+                    
+                    # Try each selector until one works
+                    selector_found = False
+                    for totp_selector in totp_selectors:
+                        try:
+                            # Check if this selector finds a visible input
+                            locator = self.page.locator(totp_selector).first
+                            is_visible = await locator.is_visible(timeout=2000)
+                            if is_visible:
+                                selector = totp_selector
+                                selector_found = True
+                                logger.info(f"  [TOTP] Found visible input with selector: {selector}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"  [TOTP] Selector {totp_selector} failed: {e}")
+                            continue
+                    
+                    if not selector_found:
+                        logger.warning(f"  [TOTP] Could not find visible input with fallback selectors, using original: {selector}")
+                        # Last resort: try to find any visible input with name='code'
+                        try:
+                            all_code_inputs = await self.page.locator("input[name='code']").all()
+                            for inp in all_code_inputs:
+                                if await inp.is_visible(timeout=1000):
+                                    selector = "input[name='code']"
+                                    logger.info(f"  [TOTP] Found visible input by iterating through all code inputs")
+                                    break
+                        except:
+                            pass
+            
             # Execute
             await self.page.wait_for_selector(selector, state='visible', timeout=10000)
             
-            # Check if field is editable
-            is_readonly = await self.page.evaluate(f"""
-                const el = document.querySelector('{selector}');
-                el ? (el.readOnly || el.disabled) : true
-            """)
+            # Check if field is editable using Playwright locator (avoids JS string escaping issues)
+            try:
+                locator = self.page.locator(selector).first
+                is_readonly = await locator.evaluate("el => el.readOnly || el.disabled")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not check readonly status: {e}, proceeding anyway")
+                is_readonly = False
             
             if is_readonly:
                 logger.warning(f"  ⚠️ Field {selector} is readonly or disabled")
                 return f"⚠️ Fill FAILED: {selector} is readonly/disabled"
             
-            await self.page.fill(selector, text)
+            # For TOTP fields, use type() method for better reliability
+            if is_totp_step:
+                try:
+                    await self.page.locator(selector).fill('')  # Clear first
+                    await self.page.locator(selector).type(text, delay=10)  # Fast typing for TOTP
+                    await self.page.wait_for_timeout(200)
+                    logger.info(f"  [TOTP] Used type() method for TOTP field")
+                except Exception as e:
+                    logger.warning(f"  [TOTP] type() failed, using fill(): {e}")
+                    await self.page.fill(selector, text)
+            else:
+                await self.page.fill(selector, text)
+            
             await self.page.wait_for_timeout(500)
             
             # Verify
@@ -2941,28 +3291,8 @@ Take screenshots at key moments (after clicks, before verification)."""
         # Add discovery metadata to results
         if self.discoveries:
             logger.info(f"📝 Saving {len(self.discoveries)} discoveries to results")
-            results["discoveries"] = self.discoveries
             
-            # Also save to a separate JSON file for reference
-            try:
-                project_root = Path(__file__).parent.parent
-                discoveries_dir = project_root / 'storage' / 'discoveries'
-                discoveries_dir.mkdir(parents=True, exist_ok=True)
-                
-                discovery_file = discoveries_dir / f"{self.execution_id}_discoveries.json"
-                with open(discovery_file, 'w') as f:
-                    json.dump({
-                        "execution_id": self.execution_id,
-                        "story": story,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "discoveries": self.discoveries
-                    }, f, indent=2)
-                
-                logger.info(f"  💾 Discovery metadata saved to: {discovery_file}")
-            except Exception as e:
-                logger.warning(f"  ⚠️ Could not save discovery file: {e}")
-            
-            # Save discovered XPaths to registry
+            # Save discovered XPaths to registry FIRST (this backfills element_id)
             if self.discoveries and self.current_url:
                 try:
                     logger.info(f"  💾 Updating element registry with {len(self.discoveries)} discovered XPaths...")
@@ -2979,15 +3309,34 @@ Take screenshots at key moments (after clicks, before verification)."""
                     else:
                         page = url_path
                     
-                    # Load existing registry
+                    # Load existing registry or create new one
                     element_map = self.element_registry.load_map(domain, page)
                     if not element_map:
-                        logger.warning(f"  ⚠️ No existing registry for {domain}/{page}, skipping update")
-                    else:
+                        # Auto-create registry file if it doesn't exist
+                        logger.info(f"  📝 Creating new registry for {domain}/{page}")
+                        element_map = {
+                            "page": page,
+                            "url": f"https://{domain}/{page}" if page != 'home' else f"https://{domain}/",
+                            "version": "1.0",
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "elements": {},
+                            "id_index": {},
+                            "statistics": {
+                                "total_elements": 0,
+                                "parsed_elements": 0,
+                                "discovered_elements": 0
+                            }
+                        }
+                        # Save empty registry file first
+                        self.element_registry.save_map(domain, page, element_map)
+                        logger.info(f"  ✅ Created new registry file for {domain}/{page}")
+                    
+                    if element_map:
                         added_count = 0
                         for discovery in self.discoveries:
                             if discovery.get('xpath'):
                                 element_name = discovery['name']
+                                element_id = discovery.get('element_id')  # Get element_id from discovery
                                 
                                 # Create element entry
                                 element_entry = {
@@ -3002,31 +3351,85 @@ Take screenshots at key moments (after clicks, before verification)."""
                                     "alternatives": []
                                 }
                                 
+                                # Assign element_id if not present
+                                if element_id:
+                                    element_entry['element_id'] = element_id
+                                elif discovery['xpath']:
+                                    # Generate ID if missing (using name + xpath for stability)
+                                    element_entry['element_id'] = self.element_registry._generate_element_id(element_name, discovery['xpath'])
+                                
                                 # Check registry by XPath value (not just name)
                                 xpath_value = discovery['xpath']
                                 existing_key = None
                                 
-                                # Strategy 1: Check by XPath value
-                                for key, elem_data in element_map.get('elements', {}).items():
-                                    if elem_data.get('xpath') == xpath_value:
-                                        existing_key = key
-                                        logger.info(f"    🎯 Found existing entry by XPath: {key}")
-                                        break
+                                # Strategy 1: Check by element_id if available
+                                if element_entry.get('element_id'):
+                                    element_id_to_find = element_entry['element_id']
+                                    for key, elem_data in element_map.get('elements', {}).items():
+                                        if elem_data.get('element_id') == element_id_to_find:
+                                            existing_key = key
+                                            logger.info(f"    🎯 Found existing entry by element_id: {key} (ID: {element_id_to_find})")
+                                            break
                                 
-                                # Strategy 2: Check by name (fallback)
+                                # Strategy 2: Check by XPath value
+                                if not existing_key and xpath_value:
+                                    for key, elem_data in element_map.get('elements', {}).items():
+                                        if elem_data.get('xpath') == xpath_value:
+                                            existing_key = key
+                                            logger.info(f"    🎯 Found existing entry by XPath: {key}")
+                                            break
+                                
+                                # Strategy 3: Check by name (fallback)
                                 if not existing_key and element_name in element_map.get('elements', {}):
                                     existing_key = element_name
                                     logger.info(f"    🎯 Found existing entry by name: {element_name}")
                                 
                                 if existing_key:
-                                    # Update existing entry with clicked XPath
-                                    element_map['elements'][existing_key].update(element_entry)
+                                    # Update existing entry with clicked XPath and element_id
+                                    existing_element = element_map['elements'][existing_key]
+                                    
+                                    # BACKFILL: If discovery is missing element_id, get it from registry
+                                    if not element_id and existing_element.get('element_id'):
+                                        element_id = existing_element.get('element_id')
+                                        discovery['element_id'] = element_id  # Update discovery in-place
+                                        logger.info(f"    🔄 Backfilled element_id into discovery: {element_id}")
+                                    
+                                    # PRESERVE MORE SPECIFIC XPATH: Don't overwrite manually updated XPaths
+                                    existing_xpath = existing_element.get('xpath', '')
+                                    discovery_xpath = element_entry.get('xpath', '')
+                                    
+                                    # Check if existing XPath is more specific than discovery XPath
+                                    # More specific = contains element type (button, input, etc.) vs generic (*)
+                                    existing_is_more_specific = False
+                                    if existing_xpath and discovery_xpath:
+                                        # Existing is more specific if it has element type and discovery doesn't
+                                        # e.g., //button[...] is more specific than (//*[...])[1]
+                                        if '//button' in existing_xpath or '//input' in existing_xpath or '//a' in existing_xpath:
+                                            if '//*' in discovery_xpath or '(//*' in discovery_xpath:
+                                                existing_is_more_specific = True
+                                                logger.info(f"    🔒 Preserving more specific XPath: {existing_xpath[:80]}...")
+                                    
+                                    # Update registry entry, but preserve XPath if existing is more specific
+                                    if existing_is_more_specific:
+                                        # Keep existing XPath, update other fields
+                                        preserved_xpath = existing_xpath
+                                        existing_element.update(element_entry)
+                                        existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
+                                        logger.info(f"    ✅ Preserved existing XPath (more specific): {preserved_xpath[:80]}...")
+                                    else:
+                                        # Update normally (discovery XPath is same or more specific)
+                                        existing_element.update(element_entry)
+                                    
+                                    # Ensure element_id is preserved from registry if it exists
+                                    if existing_element.get('element_id'):
+                                        element_entry['element_id'] = existing_element['element_id']
+                                        element_map['elements'][existing_key]['element_id'] = existing_element['element_id']
                                     logger.info(f"    📝 Updated registry entry: {existing_key}")
                                 else:
                                     # Add new entry
                                     element_map['elements'][element_name] = element_entry
                                     added_count += 1
-                                    logger.info(f"    ✅ Added to registry: {element_name}")
+                                    logger.info(f"    ✅ Added to registry: {element_name} (ID: {element_entry.get('element_id', 'N/A')})")
                         
                         if added_count > 0:
                             # Update statistics
@@ -3041,6 +3444,28 @@ Take screenshots at key moments (after clicks, before verification)."""
                             
                 except Exception as e:
                     logger.warning(f"  ⚠️ Could not update registry: {e}")
+            
+            # NOW save discoveries to results and file (AFTER backfill, so element_ids are included)
+            results["discoveries"] = self.discoveries
+            
+            # Also save to a separate JSON file for reference (AFTER backfill)
+            try:
+                project_root = Path(__file__).parent.parent
+                discoveries_dir = project_root / 'storage' / 'discoveries'
+                discoveries_dir.mkdir(parents=True, exist_ok=True)
+                
+                discovery_file = discoveries_dir / f"{self.execution_id}_discoveries.json"
+                with open(discovery_file, 'w') as f:
+                    json.dump({
+                        "execution_id": self.execution_id,
+                        "story": story,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "discoveries": self.discoveries
+                    }, f, indent=2)
+                
+                logger.info(f"  💾 Discovery metadata saved to: {discovery_file} (with backfilled element_ids)")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not save discovery file: {e}")
         
         await self.close_browser()
         logger.info(f"Finished: {results['status']}")
