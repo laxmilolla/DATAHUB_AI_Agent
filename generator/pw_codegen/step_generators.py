@@ -221,7 +221,7 @@ def _generate_optional_click_code(
     code += f"{ind}    if element.is_visible(timeout=10000):\n"
     code += f"{ind}        element.click()\n"
     code += f"{ind}        page.wait_for_timeout(1000)  # Wait after click (matches AI behavior)\n"
-    code += _generate_dialog_dismissal_code(indent, next_step_discovery)
+    code += _generate_dialog_dismissal_code(indent + 8, next_step_discovery)
     code += f"{ind}        print(f'✅ Step {step_num}: Clicked (using selector from discovery: {{selector}})')\n"
     code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_{sanitize_filename(element_name)}.png')\n"
     code += f"{ind}    else:\n"
