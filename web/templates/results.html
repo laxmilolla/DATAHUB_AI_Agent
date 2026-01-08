@@ -733,7 +733,7 @@
                 return html + renderEmptyState('🎬', 'No Steps Available', 'No execution steps were recorded for this test.');
             }
             
-            html += '<div class="discovery-grid">';
+            html += '<div style="display: grid; gap: 20px;">';
             
             actions.forEach((action, index) => {
                 const tool = safeString(action.tool, 'unknown');
@@ -741,39 +741,62 @@
                 const result = safeString(action.result, 'No result');
                 const iteration = safeNumber(action.iteration, index + 1);
                 const passed = result.includes('✅');
-                const borderColor = passed ? 'var(--success)' : 'var(--error)';
+                const borderColor = passed ? '#28a745' : '#dc3545';
                 const screenshots = safeArray(action.screenshots);
                 
+                // Format input for display
+                let inputDisplay = '';
+                if (input.selector) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>Selector:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${safeString(input.selector)}</code></div>`;
+                }
+                if (input.text) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>Text:</strong> ${safeString(input.text)}</div>`;
+                }
+                if (input.url) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>URL:</strong> ${safeString(input.url)}</div>`;
+                }
+                if (input.value) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>Value:</strong> ${safeString(input.value)}</div>`;
+                }
+                if (!inputDisplay && Object.keys(input).length > 0) {
+                    inputDisplay = `<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 0.85em; overflow-x: auto;">${JSON.stringify(input, null, 2)}</pre>`;
+                }
+                
                 html += `
-                    <div class="action-item" style="border-left-color: ${borderColor};">
-                        <div class="action-header">
-                            <strong class="action-name">${index + 1}. ${tool}</strong>
-                            <span class="iteration-badge">Iteration ${iteration}</span>
-                            ${passed ? '<span style="color: var(--success); font-size: 1.2em; margin-left: 8px;">✅</span>' : '<span style="color: var(--error); font-size: 1.2em; margin-left: 8px;">❌</span>'}
+                    <div class="action-item" style="background: white; border-left: 4px solid ${borderColor}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div class="action-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="background: ${borderColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${index + 1}</span>
+                                <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${tool}</strong>
+                                ${passed ? '<span style="color: #28a745; font-size: 1.3em;">✅</span>' : '<span style="color: #dc3545; font-size: 1.3em;">❌</span>'}
+                            </div>
+                            <span class="iteration-badge" style="background: #e9ecef; color: #6c757d; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Iteration ${iteration}</span>
                         </div>
-                        <div style="margin: 10px 0;">
-                            <strong style="font-size: 0.85em; color: var(--text-secondary);">Input:</strong>
-                            <div class="selector-row" style="margin-top: 4px;">
-                                ${JSON.stringify(input)}
+                        ${inputDisplay ? `
+                        <div style="margin: 15px 0; padding: 12px; background: #f8f9fa; border-radius: 6px;">
+                            <strong style="font-size: 0.9em; color: #495057; display: block; margin-bottom: 8px;">Input:</strong>
+                            <div style="color: #495057; font-size: 0.95em;">
+                                ${inputDisplay}
                             </div>
                         </div>
-                        <div style="margin-top: 10px;">
-                            <strong style="font-size: 0.85em; color: var(--text-secondary);">Result:</strong>
-                            <div style="color: var(--text-secondary); font-size: 0.9em; margin-top: 4px; line-height: 1.6;">
+                        ` : ''}
+                        <div style="margin-top: 15px; padding: 12px; background: ${passed ? '#d4edda' : '#f8d7da'}; border-radius: 6px;">
+                            <strong style="font-size: 0.9em; color: ${passed ? '#155724' : '#721c24'}; display: block; margin-bottom: 8px;">Result:</strong>
+                            <div style="color: ${passed ? '#155724' : '#721c24'}; font-size: 0.95em; line-height: 1.6;">
                                 ${result}
                             </div>
                         </div>
                         ${screenshots.length > 0 ? `
                         <div style="margin-top: 15px;">
-                            <strong style="font-size: 0.85em; color: var(--text-secondary);">📸 Screenshots (${screenshots.length}):</strong>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin-top: 10px;">
+                            <strong style="font-size: 0.9em; color: #495057; display: block; margin-bottom: 10px;">📸 Screenshots (${screenshots.length}):</strong>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
                                 ${screenshots.map(screenshot => `
-                                    <div style="border: 2px solid ${borderColor}; border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${screenshot}', '_blank')">
+                                    <div style="border: 2px solid ${borderColor}; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.2s;" onclick="window.open('/api/screenshots/${screenshot}', '_blank')" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                                         <img src="/api/screenshots/${screenshot}" 
                                              alt="${screenshot}"
                                              style="width: 100%; height: auto; display: block;"
-                                             onerror="this.parentElement.innerHTML='<div style=\\'padding: 20px; text-align: center; color: var(--text-secondary);\\'>📷 Not Found</div>'">
-                                        <div style="padding: 8px; background: var(--bg-tertiary); font-size: 0.75em; text-align: center; color: var(--text-secondary);">
+                                             onerror="this.parentElement.innerHTML='<div style=\\'padding: 20px; text-align: center; color: #6c757d;\\'>📷 Not Found</div>'">
+                                        <div style="padding: 6px; background: #f8f9fa; font-size: 0.75em; text-align: center; color: #6c757d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                             ${screenshot}
                                         </div>
                                     </div>
