@@ -372,6 +372,9 @@ class BrowserClickTool:
             for i, strategy in enumerate(strategies):
                 try:
                     logger.info(f"  Trying strategy {i+1}: {strategy['desc']}")
+                    # CRITICAL: Capture URL BEFORE click for discovery_url (where element was found/clicked)
+                    discovery_url_before_click = self.page.url
+                    
                     await strategy["method"]()
                     await self.page.wait_for_timeout(1000)
                     
@@ -381,7 +384,7 @@ class BrowserClickTool:
                     dom_changed = new_html != initial_html
                     url_changed = new_url != initial_url
                     
-                    # Update discovery tracker URL if navigation occurred
+                    # Update discovery tracker URL if navigation occurred (for future discoveries)
                     if url_changed:
                         self.discovery_tracker.update_url(new_url)
                         self.context.current_url = new_url
@@ -390,7 +393,11 @@ class BrowserClickTool:
                         logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
                         
                         # Track discovery (skip if using registry XPath)
+                        # CRITICAL: Use URL BEFORE click for discovery_url (where element was found)
                         if not using_registry_xpath:
+                            # Temporarily set discovery_url to the URL where element was clicked
+                            original_url = self.discovery_tracker.current_url
+                            self.discovery_tracker.update_url(discovery_url_before_click)
                             try:
                                 final_selector = await self.xpath_generator.generate_final_selector(chosen_locator)
                                 if not final_selector:
@@ -448,6 +455,14 @@ class BrowserClickTool:
                                     # The parent is only used for clicking, but XPath should target the actual element
                                     clicked_element=original_element_for_xpath if original_element_for_xpath else chosen_locator
                                 )
+                                
+                                # Restore discovery tracker URL to current URL (after navigation)
+                                if url_changed:
+                                    self.discovery_tracker.update_url(new_url)
+                                    self.context.current_url = new_url
+                                else:
+                                    # Restore original URL if no navigation occurred
+                                    self.discovery_tracker.update_url(original_url)
                                 logger.info(f"  ✅ Discovery tracked: {element_name}")
                             except Exception as e:
                                 logger.warning(f"  ⚠️ Failed to track discovery: {e}")

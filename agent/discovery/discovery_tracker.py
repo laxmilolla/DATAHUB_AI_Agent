@@ -113,7 +113,7 @@ class DiscoveryTracker:
         }
         
         self.discoveries.append(discovery)
-        logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method}")
+        logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method} on {self.current_url}")
         if element_id:
             logger.info(f"     Element ID: {element_id}")
         logger.info(f"     Query: {original_query}")
@@ -121,6 +121,7 @@ class DiscoveryTracker:
             logger.info(f"     XPath: {xpath_to_use}")
         else:
             logger.info(f"     Selector: {final_selector}")
+        logger.info(f"     Discovery URL: {self.current_url}")
         
         return discovery
     
