@@ -211,8 +211,16 @@ class RegistryManager:
                     element_map['id_index'] = id_index
                     
                     # Save updated registry
-                    self.element_registry.save_map(domain, page, element_map)
-                    logger.info(f"  ✅ Saved registry updates to {domain}/{page}")
+                    try:
+                        self.element_registry.save_map(domain, page, element_map)
+                        # Verify file was actually created
+                        map_path = self.element_registry.get_map_path(domain, page)
+                        if map_path.exists():
+                            logger.info(f"  ✅ Saved registry updates to {domain}/{page} (file: {map_path})")
+                        else:
+                            logger.error(f"  ❌ Registry save reported success but file not found: {map_path}")
+                    except Exception as save_error:
+                        logger.error(f"  ❌ Failed to save registry file for {domain}/{page}: {save_error}", exc_info=True)
         except Exception as e:
             logger.error(f"  ❌ Failed to save discoveries to registry: {e}", exc_info=True)
 
