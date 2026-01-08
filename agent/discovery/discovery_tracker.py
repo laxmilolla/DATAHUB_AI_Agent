@@ -189,6 +189,34 @@ class DiscoveryTracker:
         
         return discovery
     
+    async def _verify_xpath(self, xpath: str) -> bool:
+        """
+        Verify that an XPath actually finds an element on the current page
+        Args:
+            xpath: XPath to verify
+        Returns:
+            True if XPath finds at least one element, False otherwise
+        """
+        try:
+            from playwright.async_api import Page
+            # Get page from xpath_generator
+            page = self.xpath_generator.page if hasattr(self.xpath_generator, 'page') else None
+            if not page:
+                logger.debug(f"  ⚠️ Cannot verify XPath: page not available")
+                return False
+            
+            # Try to find element using XPath
+            count = await page.locator(f"xpath={xpath}").count()
+            if count > 0:
+                logger.debug(f"  ✅ XPath verified: found {count} element(s) for {xpath[:50]}...")
+                return True
+            else:
+                logger.debug(f"  ⚠️ XPath verification failed: found 0 elements for {xpath[:50]}...")
+                return False
+        except Exception as e:
+            logger.debug(f"  ⚠️ XPath verification error: {e}")
+            return False
+    
     def get_discoveries(self) -> List[Dict]:
         """Get all tracked discoveries"""
         return self.discoveries
