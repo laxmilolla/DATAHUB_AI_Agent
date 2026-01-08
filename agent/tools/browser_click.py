@@ -78,6 +78,7 @@ class BrowserClickTool:
         registry_selector = self.element_locator.check_registry(element_description or selector, domain, page_name)
         using_registry_xpath = False
         optimized_selector_used = False
+        registry_button_element = None  # Store the actual button element from registry selector for XPath generation
         
         if registry_selector:
             selector = registry_selector
@@ -88,6 +89,15 @@ class BrowserClickTool:
                 logger.info(f"  📋 Using XPath from registry (MANUAL) - will skip tree climbing & discovery")
             else:
                 logger.info(f"  📋 Using selector from registry")
+                # CRITICAL FIX: If registry selector is a CSS selector (like #header-navbar-login-button),
+                # use it to find the actual button element for XPath generation, even if tree climbing uses a parent
+                try:
+                    registry_matches = await self.page.locator(registry_selector).all()
+                    if registry_matches:
+                        registry_button_element = registry_matches[0]
+                        logger.info(f"  🔍 Found registry button element for XPath generation: {registry_selector}")
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
         
         # Try to find element
         try:
@@ -348,9 +358,18 @@ class BrowserClickTool:
                                 if not final_selector:
                                     final_selector = original_selector
                                 
-                                element_attrs = await self.xpath_generator.extract_element_attributes(
-                                    original_element_for_xpath if original_element_for_xpath else chosen_locator
-                                )
+                                # CRITICAL FIX: Use registry button element for XPath generation if available
+                                # This ensures we generate XPath for the actual button, not a text node or parent
+                                element_for_xpath = None
+                                if registry_button_element:
+                                    element_for_xpath = registry_button_element
+                                    logger.info(f"  🔍 Using registry button element for XPath generation")
+                                elif original_element_for_xpath:
+                                    element_for_xpath = original_element_for_xpath
+                                else:
+                                    element_for_xpath = chosen_locator
+                                
+                                element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
                                 
                                 discovery_method = "tree_climbing" if original_element_for_xpath != chosen_locator else "direct"
                                 
