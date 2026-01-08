@@ -543,19 +543,34 @@ if __name__ == '__main__':
                 continue
             
             # Find corresponding action from actions_taken
-            # For wait steps, match by step text content, not iteration number
+            # Use content-based matching for better accuracy
+            action = None
+            
+            # For wait steps, match by step text content
             if 'wait' in step_text.lower() and any(char.isdigit() for char in step_text):
                 # This is a wait step - find browser_evaluate action with setTimeout
-                action = None
+                wait_match = re.search(r'wait (\d+) seconds?', step_text, re.IGNORECASE)
+                wait_duration = int(wait_match.group(1)) * 1000 if wait_match else None
+                
                 for act in actions_taken:
                     if act.get('tool') == 'browser_evaluate':
                         code_str = act.get('input', {}).get('code', '')
                         if 'setTimeout' in code_str or 'Promise' in code_str:
-                            action = act
-                            break
+                            # Try to match duration if available
+                            if wait_duration:
+                                code_duration_match = re.search(r'setTimeout.*?(\d+)', code_str)
+                                if code_duration_match:
+                                    code_duration = int(code_duration_match.group(1))
+                                    if abs(code_duration - wait_duration) < 100:  # Allow small variance
+                                        action = act
+                                        break
+                            # If no duration match or no duration specified, use first match
+                            if not action:
+                                action = act
+                                break
             else:
-                # For other steps, use iteration matching
-                action = self._find_action_by_iteration(step_num, actions_taken)
+                # For other steps, use content-based matching
+                action = self._find_action_by_content(step_text, step_num, actions_taken)
             
             # Generate code based on action type
             if not action:
@@ -650,6 +665,94 @@ if __name__ == '__main__':
             if action.get('iteration') == step_num:
                 return action
         return None
+    
+    def _find_action_by_content(self, step_text: str, step_num: int, actions_taken: List[Dict]) -> Dict:
+        """
+        Find action by matching step content/type instead of iteration number.
+        This is more reliable when story steps don't align with action iterations.
+        """
+        step_lower = step_text.lower()
+        
+        # Match by step content patterns
+        if 'enter username' in step_lower or 'enter email' in step_lower or ('username' in step_lower and 'enter' in step_lower):
+            # Find browser_fill with email selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_fill':
+                    selector = action.get('input', {}).get('selector', '')
+                    if 'email' in selector.lower() or 'username' in selector.lower():
+                        return action
+        
+        elif 'enter password' in step_lower or ('password' in step_lower and 'enter' in step_lower):
+            # Find browser_fill with password selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_fill':
+                    selector = action.get('input', {}).get('selector', '')
+                    if 'password' in selector.lower():
+                        return action
+        
+        elif 'totp' in step_lower or 'one-time' in step_lower or 'authenticator' in step_lower:
+            # Find browser_fill with TOTP/code selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_fill':
+                    selector = action.get('input', {}).get('selector', '')
+                    text = action.get('input', {}).get('text', '')
+                    if 'code' in selector.lower() or 'totp' in text.lower() or 'SYSTEM_GENERATED' in text:
+                        return action
+        
+        elif 'click' in step_lower and 'submit' in step_lower:
+            # Find browser_click with Submit selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_click':
+                    selector = action.get('input', {}).get('selector', '')
+                    if 'submit' in selector.lower() or 'button' in selector.lower():
+                        # Check if it's actually a submit button
+                        result = action.get('result', '')
+                        if 'submit' in result.lower():
+                            return action
+                        # Also check by selector pattern
+                        if 'submit' in selector.lower():
+                            return action
+        
+        elif 'click' in step_lower and 'continue' in step_lower:
+            # Find browser_click with Continue selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_click':
+                    selector = action.get('input', {}).get('selector', '')
+                    if 'continue' in selector.lower():
+                        return action
+        
+        elif 'click' in step_lower and 'login' in step_lower:
+            # Find browser_click with Login selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_click':
+                    selector = action.get('input', {}).get('selector', '')
+                    result = action.get('result', '')
+                    if 'login' in selector.lower() or 'login' in result.lower():
+                        return action
+        
+        elif 'click' in step_lower and 'grant' in step_lower:
+            # Find browser_click with Grant selector
+            for action in actions_taken:
+                if action.get('tool') == 'browser_click':
+                    selector = action.get('input', {}).get('selector', '')
+                    if 'grant' in selector.lower():
+                        return action
+        
+        elif 'click' in step_lower:
+            # Generic click - try to match by element name in step text
+            # Extract element name from step (e.g., "Click on Login button" -> "Login")
+            element_match = re.search(r'click\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+button|\s+link|\s+tab|$)', step_lower)
+            if element_match:
+                element_name = element_match.group(1).strip()
+                for action in actions_taken:
+                    if action.get('tool') == 'browser_click':
+                        selector = action.get('input', {}).get('selector', '')
+                        result = action.get('result', '')
+                        if element_name.lower() in selector.lower() or element_name.lower() in result.lower():
+                            return action
+        
+        # Fallback: Try iteration matching if content matching failed
+        return self._find_action_by_iteration(step_num, actions_taken)
     
     def _find_verification_discovery(self, step_num: int, discoveries: List[Dict]) -> Dict:
         """
