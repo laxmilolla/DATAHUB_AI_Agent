@@ -42,12 +42,14 @@ class PlaywrightGenerator:
         execution = self._load_execution(execution_id)
         discoveries = self._load_discoveries(execution_id)
         
-        # Load registry for the domain
+        # Detect all registry files needed (multi-registry support)
+        registry_files = self._detect_registry_files(execution)
+        
+        # Load registries for backward compatibility (used in some places)
         # Extract URL from story if story_url not present
         story_url = execution.get('story_url', '')
         if not story_url:
             # Try to extract URL from story
-            import re
             if match := re.search(r'https?://[^\s]+', execution.get('story', '')):
                 story_url = match.group(0)
         
@@ -57,8 +59,8 @@ class PlaywrightGenerator:
         if not test_name:
             test_name = self._generate_test_name(execution['story'])
         
-        # Generate code
-        code = self._generate_test_code(execution, discoveries, test_name, registry)
+        # Generate code with multi-registry support
+        code = self._generate_test_code(execution, discoveries, test_name, registry, registry_files)
         
         # Save to file
         filename = f"{test_name}.py"
@@ -137,21 +139,88 @@ class PlaywrightGenerator:
         parsed = urlparse(url)
         domain = parsed.netloc
         
-        # Look for registry file (try home_page.json or explore_page.json)
+        # Extract page name from URL path (same logic as agent)
+        url_path = url.split('/')[-1].split('#')[0]
+        if url_path == 'explore':
+            page = 'explore'
+        elif not url_path or url_path == '':
+            page = 'home'
+        else:
+            page = url_path
+        
+        # Always return the expected path based on URL structure
+        # (even if file doesn't exist yet - user can create it)
+        expected_path = f'element_maps/{domain}/{page}_page.json'
+        
+        # Check if file exists - if so, use it; otherwise check for common alternatives
         domain_dir = self.element_maps_dir / domain
-        if not domain_dir.exists():
-            # Fallback to default
-            return 'element_maps/clinicalcommons.ccdi.cancer.gov/explore_page.json'
-        
-        # Try common page names
-        for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
-            registry_file = domain_dir / page_name
+        if domain_dir.exists():
+            # Try specific page first
+            registry_file = domain_dir / f'{page}_page.json'
             if registry_file.exists():
-                # Return relative path from project root
-                return f'element_maps/{domain}/{page_name}'
+                return expected_path
+            
+            # Fallback to common page names if specific page doesn't exist
+            for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
+                registry_file = domain_dir / page_name
+                if registry_file.exists():
+                    return f'element_maps/{domain}/{page_name}'
         
-        # Fallback to default
-        return 'element_maps/clinicalcommons.ccdi.cancer.gov/explore_page.json'
+        # Return expected path (even if it doesn't exist yet)
+        # This allows the test to work once the registry is created
+        return expected_path
+    
+    def _detect_registry_files(self, execution: Dict) -> List[str]:
+        """
+        Detect all registry files needed based on URLs visited during test execution.
+        Scans actions_taken for browser_navigate actions and extracts registry paths.
+        """
+        registry_files = set()
+        
+        # Get initial URL from story
+        story_url = execution.get('story_url', '')
+        if not story_url:
+            # Try to extract URL from story
+            if match := re.search(r'https?://[^\s]+', execution.get('story', '')):
+                story_url = match.group(0)
+        
+        if story_url:
+            registry_path = self._get_registry_path(story_url)
+            if registry_path:
+                registry_files.add(registry_path)
+        
+        # Scan actions_taken for navigations
+        for action in execution.get('actions_taken', []):
+            tool = action.get('tool', '')
+            if tool == 'browser_navigate':
+                url = action.get('input', {}).get('url', '')
+                if url:
+                    registry_path = self._get_registry_path(url)
+                    if registry_path:
+                        registry_files.add(registry_path)
+        
+        # Also check discoveries for URL metadata (if available)
+        # This catches elements discovered on pages that weren't explicitly navigated to
+        # (e.g., if page changed due to form submission)
+        discoveries = execution.get('discoveries', [])
+        for disc in discoveries:
+            metadata = disc.get('metadata', {})
+            url = metadata.get('url', '')
+            if url:
+                registry_path = self._get_registry_path(url)
+                if registry_path:
+                    registry_files.add(registry_path)
+        
+        # Extract URLs from story text (catches URLs mentioned in steps like "goes to https://...")
+        story = execution.get('story', '')
+        if story:
+            story_urls = re.findall(r'https?://[^\s\)]+', story)
+            for url in story_urls:
+                registry_path = self._get_registry_path(url)
+                if registry_path:
+                    registry_files.add(registry_path)
+        
+        return sorted(list(registry_files))
     
     def _generate_test_name(self, story: str) -> str:
         """Generate test name from story"""
@@ -195,25 +264,48 @@ class PlaywrightGenerator:
         
         return selector
     
-    def _generate_test_code(self, execution: Dict, discoveries: Dict, test_name: str, registry: Dict = None) -> str:
+    def _generate_test_code(self, execution: Dict, discoveries: Dict, test_name: str, registry: Dict = None, registry_files: List[str] = None) -> str:
         """Generate complete Python Playwright test code - 1:1 mirror of AI execution"""
         
         if registry is None:
             registry = {}
         
+        if registry_files is None:
+            # Fallback: detect registry files if not provided
+            registry_files = self._detect_registry_files(execution)
+            if not registry_files:
+                # Fallback to story URL
+                story_url = execution.get('story_url', '')
+                if not story_url:
+                    if match := re.search(r'https?://[^\s]+', execution.get('story', '')):
+                        story_url = match.group(0)
+                if story_url:
+                    registry_files = [self._get_registry_path(story_url)]
+        
         story = execution['story']
         actions_taken = execution.get('actions_taken', [])
         discoveries_list = discoveries.get('discoveries', [])
         
-        # Determine registry file path from story URL (for default/placeholder)
-        story_url = execution.get('story_url', '')
-        if not story_url:
-            # Try to extract URL from story
-            import re
-            if match := re.search(r'https?://[^\s]+', story):
-                story_url = match.group(0)
+        # Use first registry as default (for backward compatibility)
+        default_registry_path = registry_files[0] if registry_files else 'element_maps/clinicalcommons.ccdi.cancer.gov/explore_page.json'
         
-        default_registry_path = self._get_registry_path(story_url)
+        # Load and merge ALL registries for multi-registry support
+        merged_registry = {'elements': {}, 'id_index': {}}
+        for registry_path_str in registry_files:
+            registry_file_path = self.element_maps_dir.parent / registry_path_str
+            if registry_file_path.exists():
+                try:
+                    with open(registry_file_path, 'r') as f:
+                        registry_data = json.load(f)
+                        # Merge elements (later registries override earlier ones if same key)
+                        merged_registry['elements'].update(registry_data.get('elements', {}))
+                        # Merge id_index (later registries override earlier ones if same element_id)
+                        merged_registry['id_index'].update(registry_data.get('id_index', {}))
+                except Exception as e:
+                    logger.warning(f"Failed to load registry {registry_path_str}: {e}")
+        
+        # Use merged registry instead of single registry
+        registry = merged_registry
         
         # Header
         execution_id = execution['execution_id']
@@ -262,6 +354,12 @@ class PlaywrightGenerator:
                 test_constants += f"{constant_name} = '{selector_escaped}'\n"
             test_constants += "\n"
         
+        # Format registry paths list for Python code
+        registry_paths_list_str = "[\n"
+        for reg_path in registry_files:
+            registry_paths_list_str += f"    '{reg_path}',\n"
+        registry_paths_list_str += "]"
+        
         code = f'''"""
 Generated Playwright Test
 Source Execution: {execution_id}
@@ -281,30 +379,37 @@ from pathlib import Path
 # TEST-SPECIFIC VALUES (from story - embedded in test, not in registry)
 # ============================================================================
 {test_constants}# ============================================================================
-# SHARED REGISTRY (used by all tests - single source of truth)
+# MULTI-REGISTRY SUPPORT (loads all registries for pages visited in test)
 # ============================================================================
-# This allows all tests to use the same registry file (single source of truth)
-# Update this path to point to your registry JSON file location
-REGISTRY_JSON_PATH = "{default_registry_path}"  # <-- USER: Update this path
+# Automatically detects and loads all registry files needed based on URLs visited
+# Update paths below if registries are in different locations
+REGISTRY_PATHS = {registry_paths_list_str}
 
-# Load shared element registry
+# Load and merge all registries
 REGISTRY = {{}}
 REGISTRY_ID_INDEX = {{}}
-try:
-    registry_path = Path(REGISTRY_JSON_PATH)
-    if registry_path.exists():
-        with open(registry_path, 'r') as f:
-            registry_data = json.load(f)
-            REGISTRY = registry_data.get('elements', {{}})
-            REGISTRY_ID_INDEX = registry_data.get('id_index', {{}})
-        print(f"✅ Loaded registry: {{len(REGISTRY)}} elements from {{registry_path.name}}")
-        print(f"✅ Loaded id_index: {{len(REGISTRY_ID_INDEX)}} IDs")
-    else:
-        print(f"⚠️  Registry file not found: {{registry_path}}")
-        print(f"   Please update REGISTRY_JSON_PATH to point to your registry JSON file")
-except Exception as e:
-    print(f"⚠️  Failed to load registry: {{e}}")
-    print(f"   Please check REGISTRY_JSON_PATH: {{REGISTRY_JSON_PATH}}")
+loaded_count = 0
+for registry_path_str in REGISTRY_PATHS:
+    try:
+        registry_path = Path(registry_path_str)
+        if registry_path.exists():
+            with open(registry_path, 'r') as f:
+                registry_data = json.load(f)
+                # Merge elements (later registries override earlier ones if same key)
+                REGISTRY.update(registry_data.get('elements', {{}}))
+                # Merge id_index (later registries override earlier ones if same element_id)
+                REGISTRY_ID_INDEX.update(registry_data.get('id_index', {{}}))
+            loaded_count += 1
+            print(f"✅ Loaded registry: {{len(registry_data.get('elements', {{}}))}} elements from {{registry_path.name}}")
+        else:
+            print(f"⚠️  Registry file not found: {{registry_path}}")
+    except Exception as e:
+        print(f"⚠️  Failed to load registry {{registry_path_str}}: {{e}}")
+
+if loaded_count > 0:
+    print(f"✅ Merged {{loaded_count}} registries: {{len(REGISTRY)}} total elements, {{len(REGISTRY_ID_INDEX)}} total IDs")
+else:
+    print(f"⚠️  No registries loaded. Please check REGISTRY_PATHS above.")
 
 def get_xpath_by_id(element_id):
     """Get XPath from registry by unique ID - ONLY source of XPaths (strict, no fallbacks)"""
@@ -424,9 +529,9 @@ if __name__ == '__main__':
         step_number = 1
         
         for line in story_lines:
-            # Extract step number - handle variations: "Step 1:", "tep 1:", "step 1:", etc.
-            # More flexible regex to catch malformed story text
-            step_match = re.match(r'[Ss]?tep\s+(\d+):\s*(.+)', line, re.IGNORECASE)
+            # Extract step number - handle variations: "Step 1:", "Steps 15:", "Step 1", "Steps 15", etc.
+            # More flexible regex to catch malformed story text (handles plural "Steps" and optional colon)
+            step_match = re.match(r'[Ss]teps?\s+(\d+)\s*:?\s*(.+)', line, re.IGNORECASE)
             if not step_match:
                 continue
             
@@ -438,7 +543,19 @@ if __name__ == '__main__':
                 continue
             
             # Find corresponding action from actions_taken
-            action = self._find_action_by_iteration(step_num, actions_taken)
+            # For wait steps, match by step text content, not iteration number
+            if 'wait' in step_text.lower() and any(char.isdigit() for char in step_text):
+                # This is a wait step - find browser_evaluate action with setTimeout
+                action = None
+                for act in actions_taken:
+                    if act.get('tool') == 'browser_evaluate':
+                        code_str = act.get('input', {}).get('code', '')
+                        if 'setTimeout' in code_str or 'Promise' in code_str:
+                            action = act
+                            break
+            else:
+                # For other steps, use iteration matching
+                action = self._find_action_by_iteration(step_num, actions_taken)
             
             # Generate code based on action type
             if not action:
@@ -490,7 +607,30 @@ if __name__ == '__main__':
                                 logger.info(f"  🔍 Found element in registry for Step {step_num}: {key} (ID: {discovery.get('element_id', 'N/A')})")
                                 break
                 
-                code += self._generate_click_step(step_num, step_text, action, discovery, registry, indent)
+                # Find next step's discovery (for popup dismissal - wait for next element to be clickable)
+                next_step_discovery = None
+                if step_num < len(story_lines):  # Not the last step
+                    # Look ahead to find next click step
+                    current_line_idx = story_lines.index(line) if line in story_lines else -1
+                    if current_line_idx >= 0:
+                        for next_line in story_lines[current_line_idx + 1:]:
+                            next_step_match = re.match(r'[Ss]?tep\s+(\d+):\s*(.+)', next_line, re.IGNORECASE)
+                            if next_step_match:
+                                next_step_num = int(next_step_match.group(1))
+                                next_step_text = next_step_match.group(2).strip()
+                                # Find next step's action
+                                next_action = self._find_action_by_iteration(next_step_num, actions_taken)
+                                if next_action and next_action.get('tool') == 'browser_click':
+                                    # Find next step's discovery
+                                    next_step_discovery = self._find_discovery_by_step(next_step_num, next_step_text, discoveries, next_action)
+                                    break
+                
+                code += self._generate_click_step(step_num, step_text, action, discovery, registry, indent, next_step_discovery)
+            
+            elif tool == 'browser_fill':
+                # Find corresponding discovery for this fill action
+                discovery = self._find_discovery_by_step(step_num, step_text, discoveries, action)
+                code += self._generate_fill_step(step_num, step_text, action, discovery, registry, indent)
             
             elif tool == 'browser_verify_table':
                 # Find corresponding verification discovery (must be table_verification type)
@@ -664,7 +804,7 @@ if __name__ == '__main__':
         
         return code
     
-    def _generate_click_step(self, step_num: int, step_text: str, action: Dict, discovery: Dict, registry: Dict, indent: int) -> str:
+    def _generate_click_step(self, step_num: int, step_text: str, action: Dict, discovery: Dict, registry: Dict, indent: int, next_step_discovery: Dict = None) -> str:
         """
         Generate click code using PURE REGISTRY system - element_id only, no fallbacks
         All XPaths come from JSON registry ONLY
@@ -679,6 +819,44 @@ if __name__ == '__main__':
         
         # Get element_id from discovery (REQUIRED for pure registry system)
         element_id = discovery.get('element_id') if discovery else None
+        
+        # If element_id is missing, try to look it up from merged registry by name or XPath
+        if not element_id and discovery:
+            discovery_xpath = discovery.get('xpath', '')
+            discovery_name = discovery.get('name', '')
+            
+            # Try to find element_id in merged registry by name first
+            if discovery_name and registry:
+                elements = registry.get('elements', {})
+                if discovery_name in elements:
+                    element_id = elements[discovery_name].get('element_id')
+                    if element_id:
+                        logger.info(f"  🔍 Found element_id in merged registry by name: {discovery_name} -> {element_id}")
+            
+            # If still not found, try by XPath (search across all merged registries)
+            if not element_id and discovery_xpath and registry:
+                for key, elem_data in registry.get('elements', {}).items():
+                    if elem_data.get('xpath') == discovery_xpath:
+                        element_id = elem_data.get('element_id')
+                        if element_id:
+                            logger.info(f"  🔍 Found element_id in merged registry by XPath: {key} -> {element_id}")
+                            break
+            
+            # If still not found, try reverse lookup via id_index (in case element_id exists but discovery doesn't have it)
+            if not element_id and discovery_xpath and registry:
+                id_index = registry.get('id_index', {})
+                # Search for element_id that points to an element with matching XPath
+                for elem_id, elem_key in id_index.items():
+                    elem_data = registry.get('elements', {}).get(elem_key)
+                    if elem_data and elem_data.get('xpath') == discovery_xpath:
+                        element_id = elem_id
+                        logger.info(f"  🔍 Found element_id in merged registry via id_index reverse lookup: {elem_key} -> {element_id}")
+                        break
+            
+            # If found, update discovery in-place (for future use)
+            if element_id and discovery:
+                discovery['element_id'] = element_id
+                logger.info(f"  ✅ Backfilled element_id into discovery: {discovery_name} -> {element_id}")
         
         # Get selector from AI action (what AI actually used)
         action_selector = action.get('input', {}).get('selector', '') if action else ''
@@ -716,6 +894,42 @@ if __name__ == '__main__':
                 code += f"{ind}    element = page.locator(selector).nth(0)\n"
                 code += f"{ind}    if element.is_visible(timeout=10000):\n"
                 code += f"{ind}        element.click()\n"
+                code += f"{ind}        page.wait_for_timeout(1000)  # Wait after click (matches AI behavior)\n"
+                code += f"{ind}        # Wait for dialog to disappear (if popup was dismissed)\n"
+                code += f"{ind}        try:\n"
+                code += f"{ind}            # Wait for dialog to be detached (completely removed from DOM) - most reliable\n"
+                code += f"{ind}            page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='detached', timeout=3000)\n"
+                code += f"{ind}        except:\n"
+                code += f"{ind}            # Fallback: dialog might stay in DOM but hidden\n"
+                code += f"{ind}            try:\n"
+                code += f"{ind}                page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='hidden', timeout=2000)\n"
+                code += f"{ind}            except:\n"
+                code += f"{ind}                pass  # Dialog may not exist or already dismissed\n"
+                code += f"{ind}        \n"
+                code += f"{ind}        # Wait for next step's element to be clickable (if available)\n"
+                if next_step_discovery and next_step_discovery.get('element_id'):
+                    next_element_id = next_step_discovery.get('element_id')
+                    code += f"{ind}        try:\n"
+                    code += f"{ind}            next_element_id = '{next_element_id}'\n"
+                    code += f"{ind}            next_xpath = get_xpath_by_id(next_element_id)\n"
+                    code += f"{ind}            next_element = page.locator(f'xpath={{next_xpath}}').nth(0)\n"
+                    code += f"{ind}            next_element.wait_for(state='visible', timeout=5000)\n"
+                    code += f"{ind}            # Wait for dialog to not be blocking\n"
+                    code += f"{ind}            for attempt in range(15):\n"
+                    code += f"{ind}                dialog_blocking = page.locator('[data-testid=\"system-use-warning-dialog\"]').count() > 0\n"
+                    code += f"{ind}                if not dialog_blocking:\n"
+                    code += f"{ind}                    break\n"
+                    code += f"{ind}                try:\n"
+                    code += f"{ind}                    dialog_visible = page.locator('[data-testid=\"system-use-warning-dialog\"]').first.is_visible(timeout=100)\n"
+                    code += f"{ind}                    if not dialog_visible:\n"
+                    code += f"{ind}                        break\n"
+                    code += f"{ind}                except:\n"
+                    code += f"{ind}                    break\n"
+                    code += f"{ind}                page.wait_for_timeout(200)\n"
+                    code += f"{ind}        except:\n"
+                    code += f"{ind}            pass\n"
+                else:
+                    code += f"{ind}        page.wait_for_timeout(500)  # Wait for animations\n"
                 code += f"{ind}        print(f'✅ Step {step_num}: Clicked (using selector from discovery: {{selector}})')\n"
                 code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_{re.sub(r'[^a-zA-Z0-9_-]', '_', element_name)[:50]}.png')\n"
                 code += f"{ind}    else:\n"
@@ -793,8 +1007,58 @@ if __name__ == '__main__':
                 code += f"{ind}        page.wait_for_timeout(1000)\n"
             code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
         else:
+            # Detect if this is a popup dismissal button (Continue, OK, Accept, etc.)
+            is_popup_dismissal = any(keyword in step_text.lower() or keyword in element_name.lower() 
+                                    for keyword in ['continue', 'ok', 'accept', 'dismiss', 'close', 'got it'])
+            
             code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
             code += f"{ind}    element.click()\n"
+            code += f"{ind}    page.wait_for_timeout(1000)  # Wait after click (matches AI behavior)\n"
+            
+            # If popup dismissal button, wait for dialog to disappear and next element to be clickable
+            if is_popup_dismissal:
+                code += f"{ind}    # Wait for dialog to disappear after popup dismissal\n"
+                code += f"{ind}    try:\n"
+                code += f"{ind}        # Wait for dialog to be detached (completely removed from DOM) - most reliable\n"
+                code += f"{ind}        page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='detached', timeout=3000)\n"
+                code += f"{ind}    except:\n"
+                code += f"{ind}        # Fallback: dialog might stay in DOM but hidden\n"
+                code += f"{ind}        try:\n"
+                code += f"{ind}            page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='hidden', timeout=2000)\n"
+                code += f"{ind}        except:\n"
+                code += f"{ind}            pass  # Dialog may not exist or already dismissed\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    # Wait for next step's element to be clickable (not blocked by overlay)\n"
+                code += f"{ind}    # This ensures the page is ready for the next action\n"
+                if next_step_discovery and next_step_discovery.get('element_id'):
+                    next_element_id = next_step_discovery.get('element_id')
+                    code += f"{ind}    try:\n"
+                    code += f"{ind}        # Wait for next element to be visible and not blocked\n"
+                    code += f"{ind}        next_element_id = '{next_element_id}'\n"
+                    code += f"{ind}        next_xpath = get_xpath_by_id(next_element_id)\n"
+                    code += f"{ind}        next_element = page.locator(f'xpath={{next_xpath}}').nth(0)\n"
+                    code += f"{ind}        # Wait for element to be visible\n"
+                    code += f"{ind}        next_element.wait_for(state='visible', timeout=5000)\n"
+                    code += f"{ind}        # Wait for dialog to not be blocking (check if dialog is gone or not intercepting)\n"
+                    code += f"{ind}        for attempt in range(15):  # Try for up to 3 seconds\n"
+                    code += f"{ind}            dialog_blocking = page.locator('[data-testid=\"system-use-warning-dialog\"]').count() > 0\n"
+                    code += f"{ind}            if not dialog_blocking:\n"
+                    code += f"{ind}                break  # Dialog is gone\n"
+                    code += f"{ind}            # Check if dialog is still visible/blocking\n"
+                    code += f"{ind}            try:\n"
+                    code += f"{ind}                dialog_visible = page.locator('[data-testid=\"system-use-warning-dialog\"]').first.is_visible(timeout=100)\n"
+                    code += f"{ind}                if not dialog_visible:\n"
+                    code += f"{ind}                    break  # Dialog exists but not visible\n"
+                    code += f"{ind}            except:\n"
+                    code += f"{ind}                break  # Dialog check failed, assume it's gone\n"
+                    code += f"{ind}            page.wait_for_timeout(200)  # Wait 200ms before retry\n"
+                    code += f"{ind}    except:\n"
+                    code += f"{ind}        # Next element not found or not ready - wait for animations\n"
+                    code += f"{ind}        page.wait_for_timeout(500)\n"
+                else:
+                    code += f"{ind}    # No next step element available - wait for animations to complete\n"
+                    code += f"{ind}    page.wait_for_timeout(500)  # Extra wait for dialog dismissal animations\n"
+            
             code += f"{ind}    print(f'✅ Step {step_num}: Clicked {element_name} (element_id: {{element_id}})')\n"
             code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
         
@@ -804,6 +1068,121 @@ if __name__ == '__main__':
         else:
             code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}')\n"
             code += f"{ind}    raise\n"
+        code += f"{ind}\n"
+        
+        return code
+    
+    def _generate_fill_step(self, step_num: int, step_text: str, action: Dict, discovery: Dict, registry: Dict, indent: int) -> str:
+        """
+        Generate fill code for input fields (username, password, TOTP, etc.)
+        """
+        ind = ' ' * indent
+        
+        # Get input parameters from action
+        input_params = action.get('input', {}) if action else {}
+        selector = input_params.get('selector', '')
+        text = input_params.get('text', '')
+        
+        # Extract field name from step text (e.g., "Enter Username" -> "Username")
+        field_name = 'field'
+        if 'username' in step_text.lower() or 'email' in step_text.lower():
+            field_name = 'Username'
+        elif 'password' in step_text.lower():
+            field_name = 'Password'
+        elif 'totp' in step_text.lower() or 'one-time' in step_text.lower() or 'authenticator' in step_text.lower():
+            field_name = 'TOTP'
+        else:
+            # Try to extract from step text
+            match = re.search(r'enter\s+(?:the\s+)?(.+?)\s+as', step_text, re.IGNORECASE)
+            if match:
+                field_name = match.group(1).strip()
+        
+        # Escape text for Python string
+        text_escaped = text.replace("'", "\\'").replace('"', '\\"')
+        
+        # Check if this is a TOTP step
+        is_totp_step = any(keyword in step_text.lower() for keyword in ['totp', 'one-time', 'one time', '2fa', 'two-factor', 'authenticator code', 'security code'])
+        
+        # Generate code
+        code = f"{ind}# Step {step_num}: {step_text}\n"
+        
+        if is_totp_step:
+            code += f"{ind}# TOTP step - generate code dynamically\n"
+            code += f"{ind}import sys\n"
+            code += f"{ind}from pathlib import Path\n"
+            code += f"{ind}# Add project root to path for utils import\n"
+            code += f"{ind}project_root = Path(__file__).parent.parent.parent\n"
+            code += f"{ind}if str(project_root) not in sys.path:\n"
+            code += f"{ind}    sys.path.insert(0, str(project_root))\n"
+            code += f"{ind}from utils.otp_helper import generate_otp\n"
+            code += f"{ind}import os\n"
+            code += f"{ind}try:\n"
+            code += f"{ind}    totp_code = generate_otp()  # Uses TOTP_SECRET_KEY from environment\n"
+            code += f"{ind}    print(f'🔐 Step {step_num}: Generated TOTP code: {{totp_code[:2]}}****')\n"
+            code += f"{ind}except Exception as e:\n"
+            code += f"{ind}    raise Exception(f'Failed to generate TOTP code: {{e}}')\n"
+            code += f"{ind}fill_text = totp_code\n"
+        else:
+            code += f"{ind}fill_text = '{text_escaped}'\n"
+        
+        # Use selector from action (what AI actually used)
+        selector_escaped = selector.replace("'", "\\'").replace('"', '\\"')
+        
+        code += f"{ind}selector = '{selector_escaped}'\n"
+        code += f"{ind}\n"
+        code += f"{ind}try:\n"
+        code += f"{ind}    element = page.locator(selector).nth(0)\n"
+        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+        
+        # For TOTP fields, try multiple selectors if the first one fails
+        if is_totp_step:
+            code += f"{ind}    # TOTP field - try multiple selectors if needed\n"
+            code += f"{ind}    if selector == \"input[name='code']\" or 'input[name=\"code\"]' in selector:\n"
+            code += f"{ind}        totp_selectors = [\n"
+            code += f"{ind}            \"input.one-time-code-input__input\",\n"
+            code += f"{ind}            \"input[autocomplete='one-time-code']\",\n"
+            code += f"{ind}            \"input[type='text'][name='code']\",\n"
+            code += f"{ind}            \"input[name='code']:not([type='hidden'])\",\n"
+            code += f"{ind}            \"lg-one-time-code-input input[type='text']\",\n"
+            code += f"{ind}        ]\n"
+            code += f"{ind}        selector_found = False\n"
+            code += f"{ind}        for totp_sel in totp_selectors:\n"
+            code += f"{ind}            try:\n"
+            code += f"{ind}                test_elem = page.locator(totp_sel).first\n"
+            code += f"{ind}                if test_elem.is_visible(timeout=1000):\n"
+            code += f"{ind}                    selector = totp_sel\n"
+            code += f"{ind}                    element = test_elem\n"
+            code += f"{ind}                    selector_found = True\n"
+            code += f"{ind}                    break\n"
+            code += f"{ind}            except:\n"
+            code += f"{ind}                continue\n"
+            code += f"{ind}        if not selector_found:\n"
+            code += f"{ind}            element = page.locator(selector).nth(0)\n"
+        
+        code += f"{ind}    \n"
+        code += f"{ind}    # Check if field is readonly/disabled\n"
+        code += f"{ind}    is_readonly = element.evaluate('el => el.readOnly || el.disabled')\n"
+        code += f"{ind}    if is_readonly:\n"
+        code += f"{ind}        raise Exception(f'Field {{selector}} is readonly or disabled')\n"
+        code += f"{ind}    \n"
+        code += f"{ind}    # Fill the field\n"
+        code += f"{ind}    element.fill(fill_text)\n"
+        code += f"{ind}    page.wait_for_timeout(500)  # Wait after fill (matches AI behavior)\n"
+        code += f"{ind}    \n"
+        code += f"{ind}    # Verify the value was filled correctly\n"
+        code += f"{ind}    actual_value = element.input_value()\n"
+        code += f"{ind}    if actual_value == fill_text:\n"
+        code += f"{ind}        print(f'✅ Step {step_num}: Filled {field_name} (verified)')\n"
+        code += f"{ind}    else:\n"
+        code += f"{ind}        print(f'⚠️  Step {step_num}: Fill mismatch - expected {{fill_text[:20]}}..., got {{actual_value[:20]}}...')\n"
+        
+        # Sanitize field name for screenshot filename
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', field_name)[:50]
+        screenshot_path = f"storage/screenshots/pw_step{step_num}_{safe_name}.png"
+        code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
+        code += f"{ind}except Exception as e:\n"
+        code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name}: {{e}}')\n"
+        code += f"{ind}    raise\n"
         code += f"{ind}\n"
         
         return code
