@@ -19,8 +19,26 @@ def generate_navigate_step(step_num: int, step_text: str, action: Dict, indent: 
     url = action.get('input', {}).get('url', '')
     
     code = f"{ind}# Step {step_num}: {step_text}\n"
-    code += f"{ind}page.goto('{url}')\n"
-    code += f"{ind}print('📍 Step {step_num}: Navigated to {url}')\n\n"
+    code += f"{ind}try:\n"
+    code += f"{ind}    page.goto('{url}')\n"
+    code += f"{ind}    page.wait_for_load_state('networkidle')\n"
+    code += f"{ind}    print('📍 Step {step_num}: Navigated to {url}')\n"
+    code += f"{ind}    # Capture screenshot after navigation\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_navigate.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_navigate.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass\n"
+    code += f"{ind}except Exception as e:\n"
+    code += f"{ind}    print(f'❌ Step {step_num}: Navigation failed: {{e}}')\n"
+    code += f"{ind}    # Capture screenshot even on failure\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_navigate_failed.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_navigate_failed.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass\n"
+    code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
+    code += f"{ind}\n"
     
     return code
 
@@ -39,8 +57,25 @@ def generate_wait_step(step_num: int, step_text: str, action: Dict, indent: int)
         duration_ms = 1000
     
     code = f"{ind}# Step {step_num}: {step_text}\n"
-    code += f"{ind}page.wait_for_timeout({duration_ms})\n"
-    code += f"{ind}print('⏱️  Step {step_num}: Waited {duration_ms}ms')\n\n"
+    code += f"{ind}try:\n"
+    code += f"{ind}    page.wait_for_timeout({duration_ms})\n"
+    code += f"{ind}    print('⏱️  Step {step_num}: Waited {duration_ms}ms')\n"
+    code += f"{ind}    # Capture screenshot after wait\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_wait.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_wait.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass\n"
+    code += f"{ind}except Exception as e:\n"
+    code += f"{ind}    print(f'❌ Step {step_num}: Wait failed: {{e}}')\n"
+    code += f"{ind}    # Capture screenshot even on failure\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_wait_failed.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_wait_failed.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass\n"
+    code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
+    code += f"{ind}\n"
     
     return code
 
@@ -170,11 +205,18 @@ def generate_click_step(
         code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
     
     code += f"{ind}except Exception as e:\n"
+    # Always capture screenshot even on failure
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='{screenshot_path.replace('.png', '_failed.png')}')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: {screenshot_path.replace('.png', '_failed.png')}')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
     if is_optional:
         code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional): {{e}}')\n"
     else:
         code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}')\n"
-        code += f"{ind}    raise\n"
+        # Don't raise - continue to next step to capture more screenshots
+        code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
     code += f"{ind}\n"
     
     return code
@@ -392,8 +434,15 @@ def generate_fill_step(
     screenshot_path = f"storage/screenshots/pw_step{step_num}_{safe_name}.png"
     code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
     code += f"{ind}except Exception as e:\n"
+    # Always capture screenshot even on failure
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_{sanitize_filename(field_name)}_failed.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_{sanitize_filename(field_name)}_failed.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
     code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name}: {{e}}')\n"
-    code += f"{ind}    raise\n"
+    # Don't raise - continue to next step to capture more screenshots
+    code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
     code += f"{ind}\n"
     
     return code
@@ -481,8 +530,13 @@ def generate_verify_step(
     code += f"{ind}    \n"
     code += f"{ind}except Exception as e:\n"
     code += f"{ind}    print(f'❌ Step {step_num}: VERIFICATION FAILED: {{e}}')\n"
-    code += f"{ind}    page.screenshot(path='storage/screenshots/pw_step{step_num}_verify_failed.png')\n"
-    code += f"{ind}    raise\n\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step_num}_verify_failed.png')\n"
+    code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_verify_failed.png')\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
+    # Don't raise - continue to next step to capture more screenshots
+    code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n\n"
     
     return code
 

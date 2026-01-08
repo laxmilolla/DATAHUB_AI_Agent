@@ -121,7 +121,13 @@ def {test_name}():
             
         except Exception as e:
             print(f"❌ Test failed: {{e}}")
-            raise
+            # Capture final screenshot even on failure
+            try:
+                page.screenshot(path='storage/screenshots/pw_test_final_failed.png')
+                print(f'📸 Final screenshot saved: storage/screenshots/pw_test_final_failed.png')
+            except:
+                pass
+            # Don't raise - allow test to complete and capture all screenshots
         finally:
             browser.close()
 
