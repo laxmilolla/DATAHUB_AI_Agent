@@ -65,6 +65,70 @@ class DiscoveryTracker:
             except Exception as e:
                 logger.warning(f"  ⚠️ Failed to generate XPath: {e}")
         
+        # Fallback 2: If XPath generation failed, try to generate simple XPath from selector/text
+        if not xpath_to_use:
+            try:
+                # Extract element type and text from final_selector
+                selector = final_selector or original_query
+                element_text = None
+                element_type = None
+                
+                # Check if selector contains text= or :has-text()
+                if 'text=' in selector:
+                    element_text = selector.split('text=')[1].strip().strip("'\"")
+                elif ':has-text(' in selector:
+                    text_match = re.search(r":has-text\(['\"]([^'\"]+)['\"]\)", selector)
+                    if text_match:
+                        element_text = text_match.group(1)
+                
+                # Try to infer element type from selector or context
+                if 'button' in selector.lower() or 'button' in element_name.lower():
+                    element_type = 'button'
+                elif selector.startswith('input['):
+                    element_type = 'input'
+                    # Extract input type if available
+                    type_match = re.search(r"type=['\"]([^'\"]+)['\"]", selector)
+                    if type_match:
+                        input_type = type_match.group(1)
+                        if element_text:
+                            candidate_xpath = f"//input[@type='{input_type}' and normalize-space(.)='{element_text}']"
+                        else:
+                            candidate_xpath = f"//input[@type='{input_type}']"
+                        
+                        # Verify XPath works before using it
+                        if await self._verify_xpath(candidate_xpath):
+                            xpath_to_use = candidate_xpath
+                            uniqueness_method = "fallback_input_type"
+                            logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
+                elif selector.startswith('a[') or 'link' in selector.lower():
+                    element_type = 'a'
+                elif selector.startswith('select'):
+                    element_type = 'select'
+                
+                # Generate simple XPath based on type and text
+                if not xpath_to_use and element_type and element_text:
+                    # Escape quotes in text for XPath
+                    escaped_text = element_text.replace("'", "\\'")
+                    candidate_xpath = f"//{element_type}[normalize-space(.)='{escaped_text}']"
+                    
+                    # Verify XPath works before using it
+                    if await self._verify_xpath(candidate_xpath):
+                        xpath_to_use = candidate_xpath
+                        uniqueness_method = "fallback_text_match"
+                        logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
+                elif not xpath_to_use and element_text:
+                    # Generic fallback: try button first (most common for text selectors)
+                    escaped_text = element_text.replace("'", "\\'")
+                    candidate_xpath = f"//button[normalize-space(.)='{escaped_text}']"
+                    
+                    # Verify XPath works before using it
+                    if await self._verify_xpath(candidate_xpath):
+                        xpath_to_use = candidate_xpath
+                        uniqueness_method = "fallback_button_text"
+                        logger.info(f"  ✅ Verified fallback XPath (button): {xpath_to_use}")
+            except Exception as e:
+                logger.debug(f"  ⚠️ Fallback XPath generation failed: {e}")
+        
         # Look up element_id from registry if element exists
         element_id = None
         try:
