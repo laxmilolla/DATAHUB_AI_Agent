@@ -243,11 +243,13 @@
                         </div>
                         
                         <!-- Action Buttons -->
-                        ${status === 'completed' && discoveries.length > 0 ? `
+                        ${status === 'completed' ? `
                         <div class="status-actions">
+                            ${discoveries.length > 0 ? `
                             <button class="btn-primary" onclick="approveDiscoveries()">
                                 ✅ Approve & Update Registry
                             </button>
+                            ` : ''}
                             <button class="btn-primary" onclick="generatePlaywrightTest()">
                                 🎭 Generate Playwright Test
                             </button>
@@ -287,19 +289,19 @@
                 <!-- Main Content Card with Tabs -->
                 <div class="card">
                     <div class="tab-navigation">
-                        <button class="tab-button active" onclick="switchTab('overview')">
+                        <button class="tab-button active" onclick="switchTab('overview', event)">
                             📊 Overview
                         </button>
-                        <button class="tab-button" onclick="switchTab('steps')">
+                        <button class="tab-button" onclick="switchTab('steps', event)">
                             🎬 Steps (${totalSteps})
                         </button>
-                        <button class="tab-button" onclick="switchTab('discoveries')">
+                        <button class="tab-button" onclick="switchTab('discoveries', event)">
                             🔍 Discoveries (${discoveries.length})
                         </button>
-                        <button class="tab-button" onclick="switchTab('screenshots')">
+                        <button class="tab-button" onclick="switchTab('screenshots', event)">
                             📸 Screenshots (${screenshots.length})
                         </button>
-                        <button class="tab-button" onclick="switchTab('playwright')">
+                        <button class="tab-button" onclick="switchTab('playwright', event)">
                             🎭 Playwright
                         </button>
                     </div>
@@ -915,7 +917,7 @@
         // TAB SWITCHING
         // ===================================
         
-        function switchTab(tabName) {
+        function switchTab(tabName, event) {
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
             });
@@ -925,7 +927,19 @@
             });
             
             document.getElementById(`tab-${tabName}`).classList.add('active');
-            event.target.classList.add('active');
+            
+            // Find and activate the clicked button
+            if (event && event.target) {
+                event.target.classList.add('active');
+            } else {
+                // Fallback: find button by onclick attribute
+                const buttons = document.querySelectorAll('.tab-button');
+                buttons.forEach(btn => {
+                    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${tabName}'`)) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
         }
         
         // ===================================
@@ -962,8 +976,31 @@
         }
         
         async function generatePlaywrightTest() {
-            const statusDiv = document.getElementById('playwright-status');
-            if (!statusDiv) return;
+            // Find or create status div
+            let statusDiv = document.getElementById('playwright-status');
+            const resultsSection = document.getElementById('playwright-results-section');
+            
+            // If status div doesn't exist, create it or use results section
+            if (!statusDiv) {
+                if (resultsSection) {
+                    // Create status div before results section
+                    statusDiv = document.createElement('div');
+                    statusDiv.id = 'playwright-status';
+                    resultsSection.parentNode.insertBefore(statusDiv, resultsSection);
+                } else {
+                    // Create in playwright tab if it exists
+                    const playwrightTab = document.querySelector('[onclick*="playwright"]');
+                    if (playwrightTab) {
+                        statusDiv = document.createElement('div');
+                        statusDiv.id = 'playwright-status';
+                        statusDiv.style.marginTop = '20px';
+                        playwrightTab.parentElement.appendChild(statusDiv);
+                    } else {
+                        console.error('Cannot find playwright-status or playwright-results-section');
+                        return;
+                    }
+                }
+            }
             
             statusDiv.innerHTML = '<div style="text-align: center;"><span class="spinner"></span> Generating test code and validating...</div>';
             
@@ -993,6 +1030,11 @@
                             <h4>Generation Failed</h4>
                             <p>${error.message}</p>
                         </div>
+                    </div>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button class="btn-primary" onclick="generatePlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
+                            🔄 Retry Generation
+                        </button>
                     </div>
                 `;
             }
