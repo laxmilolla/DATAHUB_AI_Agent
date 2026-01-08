@@ -398,7 +398,29 @@ class BrowserClickTool:
                                     element_for_xpath = registry_button_element
                                     logger.info(f"  🔍 Using registry button element for XPath generation")
                                 elif original_element_for_xpath:
-                                    element_for_xpath = original_element_for_xpath
+                                    # Check if original element is actually a button, if not try to find button element
+                                    try:
+                                        original_props = await original_element_for_xpath.evaluate("""el => ({
+                                            tagName: el.tagName.toLowerCase(),
+                                            id: el.id
+                                        })""")
+                                        if original_props['tagName'] != 'button' and not (original_props.get('id') and 'login' in original_props['id'].lower()):
+                                            # Original element is not a button - try to find the actual button
+                                            logger.info(f"  🔍 Original element is {original_props['tagName']}, searching for button element...")
+                                            # Try to find button with login in id or near the matched element
+                                            button_locator = self.page.locator('#header-navbar-login-button, button:has-text("Login"), [id*="login"][role="button"]').first
+                                            button_count = await button_locator.count()
+                                            if button_count > 0:
+                                                element_for_xpath = await button_locator.element_handle()
+                                                logger.info(f"  ✅ Found actual button element for XPath generation")
+                                            else:
+                                                element_for_xpath = original_element_for_xpath
+                                                logger.info(f"  ⚠️  Could not find button element, using original element")
+                                        else:
+                                            element_for_xpath = original_element_for_xpath
+                                    except Exception as e:
+                                        logger.debug(f"  ⚠️  Error checking original element: {e}")
+                                        element_for_xpath = original_element_for_xpath
                                 else:
                                     element_for_xpath = chosen_locator
                                 

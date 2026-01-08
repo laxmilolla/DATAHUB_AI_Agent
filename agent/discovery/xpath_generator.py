@@ -121,6 +121,8 @@ class XPathGenerator:
             attrs = {k: v for k, v in attrs.items() if v is not None}
             
             logger.info(f"  📝 Extracted {len(attrs)} attributes: {list(attrs.keys())}")
+            if attrs.get('tag'):
+                logger.info(f"     🏷️  Tag: {attrs['tag']}")
             if attrs.get('id'):
                 logger.info(f"     🆔 ID: {attrs['id']}")
             if attrs.get('text'):
