@@ -114,7 +114,8 @@
         
         for (const [name, elem] of Object.entries(elements)) {
             const parent = elem.parent_name;
-            if (!parent || parent === 'None') {
+            // Handle both parser-generated (with parent_name) and AI-discovered (without parent_name) registries
+            if (!parent || parent === 'None' || parent === null || parent === undefined) {
                 topLevel.push({name, elem});
             } else {
                 nested.push({name, elem});
@@ -123,7 +124,8 @@
         
         // Build tree nodes
         function createNode(name, elem) {
-            const depth = elem.depth || 0;
+            // Handle both parser-generated (with depth) and AI-discovered (without depth) registries
+            const depth = elem.depth !== undefined ? elem.depth : 0;
             const type = elem.type || 'unknown';
             const parentName = elem.parent_name || 'None';
             
@@ -209,6 +211,7 @@
                     <div style="padding: 8px; background: #f5f5f5; border-radius: 4px;">${element.depth !== undefined ? element.depth : 'N/A'}</div>
                 </div>
                 
+                ${element.parent_name !== undefined ? `
                 <div style="margin: 10px 0;">
                     <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #555;">Current Parent:</label>
                     <div style="padding: 8px; background: #f5f5f5; border-radius: 4px; word-wrap: break-word; font-size: 0.9em;">
@@ -223,6 +226,25 @@
                         ${getParentOptions(name, element)}
                     </select>
                 </div>
+                ` : ''}
+                
+                ${element.xpath ? `
+                <div style="margin: 10px 0;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #555;">XPath:</label>
+                    <div style="padding: 8px; background: #f5f5f5; border-radius: 4px; word-wrap: break-word; font-size: 0.85em; font-family: monospace;">
+                        ${element.xpath}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${element.discovery_url ? `
+                <div style="margin: 10px 0;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 5px; color: #555;">Discovery URL:</label>
+                    <div style="padding: 8px; background: #f5f5f5; border-radius: 4px; word-wrap: break-word; font-size: 0.85em;">
+                        ${element.discovery_url}
+                    </div>
+                </div>
+                ` : ''}
                 
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #f0f0f0;">
                     <button onclick="deleteElementFromTree('${name.replace(/'/g, "\\'")}', this)" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 1em; transition: all 0.3s; box-shadow: 0 3px 12px rgba(244,67,54,0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 5px 18px rgba(244,67,54,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 3px 12px rgba(244,67,54,0.3)'">
@@ -427,7 +449,7 @@
         const filterType = document.getElementById('filterType').value;
         const filterDepth = document.getElementById('filterDepth').value;
         
-        if (!treeInstance || !currentRegistry) return;
+        if (!treeInstance || !treeCurrentRegistry) return;
         
         let totalNodes = 0;
         let visibleNodes = 0;
@@ -517,8 +539,8 @@
         const parentSelect = document.getElementById('newElementParent');
         parentSelect.innerHTML = '<option value="">-- Top-level (No parent) --</option>';
         
-        if (currentRegistry && currentRegistry.elements) {
-            const elementNames = Object.keys(currentRegistry.elements).sort();
+        if (treeCurrentRegistry && treeCurrentRegistry.elements) {
+            const elementNames = Object.keys(treeCurrentRegistry.elements).sort();
             elementNames.forEach(name => {
                 const option = document.createElement('option');
                 option.value = name;
@@ -558,7 +580,7 @@
         }
         
         // Check if element already exists
-        if (currentRegistry && currentRegistry.elements && name in currentRegistry.elements) {
+        if (treeCurrentRegistry && treeCurrentRegistry.elements && name in treeCurrentRegistry.elements) {
             if (!confirm(`An element named "${name}" already exists. Overwrite it?`)) {
                 return;
             }
@@ -580,27 +602,27 @@
         }
         
         // Add to registry
-        if (!currentRegistry.elements) {
-            currentRegistry.elements = {};
+        if (!treeCurrentRegistry.elements) {
+            treeCurrentRegistry.elements = {};
         }
-        currentRegistry.elements[name] = newElement;
+        treeCurrentRegistry.elements[name] = newElement;
         
         // Update parent-child relationships
         if (parent) {
-            if (!currentRegistry.parent_child_relationships) {
-                currentRegistry.parent_child_relationships = {};
+            if (!treeCurrentRegistry.parent_child_relationships) {
+                treeCurrentRegistry.parent_child_relationships = {};
             }
-            if (!currentRegistry.parent_child_relationships[parent]) {
-                currentRegistry.parent_child_relationships[parent] = [];
+            if (!treeCurrentRegistry.parent_child_relationships[parent]) {
+                treeCurrentRegistry.parent_child_relationships[parent] = [];
             }
-            if (!currentRegistry.parent_child_relationships[parent].includes(name)) {
-                currentRegistry.parent_child_relationships[parent].push(name);
+            if (!treeCurrentRegistry.parent_child_relationships[parent].includes(name)) {
+                treeCurrentRegistry.parent_child_relationships[parent].push(name);
             }
         }
         
         // Mark as unsaved and rebuild tree
         markUnsaved();
-        buildTree();
+        buildTree(treeCurrentRegistry);
         
         // Close form
         closeAddElementForm();
@@ -616,19 +638,19 @@
             return;
         }
 
-        // Find and remove from currentRegistry
-        if (currentRegistry && currentRegistry.elements) {
-            if (elementName in currentRegistry.elements) {
-                delete currentRegistry.elements[elementName];
+        // Find and remove from treeCurrentRegistry
+        if (treeCurrentRegistry && treeCurrentRegistry.elements) {
+            if (elementName in treeCurrentRegistry.elements) {
+                delete treeCurrentRegistry.elements[elementName];
                 
                 // Also remove from parent_child_relationships if present
-                if (currentRegistry.parent_child_relationships) {
+                if (treeCurrentRegistry.parent_child_relationships) {
                     // Remove as a parent
-                    delete currentRegistry.parent_child_relationships[elementName];
+                    delete treeCurrentRegistry.parent_child_relationships[elementName];
                     
                     // Remove as a child from other parents
-                    for (let parent in currentRegistry.parent_child_relationships) {
-                        const children = currentRegistry.parent_child_relationships[parent];
+                    for (let parent in treeCurrentRegistry.parent_child_relationships) {
+                        const children = treeCurrentRegistry.parent_child_relationships[parent];
                         const index = children.indexOf(elementName);
                         if (index > -1) {
                             children.splice(index, 1);
@@ -638,7 +660,7 @@
                 
                 // Mark as unsaved and rebuild tree
                 markUnsaved();
-                buildTree();
+                buildTree(treeCurrentRegistry);
                 
                 // Clear properties panel
                 document.getElementById('elementProperties').innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">✅ Element deleted. Select another element or save changes.</p>';
