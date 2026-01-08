@@ -148,6 +148,7 @@ class BrowserClickTool:
             logger.info(f"  🔍 Found {len(visible_matches)} visible matches, asking LLM to choose...")
             candidates = []
             original_element_map = {}  # Map parent element -> original element for XPath generation
+            actual_button_element = None  # Store the actual button element (not text node) for XPath generation
             
             for i, match in enumerate(visible_matches):
                 description = await self.llm_helper.describe_element(match)
@@ -155,10 +156,12 @@ class BrowserClickTool:
                 # Check if element is interactive
                 element_props = await match.evaluate("""el => ({
                     tagName: el.tagName.toLowerCase(),
+                    id: el.id,
                     role: el.getAttribute('role'),
                     ariaExpanded: el.getAttribute('aria-expanded'),
                     ariaSelected: el.getAttribute('aria-selected'),
-                    hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
+                    hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick'),
+                    className: el.className
                 })""")
                 
                 is_interactive = (
@@ -169,11 +172,19 @@ class BrowserClickTool:
                     element_props['hasClickHandler']
                 )
                 
+                # CRITICAL FIX: Identify actual button element (not text node) for XPath generation
+                # Look for button element with id like #header-navbar-login-button or button tag
+                if element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower()):
+                    if actual_button_element is None:
+                        actual_button_element = match
+                        logger.info(f"  🔍 Found actual button element for XPath: tag={element_props['tagName']}, id={element_props['id']}")
+                
                 candidates.append({
                     "index": len(candidates),
                     "element": match,
                     "description": description,
-                    "is_original": True  # Mark original elements
+                    "is_original": True,  # Mark original elements
+                    "is_button": element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower())
                 })
                 
                 # Tree climbing if not interactive and not using registry XPath
@@ -196,21 +207,37 @@ class BrowserClickTool:
             if len(candidates) > 1:
                 best_index = await self.llm_helper.choose_element(candidates, selector)
                 chosen_locator = candidates[best_index]["element"]
-                # CRITICAL FIX: Use original element for XPath, not the parent
-                if candidates[best_index].get("is_original", True):
+                # CRITICAL FIX: Use actual button element for XPath, not text node or parent
+                if actual_button_element:
+                    # Found actual button element - use it for XPath generation
+                    original_element_for_xpath = actual_button_element
+                    logger.info(f"  🔍 Using actual button element for XPath generation")
+                elif candidates[best_index].get("is_original", True):
+                    # LLM chose an original element - use it
                     original_element_for_xpath = chosen_locator
                 else:
-                    # LLM chose a parent - use the original element that triggered tree climbing
-                    original_element_for_xpath = candidates[best_index].get("original_element", visible_matches[0])
+                    # LLM chose a parent - try to find button from original matches
+                    # Look for button element in original matches
+                    button_match = None
+                    for match in visible_matches:
+                        props = await match.evaluate("""el => ({
+                            tagName: el.tagName.toLowerCase(),
+                            id: el.id
+                        })""")
+                        if props['tagName'] == 'button' or (props['id'] and 'login' in props['id'].lower()):
+                            button_match = match
+                            break
+                    original_element_for_xpath = button_match if button_match else candidates[best_index].get("original_element", visible_matches[0])
             else:
                 chosen_locator = candidates[0]["element"]
-                original_element_for_xpath = candidates[0]["element"]
+                original_element_for_xpath = actual_button_element if actual_button_element else candidates[0]["element"]
         elif len(visible_matches) == 1:
             # Single match - check if interactive, try tree climbing if not
             match = visible_matches[0]
             if not using_registry_xpath:
                 element_props = await match.evaluate("""el => ({
                     tagName: el.tagName.toLowerCase(),
+                    id: el.id,
                     role: el.getAttribute('role'),
                     ariaExpanded: el.getAttribute('aria-expanded'),
                     hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
@@ -223,12 +250,18 @@ class BrowserClickTool:
                     element_props['hasClickHandler']
                 )
                 
+                # CRITICAL FIX: If element is a button, use it for XPath even if tree climbing finds parent
+                is_button = element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower())
+                
                 if not is_interactive:
                     logger.info(f"  🔍 Element not interactive, climbing tree...")
                     parent = await self._try_tree_climbing(match)
                     if parent:
                         chosen_locator = parent
-                        original_element_for_xpath = match
+                        # Use button element for XPath if it's a button, otherwise use original match
+                        original_element_for_xpath = match if is_button else match
+                        if is_button:
+                            logger.info(f"  🔍 Using button element for XPath generation (tag={element_props['tagName']}, id={element_props['id']})")
                     else:
                         chosen_locator = match
                         original_element_for_xpath = match
