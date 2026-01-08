@@ -237,6 +237,71 @@
         .tab-content.active {
             display: block;
         }
+        
+        /* Step Timeline Styling */
+        .step-timeline {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        
+        .step-indicator {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9em;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+        }
+        
+        .step-indicator.passed {
+            background: #28a745;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+        }
+        
+        .step-indicator.failed {
+            background: #dc3545;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+        }
+        
+        .step-indicator:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        
+        .step-connector {
+            width: 30px;
+            height: 3px;
+            background: #dee2e6;
+            flex-shrink: 0;
+        }
+        
+        @media (max-width: 768px) {
+            .step-timeline {
+                justify-content: center;
+            }
+            
+            .step-indicator {
+                width: 35px;
+                height: 35px;
+                font-size: 0.85em;
+            }
+            
+            .step-connector {
+                width: 20px;
+            }
+        }
     </style>
 </head>
 <body>
