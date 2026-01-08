@@ -137,6 +137,7 @@ class BrowserClickTool:
             # Multiple matches - use LLM disambiguation
             logger.info(f"  🔍 Found {len(visible_matches)} visible matches, asking LLM to choose...")
             candidates = []
+            original_element_map = {}  # Map parent element -> original element for XPath generation
             
             for i, match in enumerate(visible_matches):
                 description = await self.llm_helper.describe_element(match)
@@ -161,7 +162,8 @@ class BrowserClickTool:
                 candidates.append({
                     "index": len(candidates),
                     "element": match,
-                    "description": description
+                    "description": description,
+                    "is_original": True  # Mark original elements
                 })
                 
                 # Tree climbing if not interactive and not using registry XPath
@@ -173,14 +175,23 @@ class BrowserClickTool:
                         candidates.append({
                             "index": len(candidates),
                             "element": parent,
-                            "description": parent_desc + "\n(PARENT found via tree climbing)"
+                            "description": parent_desc + "\n(PARENT found via tree climbing)",
+                            "is_original": False,
+                            "original_element": match  # Store reference to original element
                         })
+                        # Map parent to original for XPath generation
+                        original_element_map[id(parent)] = match
             
             # Ask LLM to choose
             if len(candidates) > 1:
                 best_index = await self.llm_helper.choose_element(candidates, selector)
                 chosen_locator = candidates[best_index]["element"]
-                original_element_for_xpath = candidates[0]["element"]
+                # CRITICAL FIX: Use original element for XPath, not the parent
+                if candidates[best_index].get("is_original", True):
+                    original_element_for_xpath = chosen_locator
+                else:
+                    # LLM chose a parent - use the original element that triggered tree climbing
+                    original_element_for_xpath = candidates[best_index].get("original_element", visible_matches[0])
             else:
                 chosen_locator = candidates[0]["element"]
                 original_element_for_xpath = candidates[0]["element"]
