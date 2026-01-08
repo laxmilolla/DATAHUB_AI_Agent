@@ -107,7 +107,8 @@ class RegistryManager:
                                 "source": "ai_discovery",
                                 "discovery_method": discovery['discovery_method'],
                                 "usage_count": 1,
-                                "alternatives": []
+                                "alternatives": [],
+                                "discovery_url": discovery.get('discovery_url')  # Preserve discovery URL
                             }
                             
                             # Assign element_id if not present
