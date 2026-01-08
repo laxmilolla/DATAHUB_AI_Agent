@@ -79,3 +79,4 @@ def is_optional_step(step_text: str) -> bool:
     step_lower = step_text.lower()
     return 'optional' in step_lower or 'if there is' in step_lower
 
+

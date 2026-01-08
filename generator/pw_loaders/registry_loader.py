@@ -188,3 +188,4 @@ def merge_registries(registry_files: List[str], element_maps_dir: Path) -> Dict:
     
     return merged_registry
 
+

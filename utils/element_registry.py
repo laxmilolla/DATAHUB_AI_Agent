@@ -4,6 +4,7 @@ Element Registry - Loads and manages element maps with learning capability
 
 import json
 import os
+import hashlib
 from typing import Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,10 @@ class ElementRegistry:
             with open(map_path, 'r') as f:
                 element_map = json.load(f)
             
+            # Ensure all elements have IDs (backward compatibility)
+            element_map = self._ensure_all_elements_have_ids(element_map)
+            element_map = self._ensure_id_index(element_map)
+            
             # Cache it
             cache_key = f"{domain}:{page}"
             self.current_maps[cache_key] = element_map
@@ -45,9 +50,60 @@ class ElementRegistry:
             print(f"Error loading map from {map_path}: {e}")
             return None
     
+    def _generate_element_id(self, element_name: str, xpath: str = None) -> str:
+        """
+        Generate unique, stable element ID
+        Uses hash of name + xpath for stability (same element = same ID)
+        Format: ID_<sequential>_<short_hash>
+        """
+        # Create hash from name and xpath for stability
+        hash_input = f"{element_name}|{xpath or ''}"
+        hash_value = hashlib.md5(hash_input.encode()).hexdigest()[:8]
+        
+        # For now, use hash-based ID (can be sequential later)
+        return f"ID_{hash_value}"
+    
+    def _ensure_id_index(self, element_map: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure id_index exists and is up-to-date"""
+        if 'id_index' not in element_map:
+            element_map['id_index'] = {}
+        
+        elements = element_map.get('elements', {})
+        id_index = element_map['id_index']
+        
+        # Build/update id_index from elements
+        for key, element in elements.items():
+            element_id = element.get('element_id')
+            if element_id:
+                id_index[element_id] = key
+        
+        return element_map
+    
+    def _ensure_all_elements_have_ids(self, element_map: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure all elements have element_id assigned"""
+        elements = element_map.get('elements', {})
+        id_index = element_map.get('id_index', {})
+        
+        for key, element in elements.items():
+            if 'element_id' not in element or not element.get('element_id'):
+                # Generate ID if missing
+                xpath = element.get('xpath', '')
+                element_id = self._generate_element_id(key, xpath)
+                element['element_id'] = element_id
+                id_index[element_id] = key
+        
+        element_map['id_index'] = id_index
+        return element_map
+    
     def save_map(self, domain: str, page: str, element_map: Dict[str, Any]):
         """Save element map to file"""
         map_path = self.get_map_path(domain, page)
+        
+        # Ensure all elements have IDs
+        element_map = self._ensure_all_elements_have_ids(element_map)
+        
+        # Ensure id_index exists
+        element_map = self._ensure_id_index(element_map)
         
         # Update timestamp
         element_map["last_updated"] = datetime.utcnow().isoformat() + "Z"
@@ -224,10 +280,16 @@ class ElementRegistry:
             print(f"  ✅ Adding new element: {element_name}")
             is_new = True
         
+        # Ensure element has ID
+        if 'element_id' not in element or not element.get('element_id'):
+            xpath = discovery_data.get('xpath', '')
+            element['element_id'] = self._generate_element_id(element_name, xpath)
+        
         # Update with discovery data
         element.update({
             "query": original_query,
             "selector": final_selector,  # This is the STABLE selector for Playwright!
+            "xpath": discovery_data.get('xpath', element.get('xpath', '')),  # Ensure xpath is stored
             "type": "discovered",
             "discovery": {
                 "method": discovery_data.get("discovery_method"),

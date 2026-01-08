@@ -1,0 +1,32 @@
+{
+  "elements": {
+    "Sign up button": {
+      "selector": "button:has-text('Sign up')",
+      "source": "tree_parse",
+      "text": "Sign up",
+      "type": "button",
+      "uniqueness_method": "text_only",
+      "xpath": "//button[normalize-space(.)='Sign up']",
+      "element_id": "ID_1a0fea7e"
+    },
+    "email input": {
+      "selector": "input[type='text']",
+      "source": "tree_parse",
+      "type": "input",
+      "uniqueness_method": "id_only",
+      "xpath": "//input[@id='email-input']",
+      "element_id": "ID_552fa809"
+    }
+  },
+  "page": "hub_home",
+  "parent_child_relationships": {},
+  "parsed_at": "2026-01-07T00:32:32.892282",
+  "parser_type": "playwright_tree_branch_by_branch",
+  "url": "https://hub-stage.datacommons.cancer.gov/",
+  "version": "5.0_branch",
+  "id_index": {
+    "ID_1a0fea7e": "Sign up button",
+    "ID_552fa809": "email input"
+  },
+  "last_updated": "2026-01-07T00:32:32.993062Z"
+}

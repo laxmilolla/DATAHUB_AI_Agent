@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced HTML Parser - Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 5px 15px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 5px;
+        }
+        
+        main {
+            padding: 40px;
+        }
+        
+        section {
+            margin-bottom: 40px;
+        }
+        
+        h2 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        h3 {
+            color: #764ba2;
+            font-size: 1.5em;
+            margin: 30px 0 15px 0;
+        }
+        
+        h4 {
+            color: #555;
+            font-size: 1.2em;
+            margin: 20px 0 10px 0;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .feature-card {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        
+        .feature-card h4 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        
+        code {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .comparison-table th,
+        .comparison-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .comparison-table th {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .comparison-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .comparison-table tr:hover {
+            background: #e8eaf6;
+        }
+        
+        .checkmark {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .crossmark {
+            color: #f44336;
+            font-weight: bold;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 30px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .stat-card .label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .alert {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .alert.success {
+            background: #e8f5e9;
+            border-left-color: #4CAF50;
+        }
+        
+        .alert.warning {
+            background: #fff3e0;
+            border-left-color: #ff9800;
+        }
+        
+        footer {
+            background: #333;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Enhanced HTML Parser</h1>
+            <p>Rich, Self-Healing, Adaptive Metadata for AI Test Generation</p>
+            <div style="margin-top: 20px;">
+                <span class="badge">Version 2.0</span>
+                <span class="badge">✅ DEPLOYED</span>
+                <span class="badge">Dec 29, 2025</span>
+            </div>
+        </header>
+
+        <main>
+            <section>
+                <h2>📋 Overview</h2>
+                <p style="font-size: 1.1em; line-height: 1.8;">
+                    The HTML Parser has been <strong>massively enhanced</strong> with 10 new features to provide 
+                    <strong>rich, self-healing, adaptive metadata</strong> that helps BOTH the AI Agent AND Playwright code generation.
+                </p>
+                
+                <div class="alert success">
+                    <strong>Key Philosophy:</strong> Registry is a <strong>CACHE</strong>, Not a Requirement
+                    <ul style="margin-top: 10px;">
+                        <li>✅ Provides initial "hints" to speed up discovery</li>
+                        <li>✅ AI can still discover elements LIVE if HTML changes</li>
+                        <li>✅ Registry updates automatically with new discoveries</li>
+                        <li>❌ NOT hardcoded paths that break when HTML changes</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section>
+                <h2>🎯 What Was Implemented</h2>
+                
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h4>1. Tab Extraction</h4>
+                        <p>Extracts ALL tabs with <code>role="tab"</code> and adds location context.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> AI distinguishes "Diagnosis tab" from "Diagnosis accordion"</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>2. Location Detection</h4>
+                        <p>Tags every element with semantic location: sidebar-filters, main-content, data-table-area, footer.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> AI can filter by location</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>3. Disambiguation</h4>
+                        <p>Adds semantic types: "tab-control" vs "filter-accordion"</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> NO MORE CONFUSION!</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>4. Stability Scoring</h4>
+                        <p>Each element has 3-5 selector options, prioritized by stability (1-5).</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> Automatic fallbacks</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>5. Table Structure</h4>
+                        <p>Extracts column headers, associated tabs, pagination controls.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> Table verification becomes automatic</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>6. Page Sections</h4>
+                        <p>Identifies major page sections for hierarchical structure.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> AI understands page layout</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>7. Playwright Hints</h4>
+                        <p>Adds behavioral hints: wait strategies, expected changes, verify selectors.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> Generated code knows what to wait for</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>8. Relationships</h4>
+                        <p>Maps tabs→panels, accordions→content.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> AI knows element relationships</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>9. Enhanced Naming</h4>
+                        <p>Names convey location and purpose: "Diagnosis accordion (sidebar)"</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> Instantly clear context</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>10. Version 2.0</h4>
+                        <p>Registry format bumped to v2.0 with backward compatibility.</p>
+                        <p style="margin-top: 10px;"><strong>Benefit:</strong> Future-proof architecture</p>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>📊 Real Results</h2>
+                <p style="font-size: 1.1em; margin-bottom: 20px;">
+                    Parsed <strong>clinicalcommons.ccdi.cancer.gov</strong> with the Enhanced Parser:
+                </p>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="number">352</span>
+                        <span class="label">Total Elements</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="number">3</span>
+                        <span class="label">Tabs (NEW!)</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="number">35</span>
+                        <span class="label">Accordions</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="number">4</span>
+                        <span class="label">Page Sections</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="number">35</span>
+                        <span class="label">Relationships</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="number">5</span>
+                        <span class="label">Table Columns</span>
+                    </div>
+                </div>
+
+                <h3>✅ Disambiguation SUCCESS</h3>
+                <pre><code>{
+  "Diagnosis(28,944) tab (main content area)": {
+    "type": "tab",
+    "location": "main-content",
+    "semantic_type": "tab-control",
+    "stability_score": 3
+  },
+  "Diagnosis accordion (page)": {
+    "type": "accordion",
+    "location": "unknown",
+    "semantic_type": "content-accordion",
+    "stability_score": 4
+  }
+}</code></pre>
+                <p style="font-size: 1.1em; color: #4CAF50; font-weight: bold;">
+                    The AI now KNOWS these are DIFFERENT elements! 🎉
+                </p>
+            </section>
+
+            <section>
+                <h2>📈 Before vs After</h2>
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th>Before (v1.0)</th>
+                            <th>After (v2.0)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Tab Extraction</strong></td>
+                            <td><span class="crossmark">❌</span> Not extracted</td>
+                            <td><span class="checkmark">✅</span> Fully extracted with context</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Location Context</strong></td>
+                            <td><span class="crossmark">❌</span> No context</td>
+                            <td><span class="checkmark">✅</span> sidebar, main-content, data-table-area</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Disambiguation</strong></td>
+                            <td><span class="crossmark">❌</span> "Diagnosis" ambiguous</td>
+                            <td><span class="checkmark">✅</span> "Diagnosis tab" vs "Diagnosis accordion"</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Selector Stability</strong></td>
+                            <td><span class="crossmark">❌</span> Single selector</td>
+                            <td><span class="checkmark">✅</span> 3-5 options, prioritized by score</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Table Columns</strong></td>
+                            <td><span class="crossmark">❌</span> Only &lt;table&gt; tag</td>
+                            <td><span class="checkmark">✅</span> Columns, tabs, pagination extracted</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Playwright Hints</strong></td>
+                            <td><span class="crossmark">❌</span> None</td>
+                            <td><span class="checkmark">✅</span> Wait strategies, verify selectors</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Relationships</strong></td>
+                            <td><span class="crossmark">❌</span> None</td>
+                            <td><span class="checkmark">✅</span> tabs→panels, accordions→content</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section>
+                <h2>🔄 Self-Healing Architecture</h2>
+                
+                <div class="alert">
+                    <h4 style="margin-top: 0;">❌ This is NOT Hardcoding!</h4>
+                    <p><strong>Think of it like Google Maps:</strong></p>
+                    <ul style="margin-top: 10px;">
+                        <li><strong>HTML Parser</strong> = Satellite imagery (pre-mapping)</li>
+                        <li><strong>Registry</strong> = Saved locations database</li>
+                        <li><strong>AI Agent</strong> = Live GPS navigation</li>
+                        <li><strong>If a road changes:</strong> GPS recalculates route automatically! ✅</li>
+                    </ul>
+                </div>
+
+                <h3>Scenario 1: Element EXISTS in Registry</h3>
+                <pre><code>AI Agent: "Find 'Diagnosis' tab in data-table"
+  ↓
+Registry: "Here's a hint: [role='tab']:has-text('Diagnosis')"
+  ↓
+AI tries registry selector FIRST
+  ↓
+✅ Works → Fast! No discovery needed</code></pre>
+
+                <h3>Scenario 2: Element NOT in Registry</h3>
+                <pre><code>AI Agent: "Find 'New Feature' button"
+  ↓
+Registry: "Never seen this before"
+  ↓
+AI discovers LIVE (like it does now)
+  ↓
+Saves to registry for next time
+  ↓
+✅ Registry grows automatically!</code></pre>
+
+                <h3>Scenario 3: HTML Changed</h3>
+                <pre><code>Playwright uses registry selector
+  ↓
+❌ Element not found
+  ↓
+Playwright falls back to AI discovery
+  ↓
+AI finds element with NEW selector
+  ↓
+Registry updates: selector "old" → "new"
+  ↓
+✅ Self-healing test!</code></pre>
+            </section>
+
+            <section>
+                <h2>🚀 What This Enables</h2>
+                
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h4>For AI Agent</h4>
+                        <ul>
+                            <li>✅ Instant disambiguation</li>
+                            <li>✅ Location filtering</li>
+                            <li>✅ Faster first runs</li>
+                            <li>✅ Better LLM context</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>For Playwright Generator</h4>
+                        <ul>
+                            <li>✅ Better selectors (score 3-5/5)</li>
+                            <li>✅ Automatic wait strategies</li>
+                            <li>✅ Table column verification</li>
+                            <li>✅ Fallback logic</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <h4>For You</h4>
+                        <ul>
+                            <li>✅ Less ambiguous stories</li>
+                            <li>✅ More reliable tests</li>
+                            <li>✅ Faster test generation</li>
+                            <li>✅ Self-healing</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>🚀 How to Use the Parser</h2>
+                
+                <div class="alert">
+                    <h4 style="margin-top: 0;">📌 Important: You DON'T need to run this manually!</h4>
+                    <p>The parser already ran for <strong>clinicalcommons.ccdi.cancer.gov</strong> and populated the registry with 352 elements.</p>
+                    <p><strong>The AI will use this automatically</strong> when you run test stories for that website.</p>
+                </div>
+
+                <h3>When to Re-parse:</h3>
+                <ul style="margin-left: 30px; line-height: 2;">
+                    <li>✅ <strong>NEW website</strong> - To create initial element map</li>
+                    <li>✅ <strong>Major UI changes</strong> - To refresh the registry (optional, AI will still adapt)</li>
+                    <li>✅ <strong>Periodic updates</strong> - Every few weeks for optimization (optional)</li>
+                </ul>
+
+                <h3>SSH into EC2 and Run:</h3>
+                <pre><code># 1. SSH into server
+ssh -i ~/path/to/your-key.pem ubuntu@13.222.91.163
+
+# 2. Navigate to project
+cd ~/DATAHUB_AI_Agent
+
+# 3. Activate virtual environment
+source venv/bin/activate
+
+# 4. Run parser for a website
+python utils/fetch_and_parse_html.py https://YOUR_WEBSITE.com/path page_name
+
+# Example:
+python utils/fetch_and_parse_html.py https://example.com/explore home</code></pre>
+
+                <h3>View the Generated Registry:</h3>
+                <pre><code># Pretty print the entire registry
+cat element_maps/clinicalcommons.ccdi.cancer.gov/home_page.json | python3 -m json.tool | less
+
+# Search for specific elements
+cat element_maps/clinicalcommons.ccdi.cancer.gov/home_page.json | grep "Diagnosis"
+
+# Count elements by type
+cat element_maps/clinicalcommons.ccdi.cancer.gov/home_page.json | grep '"type"' | sort | uniq -c</code></pre>
+
+                <h3>That's It! 🎉</h3>
+                <p style="font-size: 1.1em; margin-top: 20px;">
+                    Once the parser runs, the AI Agent will <strong>automatically use the registry</strong> 
+                    when you run test stories. No additional configuration needed!
+                </p>
+            </section>
+
+            <section>
+                <h2>🎉 Summary</h2>
+                
+                <div class="alert success">
+                    <h4 style="margin-top: 0;">You asked: "Will this hardcode anything?"</h4>
+                    <p><strong>Answer:</strong></p>
+                    <ul style="margin-top: 10px; font-size: 1.1em;">
+                        <li>❌ <strong>NO hardcoding!</strong></li>
+                        <li>❌ <strong>NO re-training required!</strong></li>
+                        <li>✅ <strong>Self-healing, adaptive architecture!</strong></li>
+                        <li>✅ <strong>Registry is a CACHE for speed, not a requirement!</strong></li>
+                    </ul>
+                </div>
+
+                <h3>The AI Test Generation Tool is now:</h3>
+                <ul style="font-size: 1.1em; line-height: 2;">
+                    <li>🧠 <strong>SMARTER</strong> (knows page structure)</li>
+                    <li>⚡ <strong>FASTER</strong> (registry hints)</li>
+                    <li>🛡️ <strong>MORE RESILIENT</strong> (multiple selectors)</li>
+                    <li>🔄 <strong>SELF-HEALING</strong> (updates automatically)</li>
+                </ul>
+
+                <p style="font-size: 1.3em; color: #4CAF50; font-weight: bold; margin-top: 30px; text-align: center;">
+                    All 10 enhancements are deployed and ready! 🚀
+                </p>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 National Cancer Institute & Essential Software Inc.</p>
+            <p style="margin-top: 10px; opacity: 0.8;">Enhanced HTML Parser v2.0 | AI-Driven Test Generation</p>
+        </footer>
+    </div>
+</body>
+</html>
+

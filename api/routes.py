@@ -8,7 +8,7 @@ from datetime import datetime
 import threading
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from agent.bedrock_playwright_agent import BedrockPlaywrightAgent
+from agent.core.agent import Agent
 from utils.html_parser import parse_html_to_element_map
 from utils.element_registry import get_registry
 
@@ -25,8 +25,8 @@ def execute_story():
         if not story:
             return jsonify({'error': 'Story required'}), 400
         
-        agent = BedrockPlaywrightAgent()
-        execution_id = agent.execution_id
+        agent = Agent()
+        execution_id = agent.context.execution_id
         
         # Get project root before threading
         project_root = current_app.config['PROJECT_ROOT']
@@ -513,6 +513,10 @@ def approve_discoveries(execution_id):
 def generate_and_validate(exec_id):
     """Generate Playwright test and validate it"""
     try:
+        # Force reload to ensure latest code
+        import importlib
+        if 'generator.playwright_generator' in sys.modules:
+            importlib.reload(sys.modules['generator.playwright_generator'])
         from generator.playwright_generator import PlaywrightGenerator
         from validator.test_runner import TestRunner
         from validator.comparator import Comparator

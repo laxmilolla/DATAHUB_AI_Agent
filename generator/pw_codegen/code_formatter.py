@@ -47,3 +47,4 @@ def generate_test_name(story: str) -> str:
     name = '_'.join(name_words) if name_words else 'test'
     return f"test_{name}"
 
+

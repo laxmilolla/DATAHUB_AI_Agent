@@ -1,0 +1,859 @@
+{
+  "elements": {
+    "Accessibility link": {
+      "alternatives": [
+        "a:has-text('Accessibility')"
+      ],
+      "description": "Link to Accessibility",
+      "href": "https://www.cancer.gov/policies/accessibility",
+      "selector": "a[href='https://www.cancer.gov/policies/accessibility']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Add All Files button": {
+      "alternatives": [],
+      "description": "Button: Add All Files",
+      "selector": "button:has-text('Add All Files')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Add Files for All Cases button": {
+      "alternatives": [],
+      "description": "Button: Add Files for All Cases",
+      "selector": "button:has-text('Add Files for All Cases')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Add Files for All Samples button": {
+      "alternatives": [],
+      "description": "Button: Add Files for All Samples",
+      "selector": "button:has-text('Add Files for All Samples')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Add Files for Selected Cases button": {
+      "alternatives": [],
+      "description": "Button: Add Files for Selected Cases",
+      "selector": "button:has-text('Add Files for Selected Cases')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Add Files for Selected Sample button": {
+      "alternatives": [],
+      "description": "Button: Add Files for Selected Sample",
+      "selector": "button:has-text('Add Files for Selected Sample')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Add Selected Files button": {
+      "alternatives": [],
+      "description": "Button: Add Selected Files",
+      "selector": "button:has-text('Add Selected Files')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Biobank dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Biobank')",
+        ".customExpansionPanelSummaryRoot:has-text('Biobank')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Biobank",
+      "selector": "#Biobank[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Breed dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Breed')",
+        ".customExpansionPanelSummaryRoot:has-text('Breed')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Breed",
+      "selector": "#Breed[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "CLEAR ALL button": {
+      "alternatives": [],
+      "description": "Button: CLEAR ALL",
+      "selector": "button:has-text('CLEAR ALL')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "COLLAPSE VIEW button": {
+      "alternatives": [],
+      "description": "Button: COLLAPSE VIEW",
+      "selector": "button:has-text('COLLAPSE VIEW')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "COTC007B link": {
+      "alternatives": [
+        "a:has-text('COTC007B')"
+      ],
+      "description": "Link to COTC007B",
+      "href": "#/study/COTC007B",
+      "selector": "a[href='#/study/COTC007B']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0101 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0101')"
+      ],
+      "description": "Link to COTC007B-0101",
+      "href": "#/case/COTC007B-0101",
+      "selector": "a[href='#/case/COTC007B-0101']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0201 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0201')"
+      ],
+      "description": "Link to COTC007B-0201",
+      "href": "#/case/COTC007B-0201",
+      "selector": "a[href='#/case/COTC007B-0201']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0202 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0202')"
+      ],
+      "description": "Link to COTC007B-0202",
+      "href": "#/case/COTC007B-0202",
+      "selector": "a[href='#/case/COTC007B-0202']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0203 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0203')"
+      ],
+      "description": "Link to COTC007B-0203",
+      "href": "#/case/COTC007B-0203",
+      "selector": "a[href='#/case/COTC007B-0203']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0204 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0204')"
+      ],
+      "description": "Link to COTC007B-0204",
+      "href": "#/case/COTC007B-0204",
+      "selector": "a[href='#/case/COTC007B-0204']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0205 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0205')"
+      ],
+      "description": "Link to COTC007B-0205",
+      "href": "#/case/COTC007B-0205",
+      "selector": "a[href='#/case/COTC007B-0205']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0206 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0206')"
+      ],
+      "description": "Link to COTC007B-0206",
+      "href": "#/case/COTC007B-0206",
+      "selector": "a[href='#/case/COTC007B-0206']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0207 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0207')"
+      ],
+      "description": "Link to COTC007B-0207",
+      "href": "#/case/COTC007B-0207",
+      "selector": "a[href='#/case/COTC007B-0207']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0208 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0208')"
+      ],
+      "description": "Link to COTC007B-0208",
+      "href": "#/case/COTC007B-0208",
+      "selector": "a[href='#/case/COTC007B-0208']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "COTC007B-0209 link": {
+      "alternatives": [
+        "a:has-text('COTC007B-0209')"
+      ],
+      "description": "Link to COTC007B-0209",
+      "href": "#/case/COTC007B-0209",
+      "selector": "a[href='#/case/COTC007B-0209']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "CRDC link": {
+      "alternatives": [
+        "a:has-text('CRDC')"
+      ],
+      "description": "Link to CRDC",
+      "href": "#/crdc",
+      "selector": "a[href='#/crdc']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Case Files(2865) button": {
+      "alternatives": [],
+      "description": "Button: Case Files(2865)",
+      "selector": "button:has-text('Case Files(2865)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Cases(1029) button": {
+      "alternatives": [],
+      "description": "Button: Cases(1029)",
+      "selector": "button:has-text('Cases(1029)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Data table 1": {
+      "alternatives": [
+        "table"
+      ],
+      "description": "Data table",
+      "selector": "table.mui-jss-jss6666",
+      "source": "initial_parse",
+      "type": "table",
+      "usage_count": 0
+    },
+    "Diagnosis dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Diagnosis')",
+        ".customExpansionPanelSummaryRoot:has-text('Diagnosis')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Diagnosis",
+      "selector": "#Diagnosis[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Disclaimer link": {
+      "alternatives": [
+        "a:has-text('Disclaimer')"
+      ],
+      "description": "Link to Disclaimer",
+      "href": "https://www.cancer.gov/policies/disclaimer",
+      "selector": "a[href='https://www.cancer.gov/policies/disclaimer']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "FOIA link": {
+      "alternatives": [
+        "a:has-text('FOIA')"
+      ],
+      "description": "Link to FOIA",
+      "href": "https://www.cancer.gov/policies/foia",
+      "selector": "a[href='https://www.cancer.gov/policies/foia']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "File Association dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('File Association')",
+        ".customExpansionPanelSummaryRoot:has-text('File Association')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for File Association",
+      "selector": "#File Association[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "File Format dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('File Format')",
+        ".customExpansionPanelSummaryRoot:has-text('File Format')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for File Format",
+      "selector": "#File Format[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "File Type dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('File Type')",
+        ".customExpansionPanelSummaryRoot:has-text('File Type')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for File Type",
+      "selector": "#File Type[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Filter By Cases\u200bUpload Case Set dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Filter By Cases\u200bUpload Case Set')",
+        ".customExpansionPanelSummaryRoot:has-text('Filter By Cases\u200bUpload Case Set')"
+      ],
+      "aria_expanded": "true",
+      "description": "Accordion section for Filter By Cases\u200bUpload Case Set",
+      "selector": "#[object Object][role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Filter By Files dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Filter By Files')",
+        ".customExpansionPanelSummaryRoot:has-text('Filter By Files')"
+      ],
+      "aria_expanded": "true",
+      "description": "Accordion section for Filter By Files",
+      "selector": "#[object Object][role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Filter By Samples dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Filter By Samples')",
+        ".customExpansionPanelSummaryRoot:has-text('Filter By Samples')"
+      ],
+      "aria_expanded": "true",
+      "description": "Accordion section for Filter By Samples",
+      "selector": "#[object Object][role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Go to My Files > link": {
+      "alternatives": [
+        "a:has-text('Go to My Files >')"
+      ],
+      "description": "Link to Go to My Files >",
+      "href": "#/fileCentricCart",
+      "selector": "a[href='#/fileCentricCart']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "HHS Vulnerability Disclosure link": {
+      "alternatives": [
+        "a:has-text('HHS Vulnerability Disclosure')"
+      ],
+      "description": "Link to HHS Vulnerability Disclosure",
+      "href": "https://www.hhs.gov/vulnerability-disclosure-policy/index.html",
+      "selector": "a[href='https://www.hhs.gov/vulnerability-disclosure-policy/index.html']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "ICDC Help Desk link": {
+      "alternatives": [
+        "a:has-text('ICDC Help Desk')"
+      ],
+      "description": "Link to ICDC Help Desk",
+      "href": "#/support",
+      "selector": "a[href='#/support']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "ICDC Home link": {
+      "alternatives": [
+        "a:has-text('ICDC Home')"
+      ],
+      "description": "Link to ICDC Home",
+      "href": "#/home",
+      "selector": "a[href='#/home']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "My Files0 link": {
+      "alternatives": [
+        "a:has-text('My Files0')"
+      ],
+      "description": "Link to My Files0",
+      "href": "#/fileCentricCart",
+      "selector": "a[href='#/fileCentricCart']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "NCI Cancer Research Data Commons link": {
+      "alternatives": [
+        "a:has-text('NCI Cancer Research Data Commons')"
+      ],
+      "description": "Link to NCI Cancer Research Data Commons",
+      "href": "https://datacommons.cancer.gov/?cid=caninecommons.cancer.gov",
+      "selector": "a[href='https://datacommons.cancer.gov/?cid=caninecommons.cancer.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "National Cancer Institute link": {
+      "alternatives": [
+        "a:has-text('National Cancer Institute')"
+      ],
+      "description": "Link to National Cancer Institute",
+      "href": "https://www.cancer.gov",
+      "selector": "a[href='https://www.cancer.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "National Institutes of Health link": {
+      "alternatives": [
+        "a:has-text('National Institutes of Health')"
+      ],
+      "description": "Link to National Institutes of Health",
+      "href": "https://www.nih.gov",
+      "selector": "a[href='https://www.nih.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Neutered Status dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Neutered Status')",
+        ".customExpansionPanelSummaryRoot:has-text('Neutered Status')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Neutered Status",
+      "selector": "#Neutered Status[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Primary Disease Site dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Primary Disease Site')",
+        ".customExpansionPanelSummaryRoot:has-text('Primary Disease Site')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Primary Disease Site",
+      "selector": "#Primary Disease Site[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Privacy button": {
+      "alternatives": [],
+      "description": "Button: Privacy",
+      "selector": "button:has-text('Privacy')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Program dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Program')",
+        ".customExpansionPanelSummaryRoot:has-text('Program')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Program",
+      "selector": "#Program[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Release Notes link": {
+      "alternatives": [
+        "a:has-text('Release Notes')"
+      ],
+      "description": "Link to Release Notes",
+      "href": "https://github.com/CBIIT/bento-icdc-frontend/releases",
+      "selector": "a[href='https://github.com/CBIIT/bento-icdc-frontend/releases']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Response to Treatment dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Response to Treatment')",
+        ".customExpansionPanelSummaryRoot:has-text('Response to Treatment')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Response to Treatment",
+      "selector": "#Response to Treatment[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Sample Pathology dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Sample Pathology')",
+        ".customExpansionPanelSummaryRoot:has-text('Sample Pathology')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Sample Pathology",
+      "selector": "#Sample Pathology[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Sample Site dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Sample Site')",
+        ".customExpansionPanelSummaryRoot:has-text('Sample Site')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Sample Site",
+      "selector": "#Sample Site[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Sample Type dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Sample Type')",
+        ".customExpansionPanelSummaryRoot:has-text('Sample Type')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Sample Type",
+      "selector": "#Sample Type[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Samples(1507) button": {
+      "alternatives": [],
+      "description": "Button: Samples(1507)",
+      "selector": "button:has-text('Samples(1507)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "Sex dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Sex')",
+        ".customExpansionPanelSummaryRoot:has-text('Sex')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Sex",
+      "selector": "#Sex[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Stage of Disease dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Stage of Disease')",
+        ".customExpansionPanelSummaryRoot:has-text('Stage of Disease')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Stage of Disease",
+      "selector": "#Stage of Disease[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Steering Committee link": {
+      "alternatives": [
+        "a:has-text('Steering Committee')"
+      ],
+      "description": "Link to Steering Committee",
+      "href": "#/steeringCommittee",
+      "selector": "a[href='#/steeringCommittee']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Studies link": {
+      "alternatives": [
+        "a:has-text('Studies')"
+      ],
+      "description": "Link to Studies",
+      "href": "#/studies",
+      "selector": "a[href='#/studies']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Study Files(30) button": {
+      "alternatives": [],
+      "description": "Button: Study Files(30)",
+      "selector": "button:has-text('Study Files(30)')",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 1,
+      "last_used": "2025-12-26T03:20:35.953241Z"
+    },
+    "Study Participation dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Study Participation')",
+        ".customExpansionPanelSummaryRoot:has-text('Study Participation')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Study Participation",
+      "selector": "#Study Participation[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Study Type dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Study Type')",
+        ".customExpansionPanelSummaryRoot:has-text('Study Type')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Study Type",
+      "selector": "#Study Type[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 0
+    },
+    "Study dropdown": {
+      "alternatives": [
+        "[role='button'][aria-expanded]:has-text('Study')",
+        ".customExpansionPanelSummaryRoot:has-text('Study')"
+      ],
+      "aria_expanded": "false",
+      "description": "Accordion section for Study",
+      "selector": "#Study[role='button']",
+      "source": "initial_parse",
+      "type": "accordion",
+      "usage_count": 2,
+      "last_used": "2025-12-26T14:04:02.153237Z"
+    },
+    "System Info Page link": {
+      "alternatives": [
+        "a:has-text('System Info Page')"
+      ],
+      "description": "Link to System Info Page",
+      "href": "#/sysinfo",
+      "selector": "a[href='#/sysinfo']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "U.S. Department of Health and Human Services link": {
+      "alternatives": [
+        "a:has-text('U.S. Department of Health and Human Services')"
+      ],
+      "description": "Link to U.S. Department of Health and Human Services",
+      "href": "https://www.hhs.gov",
+      "selector": "a[href='https://www.hhs.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "USA.gov link": {
+      "alternatives": [
+        "a:has-text('USA.gov')"
+      ],
+      "description": "Link to USA.gov",
+      "href": "https://www.usa.gov",
+      "selector": "a[href='https://www.usa.gov']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "Upload Case Set button": {
+      "alternatives": [
+        "button:has-text('Upload Case Set')"
+      ],
+      "description": "Button: Upload Case Set",
+      "selector": "#local_find_upload_open",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "View inJBrowse button": {
+      "alternatives": [
+        "button:has-text('View inJBrowse')"
+      ],
+      "description": "Button: View inJBrowse",
+      "selector": "#jbrowse_multi_view_button",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "View inJBrowse link": {
+      "alternatives": [
+        "a:has-text('View inJBrowse')"
+      ],
+      "description": "Link to View inJBrowse",
+      "href": "#/jBrowse/multiFilesView",
+      "selector": "a[href='#/jBrowse/multiFilesView']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "about button": {
+      "alternatives": [
+        "button:has-text('about')"
+      ],
+      "description": "Button: about",
+      "selector": "#button_navbar_about",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "data button": {
+      "alternatives": [
+        "button:has-text('data')"
+      ],
+      "description": "Button: data",
+      "selector": "#button_navbar_about",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 1,
+      "last_used": "2025-12-26T04:00:35.462067Z"
+    },
+    "e.g. ICDC-CASE-06, ICDC-CASE-22 input": {
+      "alternatives": [
+        "input[placeholder='e.g. ICDC-CASE-06, ICDC-CASE-22']"
+      ],
+      "description": "Input field for e.g. ICDC-CASE-06, ICDC-CASE-22 input",
+      "input_type": "text",
+      "selector": "#local_find_input",
+      "source": "initial_parse",
+      "type": "input",
+      "usage_count": 0
+    },
+    "explore link": {
+      "alternatives": [
+        "a:has-text('explore')"
+      ],
+      "description": "Link to explore",
+      "href": "#/explore",
+      "selector": "a[href='#/explore']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 2,
+      "last_used": "2025-12-26T14:03:51.511441Z"
+    },
+    "home link": {
+      "alternatives": [
+        "a:has-text('home')"
+      ],
+      "description": "Link to home",
+      "href": "#/home",
+      "selector": "a[href='#/home']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "label input": {
+      "alternatives": [
+        "input[placeholder='SEARCH THE ICDC']"
+      ],
+      "description": "Input field for label input",
+      "input_type": "text",
+      "selector": "#global_search_input",
+      "source": "initial_parse",
+      "type": "input",
+      "usage_count": 0
+    },
+    "programs link": {
+      "alternatives": [
+        "a:has-text('programs')"
+      ],
+      "description": "Link to programs",
+      "href": "#/programs",
+      "selector": "a[href='#/programs']",
+      "source": "initial_parse",
+      "type": "link",
+      "usage_count": 0
+    },
+    "resources button": {
+      "alternatives": [
+        "button:has-text('resources')"
+      ],
+      "description": "Button: resources",
+      "selector": "#button_navbar_about",
+      "source": "initial_parse",
+      "type": "button",
+      "usage_count": 0
+    },
+    "text=EXPLORE": {
+      "selector": "text=EXPLORE",
+      "type": "button",
+      "description": "Discovered during test exec_1b537c2f",
+      "source": "llm_discovery",
+      "discovered_at": "2025-12-26T03:37:52.572777Z",
+      "discovered_in": "exec_1b537c2f",
+      "usage_count": 3,
+      "last_used": "2025-12-26T14:03:46.000425Z"
+    },
+    "text=OSA01": {
+      "selector": "text=OSA01",
+      "type": "button",
+      "description": "Discovered during test exec_1b537c2f",
+      "source": "llm_discovery",
+      "discovered_at": "2025-12-26T03:37:52.574106Z",
+      "discovered_in": "exec_1b537c2f",
+      "usage_count": 2,
+      "last_used": "2025-12-26T03:48:58.574846Z"
+    },
+    ".MuiButton-containedPrimary": {
+      "selector": ".MuiButton-containedPrimary",
+      "type": "button",
+      "description": "Discovered during test exec_a07ed4e2",
+      "source": "llm_discovery",
+      "discovered_at": "2025-12-26T14:04:19.374782Z",
+      "discovered_in": "exec_a07ed4e2",
+      "usage_count": 1,
+      "last_used": "2025-12-26T14:04:19.374795Z"
+    },
+    "text=GLIOMA01": {
+      "selector": "text=GLIOMA01",
+      "type": "button",
+      "description": "Discovered during test exec_a07ed4e2",
+      "source": "llm_discovery",
+      "discovered_at": "2025-12-26T14:04:19.376126Z",
+      "discovered_in": "exec_a07ed4e2",
+      "usage_count": 1,
+      "last_used": "2025-12-26T14:04:19.376136Z"
+    }
+  },
+  "page": "explore",
+  "statistics": {
+    "discovered_elements": 4,
+    "parsed_elements": 75,
+    "total_elements": 79
+  },
+  "timestamp": "2025-12-26T00:15:10.084046Z",
+  "url": "https://caninecommons.cancer.gov/#/explore",
+  "version": "1.4",
+  "last_updated": "2025-12-26T14:04:19.376208Z"
+}
