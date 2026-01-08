@@ -96,6 +96,12 @@ def get_execution_status(execution_id):
                 'summary': results.get('summary'),
                 'error': results.get('error')
             })
+        elif 'agent' in exec_data:
+            # Get live progress from agent context while running
+            agent = exec_data['agent']
+            if agent and hasattr(agent, 'context'):
+                response['actions_count'] = len(agent.context.actions_taken)
+                response['screenshots_count'] = len(agent.context.screenshots)
         return jsonify(response), 200
     
     project_root = current_app.config['PROJECT_ROOT']
