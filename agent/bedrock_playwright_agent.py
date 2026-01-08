@@ -2680,8 +2680,17 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
             
             # For TOTP fields, improve selector to exclude hidden inputs
             if is_totp_step:
-                # If selector matches hidden input, try to find visible input instead
-                if selector == "input[name='code']" or selector == 'input[name="code"]' or "input[name='code']" in selector:
+                # CRITICAL FIX: Also trigger fallback for input[type="text"] (generic selector)
+                # Successful runs used input[type="text"], but fallback only ran for input[name='code']
+                selector_needs_fallback = (
+                    selector == "input[name='code']" or 
+                    selector == 'input[name="code"]' or 
+                    "input[name='code']" in selector or
+                    selector == 'input[type="text"]' or
+                    selector == "input[type='text']"
+                )
+                
+                if selector_needs_fallback:
                     # Try multiple selectors for visible TOTP input (prioritized by specificity)
                     totp_selectors = [
                         "input.one-time-code-input__input",  # Most specific: class from login.gov
@@ -2724,7 +2733,9 @@ Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
                             pass
             
             # Execute
-            await self.page.wait_for_selector(selector, state='visible', timeout=10000)
+            # For TOTP fields, use longer timeout (OTP valid for 10 minutes, no need to rush)
+            timeout_ms = 60000 if is_totp_step else 10000
+            await self.page.wait_for_selector(selector, state='visible', timeout=timeout_ms)
             
             # Check if field is editable using Playwright locator (avoids JS string escaping issues)
             try:
