@@ -381,6 +381,11 @@ class BrowserClickTool:
                     dom_changed = new_html != initial_html
                     url_changed = new_url != initial_url
                     
+                    # Update discovery tracker URL if navigation occurred
+                    if url_changed:
+                        self.discovery_tracker.update_url(new_url)
+                        self.context.current_url = new_url
+                    
                     if url_changed or dom_changed:
                         logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
                         

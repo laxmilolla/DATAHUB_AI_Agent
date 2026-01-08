@@ -28,55 +28,71 @@ class RegistryManager:
         """
         Save discoveries to registry
         CRITICAL: Preserves manual XPaths if preserve_manual=True
+        CRITICAL: Groups discoveries by their discovery_url (where they were found), not current_url
         
         Args:
-            discoveries: List of discovery dicts
-            current_url: Current page URL
+            discoveries: List of discovery dicts (each should have 'discovery_url' field)
+            current_url: Current page URL (fallback if discovery_url not present)
             preserve_manual: If True, never overwrite existing XPaths
         """
-        if not discoveries or not current_url:
+        if not discoveries:
             return
         
         try:
             logger.info(f"  💾 Updating element registry with {len(discoveries)} discovered XPaths...")
             
-            # Extract domain and page from URL
-            domain = current_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
+            # Group discoveries by their discovery URL (where they were actually discovered)
+            discoveries_by_url = {}
+            for discovery in discoveries:
+                # Use discovery_url if available, otherwise fallback to current_url
+                discovery_url = discovery.get('discovery_url') or current_url
+                if discovery_url not in discoveries_by_url:
+                    discoveries_by_url[discovery_url] = []
+                discoveries_by_url[discovery_url].append(discovery)
             
-            # Determine page name
-            url_path = current_url.split('/')[-1].split('#')[0]
-            if url_path == 'explore':
-                page = 'explore'
-            elif not url_path or url_path == '':
-                page = 'home'
-            else:
-                page = url_path
+            logger.info(f"  📊 Grouped discoveries into {len(discoveries_by_url)} pages")
             
-            # Load existing registry or create new one
-            element_map = self.element_registry.load_map(domain, page)
-            if not element_map:
-                # Auto-create registry file if it doesn't exist
-                logger.info(f"  📝 Creating new registry for {domain}/{page}")
-                element_map = {
-                    "page": page,
-                    "url": f"https://{domain}/{page}" if page != 'home' else f"https://{domain}/",
-                    "version": "1.0",
-                    "timestamp": datetime.now().isoformat() + "Z",
-                    "elements": {},
-                    "id_index": {},
-                    "statistics": {
-                        "total_elements": 0,
-                        "parsed_elements": 0,
-                        "discovered_elements": 0
+            # Save discoveries for each page
+            for discovery_url, page_discoveries in discoveries_by_url.items():
+                logger.info(f"  💾 Saving {len(page_discoveries)} discoveries for {discovery_url}")
+                
+                # Extract domain and page from discovery URL
+                domain = discovery_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
+                
+                # Determine page name
+                url_path = discovery_url.split('/')[-1].split('#')[0]
+                if url_path == 'explore':
+                    page = 'explore'
+                elif not url_path or url_path == '':
+                    page = 'home'
+                else:
+                    page = url_path
+            
+                # Load existing registry or create new one
+                element_map = self.element_registry.load_map(domain, page)
+                if not element_map:
+                    # Auto-create registry file if it doesn't exist
+                    logger.info(f"  📝 Creating new registry for {domain}/{page}")
+                    element_map = {
+                        "page": page,
+                        "url": f"https://{domain}/{page}" if page != 'home' else f"https://{domain}/",
+                        "version": "1.0",
+                        "timestamp": datetime.now().isoformat() + "Z",
+                        "elements": {},
+                        "id_index": {},
+                        "statistics": {
+                            "total_elements": 0,
+                            "parsed_elements": 0,
+                            "discovered_elements": 0
+                        }
                     }
-                }
-                # Save empty registry file first
-                self.element_registry.save_map(domain, page, element_map)
-                logger.info(f"  ✅ Created new registry file for {domain}/{page}")
-            
-            if element_map:
-                added_count = 0
-                for discovery in discoveries:
+                    # Save empty registry file first
+                    self.element_registry.save_map(domain, page, element_map)
+                    logger.info(f"  ✅ Created new registry file for {domain}/{page}")
+                
+                if element_map:
+                    added_count = 0
+                    for discovery in page_discoveries:
                     if discovery.get('xpath'):
                         element_name = discovery['name']
                         element_id = discovery.get('element_id')
@@ -166,23 +182,23 @@ class RegistryManager:
                             added_count += 1
                             logger.info(f"    ✅ Added to registry: {element_name} (ID: {element_entry.get('element_id', 'N/A')})")
                 
-                if added_count > 0:
-                    logger.info(f"  ℹ️ Added {added_count} new entries to registry")
-                else:
-                    logger.info(f"  ℹ️ No new entries added (all already in registry)")
-                
-                # Update id_index
-                id_index = {}
-                for name, elem_data in element_map.get('elements', {}).items():
-                    element_id = elem_data.get('element_id')
-                    if element_id:
-                        id_index[element_id] = name
-                
-                element_map['id_index'] = id_index
-                
-                # Save updated registry
-                self.element_registry.save_map(domain, page, element_map)
-                logger.info(f"  ✅ Saved registry updates to {domain}/{page}")
+                    if added_count > 0:
+                        logger.info(f"  ℹ️ Added {added_count} new entries to registry for {domain}/{page}")
+                    else:
+                        logger.info(f"  ℹ️ No new entries added to {domain}/{page} (all already in registry)")
+                    
+                    # Update id_index
+                    id_index = {}
+                    for name, elem_data in element_map.get('elements', {}).items():
+                        element_id = elem_data.get('element_id')
+                        if element_id:
+                            id_index[element_id] = name
+                    
+                    element_map['id_index'] = id_index
+                    
+                    # Save updated registry
+                    self.element_registry.save_map(domain, page, element_map)
+                    logger.info(f"  ✅ Saved registry updates to {domain}/{page}")
         except Exception as e:
             logger.error(f"  ❌ Failed to save discoveries to registry: {e}", exc_info=True)
 

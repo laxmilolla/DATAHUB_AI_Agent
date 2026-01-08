@@ -29,6 +29,15 @@ class DiscoveryTracker:
         self.current_url = current_url
         self.discoveries: List[Dict] = []
     
+    def update_url(self, new_url: str) -> None:
+        """
+        Update current URL when navigation occurs
+        Args:
+            new_url: New page URL
+        """
+        self.current_url = new_url
+        logger.debug(f"  🔄 Updated discovery tracker URL: {new_url}")
+    
     async def track(self, element_name: str, original_query: str, final_selector: str,
                    discovery_method: str, metadata: dict, clicked_xpath: str = None,
                    clicked_element=None) -> Dict:
@@ -89,6 +98,7 @@ class DiscoveryTracker:
             logger.debug(f"  ⚠️ Could not lookup element_id: {e}")
         
         # Store discovery with XPath and element_id
+        # CRITICAL: Track the URL where this discovery was made (not where test ended)
         discovery = {
             "name": element_name,
             "element_id": element_id,
@@ -98,6 +108,7 @@ class DiscoveryTracker:
             "uniqueness_method": uniqueness_method,
             "discovery_method": discovery_method,
             "metadata": metadata,
+            "discovery_url": self.current_url,  # Track URL where discovery was made
             "timestamp": datetime.now().isoformat() + "Z"
         }
         

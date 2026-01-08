@@ -118,7 +118,7 @@ class Agent:
             )
             
             # Initialize tool handlers
-            self.navigate_tool = BrowserNavigateTool(self.playwright_manager, self.context)
+            self.navigate_tool = BrowserNavigateTool(self.playwright_manager, self.context, self.discovery_tracker)
             self.click_tool = BrowserClickTool(
                 page, self.element_locator, self.action_executor, self.discovery_tracker,
                 self.registry_manager, self.xpath_generator, self.llm_helper, self.totp_handler,
