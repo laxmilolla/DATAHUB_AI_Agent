@@ -164,7 +164,7 @@ def generate_click_step(
         
         # If popup dismissal button, wait for dialog to disappear and next element to be clickable
         if is_popup_dismissal:
-            code += _generate_dialog_dismissal_code(indent, next_step_discovery)
+            code += _generate_dialog_dismissal_code(indent + 4, next_step_discovery)
         
         code += f"{ind}    print(f'✅ Step {step_num}: Clicked {element_name} (element_id: {{element_id}})')\n"
         code += f"{ind}    page.screenshot(path='{screenshot_path}')\n"
@@ -237,41 +237,41 @@ def _generate_dialog_dismissal_code(indent: int, next_step_discovery: Optional[D
     ind = ' ' * indent
     code = ""
     
-    code += f"{ind}        # Wait for dialog to disappear (if popup was dismissed)\n"
-    code += f"{ind}        try:\n"
-    code += f"{ind}            # Wait for dialog to be detached (completely removed from DOM) - most reliable\n"
-    code += f"{ind}            page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='detached', timeout=3000)\n"
-    code += f"{ind}        except:\n"
-    code += f"{ind}            # Fallback: dialog might stay in DOM but hidden\n"
-    code += f"{ind}            try:\n"
-    code += f"{ind}                page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='hidden', timeout=2000)\n"
-    code += f"{ind}            except:\n"
-    code += f"{ind}                pass  # Dialog may not exist or already dismissed\n"
-    code += f"{ind}        \n"
-    code += f"{ind}        # Wait for next step's element to be clickable (if available)\n"
+    code += f"{ind}# Wait for dialog to disappear (if popup was dismissed)\n"
+    code += f"{ind}try:\n"
+    code += f"{ind}    # Wait for dialog to be detached (completely removed from DOM) - most reliable\n"
+    code += f"{ind}    page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='detached', timeout=3000)\n"
+    code += f"{ind}except:\n"
+    code += f"{ind}    # Fallback: dialog might stay in DOM but hidden\n"
+    code += f"{ind}    try:\n"
+    code += f"{ind}        page.locator('[data-testid=\"system-use-warning-dialog\"]').wait_for(state='hidden', timeout=2000)\n"
+    code += f"{ind}    except:\n"
+    code += f"{ind}        pass  # Dialog may not exist or already dismissed\n"
+    code += f"{ind}\n"
+    code += f"{ind}# Wait for next step's element to be clickable (if available)\n"
     if next_step_discovery and next_step_discovery.get('element_id'):
         next_element_id = next_step_discovery.get('element_id')
+        code += f"{ind}try:\n"
+        code += f"{ind}    next_element_id = '{next_element_id}'\n"
+        code += f"{ind}    next_xpath = get_xpath_by_id(next_element_id)\n"
+        code += f"{ind}    next_element = page.locator(f'xpath={{next_xpath}}').nth(0)\n"
+        code += f"{ind}    next_element.wait_for(state='visible', timeout=5000)\n"
+        code += f"{ind}    # Wait for dialog to not be blocking\n"
+        code += f"{ind}    for attempt in range(15):\n"
+        code += f"{ind}        dialog_blocking = page.locator('[data-testid=\"system-use-warning-dialog\"]').count() > 0\n"
+        code += f"{ind}        if not dialog_blocking:\n"
+        code += f"{ind}            break\n"
         code += f"{ind}        try:\n"
-        code += f"{ind}            next_element_id = '{next_element_id}'\n"
-        code += f"{ind}            next_xpath = get_xpath_by_id(next_element_id)\n"
-        code += f"{ind}            next_element = page.locator(f'xpath={{next_xpath}}').nth(0)\n"
-        code += f"{ind}            next_element.wait_for(state='visible', timeout=5000)\n"
-        code += f"{ind}            # Wait for dialog to not be blocking\n"
-        code += f"{ind}            for attempt in range(15):\n"
-        code += f"{ind}                dialog_blocking = page.locator('[data-testid=\"system-use-warning-dialog\"]').count() > 0\n"
-        code += f"{ind}                if not dialog_blocking:\n"
-        code += f"{ind}                    break\n"
-        code += f"{ind}                try:\n"
-        code += f"{ind}                    dialog_visible = page.locator('[data-testid=\"system-use-warning-dialog\"]').first.is_visible(timeout=100)\n"
-        code += f"{ind}                    if not dialog_visible:\n"
-        code += f"{ind}                        break\n"
-        code += f"{ind}                except:\n"
-        code += f"{ind}                    break\n"
-        code += f"{ind}                page.wait_for_timeout(200)\n"
+        code += f"{ind}            dialog_visible = page.locator('[data-testid=\"system-use-warning-dialog\"]').first.is_visible(timeout=100)\n"
+        code += f"{ind}            if not dialog_visible:\n"
+        code += f"{ind}                break\n"
         code += f"{ind}        except:\n"
-        code += f"{ind}            pass\n"
+        code += f"{ind}            break\n"
+        code += f"{ind}        page.wait_for_timeout(200)\n"
+        code += f"{ind}except:\n"
+        code += f"{ind}    pass\n"
     else:
-        code += f"{ind}        page.wait_for_timeout(500)  # Wait for animations\n"
+        code += f"{ind}page.wait_for_timeout(500)  # Wait for animations\n"
     
     return code
 
