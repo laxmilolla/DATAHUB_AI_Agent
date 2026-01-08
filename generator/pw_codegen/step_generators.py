@@ -144,10 +144,10 @@ def generate_click_step(
     code = f"{ind}# Step {step_num}: {step_text}\n"
     code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
     code += f"{ind}element_id = '{element_id_escaped}'\n"
-    code += f"{ind}xpath = get_xpath_by_id(element_id)  # Lookup from JSON registry ONLY\n"
-    code += f"{ind}selector = f'xpath={{xpath}}'\n"
     code += f"{ind}\n"
     code += f"{ind}try:\n"
+    code += f"{ind}    xpath = get_xpath_by_id(element_id)  # Lookup from JSON registry ONLY\n"
+    code += f"{ind}    selector = f'xpath={{xpath}}'\n"
     code += f"{ind}    element = page.locator(selector).nth(0)\n"
     
     if is_checkbox:
