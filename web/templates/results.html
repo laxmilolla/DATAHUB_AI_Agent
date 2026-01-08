@@ -289,19 +289,19 @@
                 <!-- Main Content Card with Tabs -->
                 <div class="card">
                     <div class="tab-navigation">
-                        <button class="tab-button active" onclick="switchTab('overview', this)">
+                        <button class="tab-button active" onclick="switchTab('overview')">
                             📊 Overview
                         </button>
-                        <button class="tab-button" onclick="switchTab('steps', this)">
+                        <button class="tab-button" onclick="switchTab('steps')">
                             🎬 Steps (${totalSteps})
                         </button>
-                        <button class="tab-button" onclick="switchTab('discoveries', this)">
+                        <button class="tab-button" onclick="switchTab('discoveries')">
                             🔍 Discoveries (${discoveries.length})
                         </button>
-                        <button class="tab-button" onclick="switchTab('screenshots', this)">
+                        <button class="tab-button" onclick="switchTab('screenshots')">
                             📸 Screenshots (${screenshots.length})
                         </button>
-                        <button class="tab-button" onclick="switchTab('playwright', this)">
+                        <button class="tab-button" onclick="switchTab('playwright')">
                             🎭 Playwright
                         </button>
                     </div>
@@ -917,7 +917,7 @@
         // TAB SWITCHING
         // ===================================
         
-        function switchTab(tabName, clickedButton) {
+        function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
             });
@@ -928,18 +928,13 @@
             
             document.getElementById(`tab-${tabName}`).classList.add('active');
             
-            // Find and activate the clicked button
-            if (clickedButton) {
-                clickedButton.classList.add('active');
-            } else {
-                // Fallback: find button by onclick attribute
-                const buttons = document.querySelectorAll('.tab-button');
-                buttons.forEach(btn => {
-                    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${tabName}'`)) {
-                        btn.classList.add('active');
-                    }
-                });
-            }
+            // Find and activate the button that was clicked
+            const buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${tabName}'`)) {
+                    btn.classList.add('active');
+                }
+            });
         }
         
         // ===================================
