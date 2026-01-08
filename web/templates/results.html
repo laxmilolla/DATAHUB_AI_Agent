@@ -246,7 +246,7 @@
                         ${status === 'completed' ? `
                         <div class="status-actions">
                             ${discoveries.length > 0 ? `
-                            <button class="btn-primary" onclick="approveDiscoveries()">
+                            <button class="btn-primary" onclick="approveDiscoveries(this)">
                                 ✅ Approve & Update Registry
                             </button>
                             ` : ''}
@@ -941,8 +941,12 @@
         // ACTION HANDLERS
         // ===================================
         
-        async function approveDiscoveries() {
-            const btn = event.target;
+        async function approveDiscoveries(clickedButton) {
+            const btn = clickedButton || (window.event && window.event.target) || document.querySelector('button[onclick*="approveDiscoveries"]');
+            if (!btn) {
+                console.error('Could not find approve button');
+                return;
+            }
             const originalText = btn.textContent;
             
             btn.disabled = true;
