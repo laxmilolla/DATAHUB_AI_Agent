@@ -115,6 +115,12 @@ class BrowserFillTool:
         is_totp_step = self.totp_handler.is_totp_step(step_text, text)
         
         if is_totp_step:
+            # COMMENTED OUT: Block static test value "123456" for TOTP
+            # Prevent using static test value - must generate real TOTP code
+            # if text == "123456" or text == "123456":
+            #     logger.warning(f"  [TOTP] Blocked use of static test value '123456' - TOTP must be generated")
+            #     raise Exception("Static test value '123456' is disabled for TOTP. Real TOTP code must be generated.")
+            
             logger.info(f"  [TOTP] TOTP detected - generating code")
             try:
                 totp_code = self.totp_handler.generate_code(story=self.story, text=text)
@@ -122,6 +128,7 @@ class BrowserFillTool:
                 logger.info(f"  [TOTP] Generated TOTP code: {totp_code}")
             except Exception as e:
                 logger.error(f"  [TOTP] Failed to generate TOTP code: {e}")
+                raise Exception(f"TOTP generation failed: {e}")
         
         # TOTP fallback selectors (only if NOT using registry XPath)
         if is_totp_step and not using_registry_xpath:
