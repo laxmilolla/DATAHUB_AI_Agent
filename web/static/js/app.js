@@ -129,7 +129,10 @@ async function pollExecutionStatus(executionId) {
     }, 2000); // Poll every 2 seconds
 }
 
-async function loadExecutions() {
+let showAllExecutions = false;
+let allExecutionsData = [];
+
+async function loadExecutions(showAll = false) {
     const container = document.getElementById('executions-list');
     const totalElement = document.getElementById('total-executions');
     
@@ -141,14 +144,16 @@ async function loadExecutions() {
         
         const allExecutions = data.executions || [];
         const totalCount = allExecutions.length;
+        allExecutionsData = allExecutions;
         
         // Show total count
         if (totalElement) {
             totalElement.textContent = `Total: ${totalCount}`;
         }
         
-        // Show only top 10
-        const executions = allExecutions.slice(0, 10);
+        // Show top 10 or all based on showAll flag
+        const executions = showAll ? allExecutions : allExecutions.slice(0, 10);
+        showAllExecutions = showAll;
         
         if (executions.length > 0) {
             container.innerHTML = '';
@@ -180,15 +185,23 @@ async function loadExecutions() {
                 container.appendChild(item);
             });
             
-            // Show message if there are more than 10
-            if (totalCount > 10) {
+            // Show message if showing top 10 and there are more
+            if (!showAll && totalCount > 10) {
                 const moreMsg = document.createElement('p');
                 moreMsg.style.textAlign = 'center';
                 moreMsg.style.color = '#6c757d';
                 moreMsg.style.marginTop = '15px';
                 moreMsg.style.fontSize = '0.9em';
-                moreMsg.textContent = `Showing top 10 of ${totalCount} executions`;
+                moreMsg.textContent = `Showing top 10 of ${totalCount} executions. Click "Total: ${totalCount}" above to view all.`;
                 container.appendChild(moreMsg);
+            } else if (showAll && totalCount > 10) {
+                const showingMsg = document.createElement('p');
+                showingMsg.style.textAlign = 'center';
+                showingMsg.style.color = '#6c757d';
+                showingMsg.style.marginTop = '15px';
+                showingMsg.style.fontSize = '0.9em';
+                showingMsg.textContent = `Showing all ${totalCount} executions. Click "Total: ${totalCount}" to show top 10 only.`;
+                container.appendChild(showingMsg);
             }
         } else {
             container.innerHTML = '<p class="loading">No executions yet. Start your first test above!</p>';
@@ -204,6 +217,10 @@ async function loadExecutions() {
             totalElement.textContent = '';
         }
     }
+}
+
+function toggleAllExecutions() {
+    loadExecutions(!showAllExecutions);
 }
 
 
