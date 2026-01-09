@@ -85,8 +85,8 @@ def find_discovery_by_step(step_num: int, step_text: str, discoveries: List[Dict
             continue
         
         # Check if discovery matches the actual clicked selector (highest priority)
-        disc_final_selector = disc.get('final_selector', '').lower()
-        disc_xpath = disc.get('xpath', '').lower()
+        disc_final_selector = (disc.get('final_selector') or '').lower()
+        disc_xpath = (disc.get('xpath') or '').lower()
         matches_clicked_selector = False
         
         if actual_clicked_selector:
