@@ -149,7 +149,7 @@ def generate_click_step(
     code += f"{ind}element_id = '{element_id_escaped}'\n"
     code += f"{ind}\n"
     code += f"{ind}try:\n"
-    code += f"{ind}    xpath = get_xpath_by_id(element_id)  # Lookup from JSON registry ONLY\n"
+    code += f"{ind}    xpath = get_xpath_by_id(element_id, page.url)  # Lookup from JSON registry (prefers current page registry)\n"
     code += f"{ind}    selector = f'xpath={{xpath}}'\n"
     code += f"{ind}    element = page.locator(selector).nth(0)\n"
     
@@ -298,7 +298,7 @@ def _generate_dialog_dismissal_code(indent: int, next_step_discovery: Optional[D
         next_element_id = next_step_discovery.get('element_id')
         code += f"{ind}try:\n"
         code += f"{ind}    next_element_id = '{next_element_id}'\n"
-        code += f"{ind}    next_xpath = get_xpath_by_id(next_element_id)\n"
+        code += f"{ind}    next_xpath = get_xpath_by_id(next_element_id, page.url)\n"
         code += f"{ind}    next_element = page.locator(f'xpath={{next_xpath}}').nth(0)\n"
         code += f"{ind}    next_element.wait_for(state='visible', timeout=5000)\n"
         code += f"{ind}    # Wait for dialog to not be blocking\n"

@@ -60,38 +60,57 @@ def get_registry_path(url: str, element_maps_dir: Path) -> str:
         return 'element_maps/clinicalcommons.ccdi.cancer.gov/explore_page.json'
     
     parsed = urlparse(url)
-    domain = parsed.netloc
+    domain = parsed.netloc.split(':')[0]  # Remove port if present
     
     # Extract page name from URL path (same logic as agent)
-    url_path = url.split('/')[-1].split('#')[0]
-    if url_path == 'explore':
-        page = 'explore'
-    elif not url_path or url_path == '':
+    path_parts = [p for p in parsed.path.split('/') if p]
+    if not path_parts:
         page = 'home'
+    elif path_parts[-1] == 'explore':
+        page = 'explore'
     else:
-        page = url_path
+        # Get last path segment, remove query params and fragments
+        page = path_parts[-1].split('?')[0].split('#')[0]
+        # Keep file extension if present (e.g., LoginMFA.aspx)
+        # Remove leading dot if it's just an extension
+        if page.startswith('.'):
+            page = 'home'
     
-    # Always return the expected path based on URL structure
-    # (even if file doesn't exist yet - user can create it)
-    expected_path = f'element_maps/{domain}/{page}_page.json'
+    # Sanitize page name for filename (remove invalid characters)
+    page_sanitized = re.sub(r'[^\w\-_\.]', '', page)
+    if not page_sanitized:
+        page_sanitized = 'home'
     
-    # Check if file exists - if so, use it; otherwise check for common alternatives
+    # Check if file exists - try different naming patterns
     domain_dir = element_maps_dir / domain
     if domain_dir.exists():
-        # Try specific page first
-        registry_file = domain_dir / f'{page}_page.json'
+        # Try exact match first: LoginMFA.aspx_page.json
+        registry_file = domain_dir / f'{page_sanitized}_page.json'
         if registry_file.exists():
-            return expected_path
+            return f'element_maps/{domain}/{page_sanitized}_page.json'
         
-        # Fallback to common page names if specific page doesn't exist
+        # Try without extension: LoginMFA_page.json
+        if '.' in page_sanitized:
+            page_no_ext = page_sanitized.rsplit('.', 1)[0]
+            registry_file = domain_dir / f'{page_no_ext}_page.json'
+            if registry_file.exists():
+                return f'element_maps/{domain}/{page_no_ext}_page.json'
+        
+        # Fallback to common page names
         for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
             registry_file = domain_dir / page_name
             if registry_file.exists():
                 return f'element_maps/{domain}/{page_name}'
+        
+        # List all JSON files in domain directory to find best match
+        json_files = list(domain_dir.glob('*.json'))
+        if json_files:
+            # Return first JSON file found (better than nothing)
+            return f'element_maps/{domain}/{json_files[0].name}'
     
     # Return expected path (even if it doesn't exist yet)
     # This allows the test to work once the registry is created
-    return expected_path
+    return f'element_maps/{domain}/{page_sanitized}_page.json'
 
 
 def detect_registry_files(execution: Dict, element_maps_dir: Path) -> List[str]:
@@ -129,17 +148,25 @@ def detect_registry_files(execution: Dict, element_maps_dir: Path) -> List[str]:
                 if registry_path:
                     registry_files.add(registry_path)
     
-    # Also check discoveries for URL metadata (if available)
+    # Also check discoveries for discovery_url (if available)
     # This catches elements discovered on pages that weren't explicitly navigated to
     # (e.g., if page changed due to form submission)
     discoveries = execution.get('discoveries', [])
     for disc in discoveries:
-        metadata = disc.get('metadata', {})
-        url = metadata.get('url', '')
-        if url:
-            registry_path = get_registry_path(url, element_maps_dir)
+        # Check discovery_url first (most reliable)
+        discovery_url = disc.get('discovery_url', '')
+        if discovery_url:
+            registry_path = get_registry_path(discovery_url, element_maps_dir)
             if registry_path:
                 registry_files.add(registry_path)
+        # Fallback to metadata.url
+        else:
+            metadata = disc.get('metadata', {})
+            url = metadata.get('url', '')
+            if url:
+                registry_path = get_registry_path(url, element_maps_dir)
+                if registry_path:
+                    registry_files.add(registry_path)
     
     # Extract URLs from story text (catches URLs mentioned in steps like "goes to https://...")
     story = execution.get('story', '')
