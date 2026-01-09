@@ -59,7 +59,7 @@ class PlaywrightGenerator:
         """
         # Load execution data using new loaders
         execution = load_execution(execution_id, self.executions_dir)
-        discoveries = load_discoveries(execution_id, self.discoveries_dir)
+        discoveries = load_discoveries(execution_id, self.discoveries_dir, self.executions_dir)
         
         # Detect all registry files needed (multi-registry support)
         registry_files = detect_registry_files(execution, self.element_maps_dir)

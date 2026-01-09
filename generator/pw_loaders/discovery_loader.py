@@ -10,26 +10,43 @@ from typing import Dict
 logger = logging.getLogger(__name__)
 
 
-def load_discoveries(execution_id: str, discoveries_dir: Path) -> Dict:
+def load_discoveries(execution_id: str, discoveries_dir: Path, executions_dir: Path = None) -> Dict:
     """
     Load discovery metadata JSON
     Args:
         execution_id: Execution ID (e.g., 'exec_172351d5')
         discoveries_dir: Directory containing discovery JSON files
+        executions_dir: Optional directory containing execution JSON files (to check for embedded discoveries)
     Returns:
         Discovery dictionary with 'discoveries' list (empty if file doesn't exist)
     """
+    # First, try to load from separate discovery file
     file_path = discoveries_dir / f'{execution_id}_discoveries.json'
-    if not file_path.exists():
-        logger.info(f"ℹ️  Discovery file not found for {execution_id}, returning empty discoveries")
-        return {'discoveries': []}
+    if file_path.exists():
+        with open(file_path, 'r') as f:
+            discoveries = json.load(f)
+        
+        discoveries_list = discoveries.get('discoveries', [])
+        logger.info(f"✅ Loaded {len(discoveries_list)} discoveries from discovery file for {execution_id}")
+        return discoveries
     
-    with open(file_path, 'r') as f:
-        discoveries = json.load(f)
+    # If separate discovery file doesn't exist, check execution file
+    if executions_dir:
+        exec_file_path = executions_dir / f'{execution_id}.json'
+        if exec_file_path.exists():
+            try:
+                with open(exec_file_path, 'r') as f:
+                    execution_data = json.load(f)
+                
+                discoveries_list = execution_data.get('discoveries', [])
+                if discoveries_list:
+                    logger.info(f"✅ Loaded {len(discoveries_list)} discoveries from execution file for {execution_id}")
+                    return {'discoveries': discoveries_list}
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to load discoveries from execution file: {e}")
     
-    discoveries_list = discoveries.get('discoveries', [])
-    logger.info(f"✅ Loaded {len(discoveries_list)} discoveries for {execution_id}")
-    return discoveries
+    logger.info(f"ℹ️  Discovery file not found for {execution_id}, returning empty discoveries")
+    return {'discoveries': []}
 
 
 def validate_discoveries(discoveries: Dict) -> bool:
