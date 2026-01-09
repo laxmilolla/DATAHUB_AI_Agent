@@ -106,9 +106,41 @@ class RegistryManager:
                 if element_map:
                     added_count = 0
                     for discovery in page_discoveries:
+                        element_name = discovery['name']
+                        element_id = discovery.get('element_id')
+                        
+                        # Process discoveries with xpath (save to registry)
                         if discovery.get('xpath'):
-                            element_name = discovery['name']
-                            element_id = discovery.get('element_id')
+                            
+                            # CRITICAL FIX: Check registry FIRST before generating new element_id
+                            # This ensures we use existing element_id from registry instead of generating new one
+                            xpath_value = discovery['xpath']
+                            existing_key = None
+                            existing_element = None
+                            
+                            # Strategy 1: Check by XPath value (most reliable match)
+                            if xpath_value:
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    if elem_data.get('xpath') == xpath_value:
+                                        existing_key = key
+                                        existing_element = elem_data
+                                        logger.info(f"    🎯 Found existing entry by XPath: {key}")
+                                        break
+                            
+                            # Strategy 2: Check by name (fallback)
+                            if not existing_key and element_name in element_map.get('elements', {}):
+                                existing_key = element_name
+                                existing_element = element_map['elements'][existing_key]
+                                logger.info(f"    🎯 Found existing entry by name: {element_name}")
+                            
+                            # Strategy 3: Check by element_id if discovery already has one
+                            if not existing_key and element_id:
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    if elem_data.get('element_id') == element_id:
+                                        existing_key = key
+                                        existing_element = elem_data
+                                        logger.info(f"    🎯 Found existing entry by element_id: {key} (ID: {element_id})")
+                                        break
                             
                             # Create element entry
                             element_entry = {
@@ -124,50 +156,36 @@ class RegistryManager:
                                 "discovery_url": discovery.get('discovery_url')  # Preserve discovery URL
                             }
                             
-                            # Assign element_id if not present
-                            if element_id:
+                            # Assign element_id: Use existing from registry if found, otherwise generate new
+                            if existing_element and existing_element.get('element_id'):
+                                # Use existing element_id from registry (maintains consistency)
+                                element_entry['element_id'] = existing_element.get('element_id')
+                                logger.info(f"    ✅ Using existing element_id from registry: {element_entry['element_id']}")
+                            elif element_id:
+                                # Discovery already has element_id
                                 element_entry['element_id'] = element_id
                             elif discovery['xpath']:
-                                # Generate ID if missing
+                                # Generate new ID only if entry doesn't exist
                                 element_entry['element_id'] = self.element_registry._generate_element_id(
                                     element_name, discovery['xpath']
                                 )
+                                logger.info(f"    🔄 Generated new element_id: {element_entry['element_id']}")
+                            elif discovery.get('final_selector') or discovery.get('original_query'):
+                                # Generate ID from selector if xpath is missing
+                                selector_for_id = discovery.get('final_selector') or discovery.get('original_query', '')
+                                element_entry['element_id'] = self.element_registry._generate_element_id(
+                                    element_name, selector_for_id
+                                )
+                                logger.info(f"    🔄 Generated element_id from selector (no xpath): {element_entry['element_id']}")
                             
-                            # Check registry by XPath value (not just name)
-                            xpath_value = discovery['xpath']
-                            existing_key = None
-                            
-                            # Strategy 1: Check by element_id if available
-                            if element_entry.get('element_id'):
-                                element_id_to_find = element_entry['element_id']
-                                for key, elem_data in element_map.get('elements', {}).items():
-                                    if elem_data.get('element_id') == element_id_to_find:
-                                        existing_key = key
-                                        logger.info(f"    🎯 Found existing entry by element_id: {key} (ID: {element_id_to_find})")
-                                        break
-                            
-                            # Strategy 2: Check by XPath value
-                            if not existing_key and xpath_value:
-                                for key, elem_data in element_map.get('elements', {}).items():
-                                    if elem_data.get('xpath') == xpath_value:
-                                        existing_key = key
-                                        logger.info(f"    🎯 Found existing entry by XPath: {key}")
-                                        break
-                            
-                            # Strategy 3: Check by name (fallback)
-                            if not existing_key and element_name in element_map.get('elements', {}):
-                                existing_key = element_name
-                                logger.info(f"    🎯 Found existing entry by name: {element_name}")
+                            # CRITICAL: Backfill element_id into discovery object (always, regardless of existing/new)
+                            if element_entry.get('element_id') and not discovery.get('element_id'):
+                                discovery['element_id'] = element_entry['element_id']
+                                logger.info(f"    🔄 Backfilled element_id into discovery: {discovery['element_id']}")
                             
                             if existing_key:
                                 # Update existing entry
-                                existing_element = element_map['elements'][existing_key]
-                                
-                                # BACKFILL: If discovery is missing element_id, get it from registry
-                                if not element_id and existing_element.get('element_id'):
-                                    element_id = existing_element.get('element_id')
-                                    discovery['element_id'] = element_id
-                                    logger.info(f"    🔄 Backfilled element_id into discovery: {element_id}")
+                                # Note: element_id already backfilled above (line 181-184) if needed
                                 
                                 # 🔒 CRITICAL: NEVER overwrite existing XPath if it exists (manual XPath = absolute source of truth)
                                 existing_xpath = existing_element.get('xpath', '')
@@ -195,6 +213,19 @@ class RegistryManager:
                                 element_map['elements'][element_name] = element_entry
                                 added_count += 1
                                 logger.info(f"    ✅ Added to registry: {element_name} (ID: {element_entry.get('element_id', 'N/A')})")
+                                
+                                # Ensure element_id is backfilled into discovery
+                                if element_entry.get('element_id') and not discovery.get('element_id'):
+                                    discovery['element_id'] = element_entry['element_id']
+                                    logger.info(f"    🔄 Backfilled element_id into discovery (new entry): {discovery['element_id']}")
+                        else:
+                            # FIX #1a: Handle discoveries WITHOUT xpath - still generate element_id and backfill
+                            if not discovery.get('element_id'):
+                                selector_for_id = discovery.get('final_selector') or discovery.get('original_query', '')
+                                if selector_for_id:
+                                    generated_id = self.element_registry._generate_element_id(element_name, selector_for_id)
+                                    discovery['element_id'] = generated_id
+                                    logger.info(f"    🔄 Generated element_id from selector (no xpath) for {element_name}: {generated_id}")
                 
                     if added_count > 0:
                         logger.info(f"  ℹ️ Added {added_count} new entries to registry for {domain}/{page}")
