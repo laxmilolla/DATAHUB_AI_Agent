@@ -5,7 +5,7 @@ CRITICAL: Preserves registry checks, tree climbing, discovery tracking, XPath pr
 """
 import re
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from playwright.async_api import Page, Locator
 
 logger = logging.getLogger(__name__)
@@ -17,22 +17,7 @@ class BrowserClickTool:
     def __init__(self, page: Page, element_locator, action_executor, discovery_tracker,
                  registry_manager, xpath_generator, llm_helper, totp_handler,
                  screenshot_manager, execution_context, parsed_steps: dict, story: str):
-        """
-        Initialize click tool
-        Args:
-            page: Playwright page object
-            element_locator: ElementLocator instance
-            action_executor: ActionExecutor instance
-            discovery_tracker: DiscoveryTracker instance
-            registry_manager: RegistryManager instance
-            xpath_generator: XPathGenerator instance
-            llm_helper: LLMHelper instance
-            totp_handler: TOTPHandler instance
-            screenshot_manager: ScreenshotManager instance
-            execution_context: ExecutionContext instance
-            parsed_steps: Parsed story steps metadata
-            story: Story text
-        """
+        """Initialize click tool"""
         self.page = page
         self.element_locator = element_locator
         self.action_executor = action_executor
@@ -47,20 +32,76 @@ class BrowserClickTool:
         self.story = story
     
     async def execute(self, selector: str, element_description: str = None) -> str:
-        """
-        Execute click operation
-        CRITICAL: Checks registry first, preserves XPaths, tracks discovery
-        """
+        """Execute click operation"""
         original_selector = selector
         element_name = element_description or selector.replace("text=", "").replace("_", " ")
         logger.info(f"Click: {selector}")
         
-        # Get current step metadata
+        # Get step metadata
         step_num = self.context.current_step_number
         step_metadata = self.parsed_steps.get(step_num, {})
         step_text = step_metadata.get('text', '')
         
-        # Get domain and page for registry check
+        # Check registry and resolve selector
+        selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
+            selector, element_description or selector
+        )
+        
+        # Find and choose element
+        chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
+            selector, original_selector, using_registry_xpath
+        )
+        
+        if not chosen_locator:
+            return f"❌ Click FAILED: {selector} - Element not found"
+        
+        # Validate element
+        validation_result = await self._validate_element(chosen_locator, selector, element_name)
+        if not validation_result["exists"]:
+            return f"❌ Click FAILED: {selector} - Element not found"
+        
+        # Check accordion state
+        accordion_result = await self._check_accordion(chosen_locator, element_name)
+        if accordion_result:
+            return accordion_result
+        
+        # Handle TOTP submission if needed
+        await self._handle_totp_submission(step_text, selector)
+        
+        # Execute click and track discovery
+        return await self._execute_click_with_discovery(
+            chosen_locator, selector, original_selector, element_name,
+            original_element_for_xpath, registry_button_element,
+            using_registry_xpath, validation_result
+        )
+    
+    async def _resolve_selector(self, selector: str, element_description: str) -> Tuple[str, bool, Optional[Locator]]:
+        """Check registry and resolve selector"""
+        domain, page_name = self._get_domain_and_page()
+        registry_selector = self.element_locator.check_registry(element_description, domain, page_name)
+        
+        using_registry_xpath = False
+        registry_button_element = None
+        
+        if registry_selector:
+            selector = registry_selector
+            if selector.startswith("xpath="):
+                using_registry_xpath = True
+                logger.info(f"  📋 Using XPath from registry (MANUAL)")
+            else:
+                logger.info(f"  📋 Using selector from registry")
+                try:
+                    registry_matches = await self.page.locator(registry_selector).all()
+                    if registry_matches:
+                        registry_button_element = registry_matches[0]
+                        logger.info(f"  🔍 Found registry button element: {registry_selector}")
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
+        
+        return selector, using_registry_xpath, registry_button_element
+    
+    def _get_domain_and_page(self) -> Tuple[Optional[str], Optional[str]]:
+        """Extract domain and page name from current URL"""
         try:
             current_url = self.page.url
             domain = current_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
@@ -71,433 +112,380 @@ class BrowserClickTool:
                 page_name = 'home'
             else:
                 page_name = url_path
+            return domain, page_name
         except:
-            domain, page_name = None, None
-        
-        # 🔒 CRITICAL: Check element registry FIRST
-        registry_selector = self.element_locator.check_registry(element_description or selector, domain, page_name)
-        using_registry_xpath = False
-        optimized_selector_used = False
-        registry_button_element = None  # Store the actual button element from registry selector for XPath generation
-        
-        if registry_selector:
-            selector = registry_selector
-            optimized_selector_used = True
-            # If registry selector is an XPath, we're using manual XPath - skip tree climbing & discovery
-            if selector.startswith("xpath="):
-                using_registry_xpath = True
-                logger.info(f"  📋 Using XPath from registry (MANUAL) - will skip tree climbing & discovery")
-            else:
-                logger.info(f"  📋 Using selector from registry")
-                # CRITICAL FIX: If registry selector is a CSS selector (like #header-navbar-login-button),
-                # use it to find the actual button element for XPath generation, even if tree climbing uses a parent
-                try:
-                    registry_matches = await self.page.locator(registry_selector).all()
-                    if registry_matches:
-                        registry_button_element = registry_matches[0]
-                        logger.info(f"  🔍 Found registry button element for XPath generation: {registry_selector}")
-                except Exception as e:
-                    logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
-        
-        # Try to find element
+            return None, None
+    
+    async def _find_and_choose_element(self, selector: str, original_selector: str, 
+                                       using_registry_xpath: bool) -> Tuple[Optional[Locator], Optional[Locator]]:
+        """Find elements and choose the best one"""
         try:
             all_matches = await self.page.locator(selector).all()
             
-            # Verify XPath uniqueness if using registry XPath
-            if optimized_selector_used and selector.startswith("xpath="):
-                xpath_count = len(all_matches)
-                logger.info(f"  🔍 XPath verification: {xpath_count} match(es) found")
-                
-                if xpath_count == 0:
-                    logger.warning(f"  ⚠️ XPath returned 0 matches, falling back to original selector")
-                    selector = original_selector
-                    optimized_selector_used = False
-                    using_registry_xpath = False
-                    all_matches = await self.page.locator(selector).all()
-                elif xpath_count > 1:
-                    logger.warning(f"  ⚠️ XPath returned {xpath_count} matches (not unique)")
-                else:
-                    logger.info(f"  ✅ XPath is unique (1 match)")
-        except Exception as selector_error:
-            if optimized_selector_used and selector != original_selector:
-                logger.warning(f"  ⚠️ Optimized selector failed: {selector_error}")
-                logger.info(f"  ⚙️ Falling back to original query: {original_selector}")
+            # Verify XPath if using registry XPath
+            if selector.startswith("xpath=") and len(all_matches) == 0:
+                logger.warning(f"  ⚠️ XPath returned 0 matches, falling back")
                 selector = original_selector
-                optimized_selector_used = False
                 using_registry_xpath = False
                 all_matches = await self.page.locator(selector).all()
-            else:
-                raise selector_error
+        except Exception as e:
+            logger.warning(f"  ⚠️ Selector failed: {e}, falling back")
+            selector = original_selector
+            using_registry_xpath = False
+            all_matches = await self.page.locator(selector).all()
         
         # Filter to visible elements
-        visible_matches = []
-        for match in all_matches:
-            if await match.is_visible():
-                visible_matches.append(match)
+        visible_matches = [m for m in all_matches if await m.is_visible()]
         
-        chosen_locator = None
-        original_element_for_xpath = None
+        if not visible_matches:
+            return None, None
         
-        # 🔒 CRITICAL: If using registry XPath, SKIP tree climbing
+        # Use registry XPath directly if available
         if using_registry_xpath and len(visible_matches) == 1:
-            logger.info(f"  🔒 Using registry XPath directly - skipping tree climbing")
-            chosen_locator = visible_matches[0]
-            original_element_for_xpath = visible_matches[0]
-        elif len(visible_matches) > 1:
-            # Multiple matches - use LLM disambiguation
-            logger.info(f"  🔍 Found {len(visible_matches)} visible matches, asking LLM to choose...")
-            candidates = []
-            original_element_map = {}  # Map parent element -> original element for XPath generation
-            actual_button_element = None  # Store the actual button element (not text node) for XPath generation
-            
-            for i, match in enumerate(visible_matches):
-                description = await self.llm_helper.describe_element(match)
-                
-                # Check if element is interactive
-                element_props = await match.evaluate("""el => ({
-                    tagName: el.tagName.toLowerCase(),
-                    id: el.id,
-                    role: el.getAttribute('role'),
-                    ariaExpanded: el.getAttribute('aria-expanded'),
-                    ariaSelected: el.getAttribute('aria-selected'),
-                    hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick'),
-                    className: el.className
-                })""")
-                
-                is_interactive = (
-                    element_props['tagName'] in ['button', 'a', 'input', 'select'] or
-                    element_props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
-                    element_props['ariaExpanded'] is not None or
-                    element_props['ariaSelected'] is not None or
-                    element_props['hasClickHandler']
-                )
-                
-                # CRITICAL FIX: Identify actual button element (not text node) for XPath generation
-                # Look for button element with id like #header-navbar-login-button or button tag
-                if element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower()):
-                    if actual_button_element is None:
-                        actual_button_element = match
-                        logger.info(f"  🔍 Found actual button element for XPath: tag={element_props['tagName']}, id={element_props['id']}")
-                
-                candidates.append({
-                    "index": len(candidates),
-                    "element": match,
-                    "description": description,
-                    "is_original": True,  # Mark original elements
-                    "is_button": element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower())
-                })
-                
-                # Tree climbing if not interactive and not using registry XPath
-                if not is_interactive and not using_registry_xpath:
-                    logger.info(f"  🔍 Candidate {i}: Element not interactive, climbing tree...")
-                    parent = await self._try_tree_climbing(match)
-                    if parent:
-                        parent_desc = await self.llm_helper.describe_element(parent)
-                        candidates.append({
-                            "index": len(candidates),
-                            "element": parent,
-                            "description": parent_desc + "\n(PARENT found via tree climbing)",
-                            "is_original": False,
-                            "original_element": match  # Store reference to original element
-                        })
-                        # Map parent to original for XPath generation
-                        original_element_map[id(parent)] = match
-            
-            # Ask LLM to choose
-            if len(candidates) > 1:
-                best_index = await self.llm_helper.choose_element(candidates, selector)
-                chosen_locator = candidates[best_index]["element"]
-                # CRITICAL FIX: Use actual button element for XPath, not text node or parent
-                if actual_button_element:
-                    # Found actual button element - use it for XPath generation
-                    original_element_for_xpath = actual_button_element
-                    logger.info(f"  🔍 Using actual button element for XPath generation")
-                elif candidates[best_index].get("is_original", True):
-                    # LLM chose an original element - use it
-                    original_element_for_xpath = chosen_locator
-                else:
-                    # LLM chose a parent - try to find button from original matches
-                    # Look for button element in original matches
-                    button_match = None
-                    for match in visible_matches:
-                        props = await match.evaluate("""el => ({
-                            tagName: el.tagName.toLowerCase(),
-                            id: el.id
-                        })""")
-                        if props['tagName'] == 'button' or (props['id'] and 'login' in props['id'].lower()):
-                            button_match = match
-                            break
-                    original_element_for_xpath = button_match if button_match else candidates[best_index].get("original_element", visible_matches[0])
-            else:
-                chosen_locator = candidates[0]["element"]
-                original_element_for_xpath = actual_button_element if actual_button_element else candidates[0]["element"]
-        elif len(visible_matches) == 1:
-            # Single match - check if interactive, try tree climbing if not
-            match = visible_matches[0]
-            if not using_registry_xpath:
-                element_props = await match.evaluate("""el => ({
-                    tagName: el.tagName.toLowerCase(),
-                    id: el.id,
-                    role: el.getAttribute('role'),
-                    ariaExpanded: el.getAttribute('aria-expanded'),
-                    hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick')
-                })""")
-                
-                is_interactive = (
-                    element_props['tagName'] in ['button', 'a', 'input', 'select'] or
-                    element_props['role'] in ['button', 'tab', 'link'] or
-                    element_props['ariaExpanded'] is not None or
-                    element_props['hasClickHandler']
-                )
-                
-                # CRITICAL FIX: If element is a button, use it for XPath even if tree climbing finds parent
-                is_button = element_props['tagName'] == 'button' or (element_props['id'] and 'login' in element_props['id'].lower())
-                
-                if not is_interactive:
-                    logger.info(f"  🔍 Element not interactive, climbing tree...")
-                    parent = await self._try_tree_climbing(match)
-                    if parent:
-                        chosen_locator = parent
-                        # Use button element for XPath if it's a button, otherwise use original match
-                        original_element_for_xpath = match if is_button else match
-                        if is_button:
-                            logger.info(f"  🔍 Using button element for XPath generation (tag={element_props['tagName']}, id={element_props['id']})")
-                    else:
-                        chosen_locator = match
-                        original_element_for_xpath = match
-                else:
-                    chosen_locator = match
-                    original_element_for_xpath = match
-            else:
-                chosen_locator = match
-                original_element_for_xpath = match
-        else:
-            raise Exception(f"No visible elements found for selector: {selector}")
+            logger.info(f"  🔒 Using registry XPath directly")
+            return visible_matches[0], visible_matches[0]
         
-        # Pre-click validation
-        if chosen_locator:
-            validation_result = {
+        # Handle multiple matches with LLM disambiguation
+        if len(visible_matches) > 1:
+            return await self._handle_multiple_matches(visible_matches, selector, using_registry_xpath)
+        
+        # Single match - check interactivity
+        return await self._handle_single_match(visible_matches[0], using_registry_xpath)
+    
+    async def _handle_multiple_matches(self, visible_matches: List[Locator], selector: str,
+                                       using_registry_xpath: bool) -> Tuple[Locator, Optional[Locator]]:
+        """Handle multiple visible matches with LLM disambiguation"""
+        logger.info(f"  🔍 Found {len(visible_matches)} visible matches, asking LLM to choose...")
+        
+        candidates = []
+        actual_button_element = None
+        
+        for i, match in enumerate(visible_matches):
+            description = await self.llm_helper.describe_element(match)
+            element_props = await self._get_element_props(match)
+            
+            is_interactive = self._is_interactive(element_props)
+            is_button = element_props['tagName'] == 'button' or (element_props.get('id') and 'login' in element_props['id'].lower())
+            
+            if is_button and not actual_button_element:
+                actual_button_element = match
+                logger.info(f"  🔍 Found button element: tag={element_props['tagName']}, id={element_props['id']}")
+            
+            candidates.append({
+                "index": len(candidates),
+                "element": match,
+                "description": description,
+                "is_original": True,
+                "is_button": is_button
+            })
+            
+            # Tree climbing for non-interactive elements
+            if not is_interactive and not using_registry_xpath:
+                logger.info(f"  🔍 Candidate {i}: Not interactive, climbing tree...")
+                parent = await self._try_tree_climbing(match)
+                if parent:
+                    parent_desc = await self.llm_helper.describe_element(parent)
+                    candidates.append({
+                        "index": len(candidates),
+                        "element": parent,
+                        "description": parent_desc + "\n(PARENT found via tree climbing)",
+                        "is_original": False,
+                        "original_element": match
+                    })
+        
+        # LLM chooses best element
+        if len(candidates) > 1:
+            best_index = await self.llm_helper.choose_element(candidates, selector)
+            chosen_locator = candidates[best_index]["element"]
+            
+            # Determine element for XPath generation
+            if actual_button_element:
+                original_element_for_xpath = actual_button_element
+            elif candidates[best_index].get("is_original", True):
+                original_element_for_xpath = chosen_locator
+            else:
+                # LLM chose parent - find button from original matches
+                button_match = next((m for m in visible_matches if await self._is_button_element(m)), None)
+                original_element_for_xpath = button_match if button_match else candidates[best_index].get("original_element", visible_matches[0])
+        else:
+            chosen_locator = candidates[0]["element"]
+            original_element_for_xpath = actual_button_element if actual_button_element else candidates[0]["element"]
+        
+        return chosen_locator, original_element_for_xpath
+    
+    async def _handle_single_match(self, match: Locator, using_registry_xpath: bool) -> Tuple[Locator, Locator]:
+        """Handle single visible match"""
+        if using_registry_xpath:
+            return match, match
+        
+        element_props = await self._get_element_props(match)
+        is_interactive = self._is_interactive(element_props)
+        is_button = element_props['tagName'] == 'button' or (element_props.get('id') and 'login' in element_props['id'].lower())
+        
+        if not is_interactive:
+            logger.info(f"  🔍 Element not interactive, climbing tree...")
+            parent = await self._try_tree_climbing(match)
+            if parent:
+                return parent, match if is_button else match
+            else:
+                return match, match
+        else:
+            return match, match
+    
+    async def _get_element_props(self, element: Locator) -> Dict[str, Any]:
+        """Get element properties"""
+        return await element.evaluate("""el => ({
+            tagName: el.tagName.toLowerCase(),
+            id: el.id,
+            role: el.getAttribute('role'),
+            ariaExpanded: el.getAttribute('aria-expanded'),
+            ariaSelected: el.getAttribute('aria-selected'),
+            hasClickHandler: typeof el.onclick === 'function' || el.hasAttribute('onclick'),
+            className: el.className
+        })""")
+    
+    def _is_interactive(self, props: Dict[str, Any]) -> bool:
+        """Check if element is interactive"""
+        return (
+            props['tagName'] in ['button', 'a', 'input', 'select'] or
+            props['role'] in ['button', 'tab', 'link', 'checkbox', 'radio'] or
+            props['ariaExpanded'] is not None or
+            props['ariaSelected'] is not None or
+            props['hasClickHandler']
+        )
+    
+    async def _is_button_element(self, element: Locator) -> bool:
+        """Check if element is a button"""
+        props = await element.evaluate("""el => ({
+            tagName: el.tagName.toLowerCase(),
+            id: el.id
+        })""")
+        return props['tagName'] == 'button' or (props.get('id') and 'login' in props['id'].lower())
+    
+    async def _validate_element(self, locator: Locator, selector: str, element_name: str) -> Dict[str, Any]:
+        """Validate element exists and is visible"""
+        if locator:
+            return {
                 "exists": True,
-                "visible": await chosen_locator.is_visible(),
-                "enabled": await chosen_locator.is_enabled(),
-                "text_content": await chosen_locator.text_content() or "",
-                "locator": chosen_locator,
+                "visible": await locator.is_visible(),
+                "enabled": await locator.is_enabled(),
+                "text_content": await locator.text_content() or "",
+                "locator": locator,
                 "selector": selector
             }
         else:
             validation_result = await self.action_executor.validate_visibility(selector, element_name)
-            chosen_locator = validation_result.get("locator")
-            if not chosen_locator:
-                chosen_locator = self.page.locator(selector).nth(0)
+            if not validation_result.get("locator"):
+                validation_result["locator"] = self.page.locator(selector).nth(0)
+            return validation_result
+    
+    async def _check_accordion(self, locator: Locator, element_name: str) -> Optional[str]:
+        """Check if element is an accordion and handle accordingly"""
+        try:
+            aria_expanded = await locator.get_attribute("aria-expanded")
+            if aria_expanded is not None:
+                if aria_expanded == 'true':
+                    logger.info(f"  ✅ Accordion already expanded - skipping click")
+                    return f"✅ Accordion already open: {element_name}"
+        except:
+            pass
+        return None
+    
+    async def _handle_totp_submission(self, step_text: str, selector: str) -> None:
+        """Handle TOTP submission if detected"""
+        if not step_text:
+            return
         
-        if not validation_result["exists"]:
-            return f"❌ Click FAILED: {selector} - Element not found"
+        totp_keywords = ["submit", "click submit", "press submit", "continue", "verify"]
+        submit_has_totp = any(kw in step_text.lower() for kw in totp_keywords)
+        selector_is_submit = "submit" in selector.lower()
         
-        # Check for accordion
-        is_accordion = False
-        initial_aria_expanded = None
-        if chosen_locator:
-            try:
-                initial_aria_expanded = await chosen_locator.get_attribute("aria-expanded")
-                if initial_aria_expanded is not None:
-                    is_accordion = True
-                    if initial_aria_expanded == 'true':
-                        logger.info(f"  ✅ Accordion already expanded - skipping click")
-                        return f"✅ Accordion already open: {element_name}"
-            except:
-                pass
-        
-        # TOTP submission detection
-        is_totp_submission = False
-        if step_text:
-            totp_submit_keywords = ["submit", "click submit", "press submit", "continue", "verify"]
-            submit_has_totp = any(keyword in step_text.lower() for keyword in totp_submit_keywords)
-            selector_is_submit = "submit" in selector.lower()
-            
-            # Check if TOTP field exists on page
-            try:
-                has_totp_field = await self.page.evaluate("""() => {
-                    const selectors = ['input[name="code"]', 'input[type="text"][name*="code"]'];
-                    for (const sel of selectors) {
-                        const el = document.querySelector(sel);
-                        if (el && el.offsetWidth > 0 && el.offsetHeight > 0 && el.type !== 'hidden') {
-                            return true;
-                        }
+        try:
+            has_totp_field = await self.page.evaluate("""() => {
+                const selectors = ['input[name="code"]', 'input[type="text"][name*="code"]'];
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el && el.offsetWidth > 0 && el.offsetHeight > 0 && el.type !== 'hidden') {
+                        return true;
                     }
-                    return false;
-                }""")
-                is_totp_submission = (submit_has_totp or selector_is_submit) and has_totp_field
-            except:
-                pass
-        
-        # Handle TOTP submission
-        if is_totp_submission:
-            logger.info(f"  [TOTP_SUBMIT] Detected TOTP submission - regenerating fresh TOTP code")
-            try:
-                totp_code = self.totp_handler.generate_code(story=self.story)
-                logger.info(f"  [TOTP_SUBMIT] Generated fresh TOTP code: {totp_code}")
-                
-                # Update TOTP field
-                totp_selectors = [
-                    "input[name='code']",
-                    "input[type='text'][name*='code']",
-                    "input.one-time-code"
-                ]
-                
-                for totp_selector in totp_selectors:
-                    try:
-                        totp_field = self.page.locator(totp_selector).first
-                        if await totp_field.count() > 0 and await totp_field.is_visible():
-                            await totp_field.fill('')
-                            await totp_field.type(totp_code, delay=10)
-                            await self.page.wait_for_timeout(200)
-                            logger.info(f"  [TOTP_SUBMIT] ✅ Updated TOTP field")
-                            break
-                    except:
-                        continue
-            except Exception as e:
-                logger.error(f"  [TOTP_SUBMIT] Failed to regenerate TOTP: {e}")
-        
-        # Execute click
+                }
+                return false;
+            }""")
+            
+            if (submit_has_totp or selector_is_submit) and has_totp_field:
+                logger.info(f"  [TOTP_SUBMIT] Detected TOTP submission - regenerating fresh TOTP code")
+                try:
+                    totp_code = self.totp_handler.generate_code(story=self.story)
+                    logger.info(f"  [TOTP_SUBMIT] Generated fresh TOTP code: {totp_code}")
+                    
+                    totp_selectors = ["input[name='code']", "input[type='text'][name*='code']", "input.one-time-code"]
+                    for totp_selector in totp_selectors:
+                        try:
+                            totp_field = self.page.locator(totp_selector).first
+                            if await totp_field.count() > 0 and await totp_field.is_visible():
+                                await totp_field.fill('')
+                                await totp_field.type(totp_code, delay=10)
+                                await self.page.wait_for_timeout(200)
+                                logger.info(f"  [TOTP_SUBMIT] ✅ Updated TOTP field")
+                                break
+                        except:
+                            continue
+                except Exception as e:
+                    logger.error(f"  [TOTP_SUBMIT] Failed to regenerate TOTP: {e}")
+        except:
+            pass
+    
+    async def _execute_click_with_discovery(self, chosen_locator: Locator, selector: str,
+                                           original_selector: str, element_name: str,
+                                           original_element_for_xpath: Optional[Locator],
+                                           registry_button_element: Optional[Locator],
+                                           using_registry_xpath: bool,
+                                           validation_result: Dict[str, Any]) -> str:
+        """Execute click and track discovery"""
         initial_html = await self.page.content()
         initial_url = self.page.url
         
-        try:
-            # Try multiple strategies
-            strategies = [
-                {"desc": "direct click", "method": lambda: self.action_executor.click(chosen_locator)},
-                {"desc": "force click", "method": lambda: self.action_executor.click(chosen_locator, force=True)},
-            ]
-            
-            for i, strategy in enumerate(strategies):
-                try:
-                    logger.info(f"  Trying strategy {i+1}: {strategy['desc']}")
-                    # CRITICAL: Capture URL BEFORE click for discovery_url (where element was found/clicked)
-                    discovery_url_before_click = self.page.url
+        strategies = [
+            {"desc": "direct click", "method": lambda: self.action_executor.click(chosen_locator)},
+            {"desc": "force click", "method": lambda: self.action_executor.click(chosen_locator, force=True)},
+        ]
+        
+        for i, strategy in enumerate(strategies):
+            try:
+                logger.info(f"  Trying strategy {i+1}: {strategy['desc']}")
+                discovery_url_before_click = self.page.url
+                
+                await strategy["method"]()
+                await self.page.wait_for_timeout(1000)
+                
+                # Verify click
+                new_html = await self.page.content()
+                new_url = self.page.url
+                dom_changed = new_html != initial_html
+                url_changed = new_url != initial_url
+                
+                if url_changed:
+                    self.discovery_tracker.update_url(new_url)
+                    self.context.current_url = new_url
+                
+                if url_changed or dom_changed:
+                    logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
                     
-                    await strategy["method"]()
-                    await self.page.wait_for_timeout(1000)
-                    
-                    # Verify click
-                    new_html = await self.page.content()
-                    new_url = self.page.url
-                    dom_changed = new_html != initial_html
-                    url_changed = new_url != initial_url
-                    
-                    # Update discovery tracker URL if navigation occurred (for future discoveries)
-                    if url_changed:
-                        self.discovery_tracker.update_url(new_url)
-                        self.context.current_url = new_url
-                    
-                    if url_changed or dom_changed:
-                        logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
-                        
-                        # Track discovery (skip if using registry XPath)
-                        # CRITICAL: Use URL BEFORE click for discovery_url (where element was found)
-                        if not using_registry_xpath:
-                            # Temporarily set discovery_url to the URL where element was clicked
-                            original_url = self.discovery_tracker.current_url
-                            self.discovery_tracker.update_url(discovery_url_before_click)
-                            try:
-                                final_selector = await self.xpath_generator.generate_final_selector(chosen_locator)
-                                if not final_selector:
-                                    final_selector = original_selector
-                                
-                                # CRITICAL FIX: Use registry button element for XPath generation if available
-                                # This ensures we generate XPath for the actual button, not a text node or parent
-                                element_for_xpath = None
-                                if registry_button_element:
-                                    element_for_xpath = registry_button_element
-                                    logger.info(f"  🔍 Using registry button element for XPath generation")
-                                elif original_element_for_xpath:
-                                    # Check if original element is actually a button, if not try to find button element
-                                    try:
-                                        original_props = await original_element_for_xpath.evaluate("""el => ({
-                                            tagName: el.tagName.toLowerCase(),
-                                            id: el.id
-                                        })""")
-                                        if original_props['tagName'] != 'button' and not (original_props.get('id') and 'login' in original_props['id'].lower()):
-                                            # Original element is not a button - try to find the actual button
-                                            logger.info(f"  🔍 Original element is {original_props['tagName']}, searching for button element...")
-                                            # Try to find button with login in id or near the matched element
-                                            button_locator = self.page.locator('#header-navbar-login-button, button:has-text("Login"), [id*="login"][role="button"]').first
-                                            button_count = await button_locator.count()
-                                            if button_count > 0:
-                                                element_for_xpath = await button_locator.element_handle()
-                                                logger.info(f"  ✅ Found actual button element for XPath generation")
-                                            else:
-                                                element_for_xpath = original_element_for_xpath
-                                                logger.info(f"  ⚠️  Could not find button element, using original element")
-                                        else:
-                                            element_for_xpath = original_element_for_xpath
-                                    except Exception as e:
-                                        logger.debug(f"  ⚠️  Error checking original element: {e}")
-                                        element_for_xpath = original_element_for_xpath
-                                else:
-                                    element_for_xpath = chosen_locator
-                                
-                                element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
-                                
-                                discovery_method = "tree_climbing" if original_element_for_xpath != chosen_locator else "direct"
-                                
-                                metadata = {
-                                    "element_attrs": element_attrs,
-                                    "relationship": "parent" if original_element_for_xpath != chosen_locator else "direct"
-                                }
-                                
-                                await self.discovery_tracker.track(
-                                    element_name=element_name,
-                                    original_query=original_selector,
-                                    final_selector=final_selector or original_selector,
-                                    discovery_method=discovery_method,
-                                    metadata=metadata,
-                                    # CRITICAL: Pass original clicked element (not parent) for XPath generation
-                                    # The parent is only used for clicking, but XPath should target the actual element
-                                    clicked_element=original_element_for_xpath if original_element_for_xpath else chosen_locator
-                                )
-                                
-                                # Restore discovery tracker URL to current URL (after navigation)
-                                if url_changed:
-                                    self.discovery_tracker.update_url(new_url)
-                                    self.context.current_url = new_url
-                                else:
-                                    # Restore original URL if no navigation occurred
-                                    self.discovery_tracker.update_url(original_url)
-                                logger.info(f"  ✅ Discovery tracked: {element_name}")
-                            except Exception as e:
-                                logger.warning(f"  ⚠️ Failed to track discovery: {e}")
-                        else:
-                            logger.info(f"  🔒 Skipped discovery tracking (using registry XPath)")
-                        
-                        # Post-click screenshot
-                        try:
-                            screenshot_result = await self.screenshot_manager.capture_post_click(
-                                self.page, chosen_locator, element_name, validation_result.get("text_content", "")
-                            )
-                            if screenshot_result.get("screenshot_taken") and screenshot_result.get("screenshot_file"):
-                                self.context.add_screenshot(screenshot_result["screenshot_file"])
-                        except Exception as e:
-                            logger.warning(f"  ⚠️ Screenshot capture failed: {e}")
-                        
-                        return f"✅ Clicked {selector} - Verified"
+                    # Track discovery
+                    if not using_registry_xpath:
+                        await self._track_discovery(
+                            chosen_locator, original_selector, element_name,
+                            original_element_for_xpath, registry_button_element,
+                            discovery_url_before_click, new_url, url_changed
+                        )
                     else:
-                        if i == 0:
-                            logger.warning(f"  ⚠️ Click executed but no result detected, trying next strategy...")
-                            continue
-                except Exception as e:
-                    logger.info(f"  Strategy {i+1} failed: {str(e)[:100]}")
-                    continue
+                        logger.info(f"  🔒 Skipped discovery tracking (using registry XPath)")
+                    
+                    # Capture screenshot
+                    try:
+                        screenshot_result = await self.screenshot_manager.capture_post_click(
+                            self.page, chosen_locator, element_name, validation_result.get("text_content", "")
+                        )
+                        if screenshot_result.get("screenshot_taken") and screenshot_result.get("screenshot_file"):
+                            self.context.add_screenshot(screenshot_result["screenshot_file"])
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Screenshot capture failed: {e}")
+                    
+                    return f"✅ Clicked {selector} - Verified"
+                else:
+                    if i == 0:
+                        logger.warning(f"  ⚠️ Click executed but no result detected, trying next strategy...")
+                        continue
+            except Exception as e:
+                logger.info(f"  Strategy {i+1} failed: {str(e)[:100]}")
+                continue
+        
+        return f"❌ Click FAILED: {selector} - No strategies produced verifiable result"
+    
+    async def _track_discovery(self, chosen_locator: Locator, original_selector: str,
+                              element_name: str, original_element_for_xpath: Optional[Locator],
+                              registry_button_element: Optional[Locator],
+                              discovery_url_before_click: str, new_url: str, url_changed: bool) -> None:
+        """Track element discovery"""
+        original_url = self.discovery_tracker.current_url
+        self.discovery_tracker.update_url(discovery_url_before_click)
+        
+        try:
+            final_selector = await self.xpath_generator.generate_final_selector(chosen_locator)
+            if not final_selector:
+                final_selector = original_selector
             
-            return f"❌ Click FAILED: {selector} - No strategies produced verifiable result"
+            # Determine element for XPath generation (FIX: use element_for_xpath, not original_element_for_xpath)
+            element_for_xpath = await self._determine_xpath_element(
+                registry_button_element, original_element_for_xpath, chosen_locator
+            )
+            
+            element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
+            
+            discovery_method = "tree_climbing" if original_element_for_xpath != chosen_locator else "direct"
+            
+            metadata = {
+                "element_attrs": element_attrs,
+                "relationship": "parent" if original_element_for_xpath != chosen_locator else "direct"
+            }
+            
+            await self.discovery_tracker.track(
+                element_name=element_name,
+                original_query=original_selector,
+                final_selector=final_selector or original_selector,
+                discovery_method=discovery_method,
+                metadata=metadata,
+                # FIX: Use element_for_xpath (the correct button element) instead of original_element_for_xpath
+                clicked_element=element_for_xpath
+            )
+            
+            # Restore URL
+            if url_changed:
+                self.discovery_tracker.update_url(new_url)
+                self.context.current_url = new_url
+            else:
+                self.discovery_tracker.update_url(original_url)
+            
+            logger.info(f"  ✅ Discovery tracked: {element_name}")
         except Exception as e:
-            logger.error(f"  ❌ Click error: {e}")
-            return f"❌ Click FAILED: {selector} - {str(e)}"
+            logger.warning(f"  ⚠️ Failed to track discovery: {e}")
+    
+    async def _determine_xpath_element(self, registry_button_element: Optional[Locator],
+                                      original_element_for_xpath: Optional[Locator],
+                                      chosen_locator: Locator) -> Locator:
+        """Determine which element to use for XPath generation"""
+        if registry_button_element:
+            logger.info(f"  🔍 Using registry button element for XPath generation")
+            return registry_button_element
+        
+        if original_element_for_xpath:
+            try:
+                props = await original_element_for_xpath.evaluate("""el => ({
+                    tagName: el.tagName.toLowerCase(),
+                    id: el.id
+                })""")
+                
+                if props['tagName'] != 'button' and not (props.get('id') and 'login' in props['id'].lower()):
+                    logger.info(f"  🔍 Original element is {props['tagName']}, searching for button element...")
+                    button_locator = self.page.locator('#header-navbar-login-button, button:has-text("Login"), [id*="login"][role="button"]').first
+                    button_count = await button_locator.count()
+                    if button_count > 0:
+                        element_for_xpath = await button_locator.element_handle()
+                        logger.info(f"  ✅ Found actual button element for XPath generation")
+                        return element_for_xpath
+                    else:
+                        logger.info(f"  ⚠️  Could not find button element, using original element")
+                        return original_element_for_xpath
+                else:
+                    return original_element_for_xpath
+            except Exception as e:
+                logger.debug(f"  ⚠️  Error checking original element: {e}")
+                return original_element_for_xpath
+        
+        return chosen_locator
     
     async def _try_tree_climbing(self, element: Locator, max_depth: int = 5) -> Optional[Locator]:
-        """
-        Try tree climbing to find interactive parent
-        Returns: Parent locator if found, None otherwise
-        """
+        """Try tree climbing to find interactive parent"""
         current_elem = element
         for depth in range(1, max_depth + 1):
             try:
@@ -509,7 +497,6 @@ class BrowserClickTool:
                 if not parent_elem or not await parent_elem.is_visible():
                     break
                 
-                # Check if parent is interactive
                 parent_props = await parent_elem.evaluate("""el => ({
                     tagName: el.tagName.toLowerCase(),
                     role: el.getAttribute('role'),
@@ -536,4 +523,3 @@ class BrowserClickTool:
                 break
         
         return None
-
