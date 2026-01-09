@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class DiscoveryTracker:
     """Track element discoveries"""
     
-    def __init__(self, page, xpath_generator, element_registry, current_url: str):
+    def __init__(self, page, xpath_generator, element_registry, current_url: str, execution_context=None):
         """
         Initialize discovery tracker
         Args:
@@ -22,11 +22,13 @@ class DiscoveryTracker:
             xpath_generator: XPathGenerator instance
             element_registry: ElementRegistry instance
             current_url: Current page URL
+            execution_context: ExecutionContext instance (optional, for step_number tracking)
         """
         self.page = page
         self.xpath_generator = xpath_generator
         self.element_registry = element_registry
         self.current_url = current_url
+        self.execution_context = execution_context
         self.discoveries: List[Dict] = []
     
     def update_url(self, new_url: str) -> None:
@@ -73,6 +75,13 @@ class DiscoveryTracker:
                 element_text = None
                 element_type = None
                 
+                # PRIORITY 1: Use actual tag name from clicked element (most reliable)
+                element_attrs = metadata.get('element_attrs', {})
+                actual_tag = element_attrs.get('tag')
+                if actual_tag:
+                    element_type = actual_tag
+                    logger.info(f"  🏷️  Using actual tag from clicked element: {element_type}")
+                
                 # Check if selector contains text= or :has-text()
                 if 'text=' in selector:
                     element_text = selector.split('text=')[1].strip().strip("'\"")
@@ -81,29 +90,30 @@ class DiscoveryTracker:
                     if text_match:
                         element_text = text_match.group(1)
                 
-                # Try to infer element type from selector or context
-                if 'button' in selector.lower() or 'button' in element_name.lower():
-                    element_type = 'button'
-                elif selector.startswith('input['):
-                    element_type = 'input'
-                    # Extract input type if available
-                    type_match = re.search(r"type=['\"]([^'\"]+)['\"]", selector)
-                    if type_match:
-                        input_type = type_match.group(1)
-                        if element_text:
-                            candidate_xpath = f"//input[@type='{input_type}' and normalize-space(.)='{element_text}']"
-                        else:
-                            candidate_xpath = f"//input[@type='{input_type}']"
-                        
-                        # Verify XPath works before using it
-                        if await self._verify_xpath(candidate_xpath, original_query):
-                            xpath_to_use = candidate_xpath
-                            uniqueness_method = "fallback_input_type"
-                            logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
-                elif selector.startswith('a[') or 'link' in selector.lower():
-                    element_type = 'a'
-                elif selector.startswith('select'):
-                    element_type = 'select'
+                # PRIORITY 2: If no actual tag, try to infer element type from selector or context
+                if not element_type:
+                    if 'button' in selector.lower() or 'button' in element_name.lower():
+                        element_type = 'button'
+                    elif selector.startswith('input['):
+                        element_type = 'input'
+                        # Extract input type if available
+                        type_match = re.search(r"type=['\"]([^'\"]+)['\"]", selector)
+                        if type_match:
+                            input_type = type_match.group(1)
+                            if element_text:
+                                candidate_xpath = f"//input[@type='{input_type}' and normalize-space(.)='{element_text}']"
+                            else:
+                                candidate_xpath = f"//input[@type='{input_type}']"
+                            
+                            # Verify XPath works before using it
+                            if await self._verify_xpath(candidate_xpath, original_query):
+                                xpath_to_use = candidate_xpath
+                                uniqueness_method = "fallback_input_type"
+                                logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
+                    elif selector.startswith('a[') or 'link' in selector.lower():
+                        element_type = 'a'
+                    elif selector.startswith('select'):
+                        element_type = 'select'
                 
                 # Generate simple XPath based on type and text
                 if not xpath_to_use and element_type and element_text:
@@ -117,15 +127,16 @@ class DiscoveryTracker:
                         uniqueness_method = "fallback_text_match"
                         logger.info(f"  ✅ Verified fallback XPath: {xpath_to_use}")
                 elif not xpath_to_use and element_text:
-                    # Generic fallback: try button first (most common for text selectors)
+                    # PRIORITY 3: Generic fallback - use actual tag if available, otherwise try button
                     escaped_text = element_text.replace("'", "\\'")
-                    candidate_xpath = f"//button[normalize-space(.)='{escaped_text}']"
+                    fallback_tag = actual_tag if actual_tag else 'button'
+                    candidate_xpath = f"//{fallback_tag}[normalize-space(.)='{escaped_text}']"
                     
                     # Verify XPath works before using it
                     if await self._verify_xpath(candidate_xpath, original_query):
                         xpath_to_use = candidate_xpath
-                        uniqueness_method = "fallback_button_text"
-                        logger.info(f"  ✅ Verified fallback XPath (button): {xpath_to_use}")
+                        uniqueness_method = f"fallback_{fallback_tag}_text"
+                        logger.info(f"  ✅ Verified fallback XPath ({fallback_tag}): {xpath_to_use}")
             except Exception as e:
                 logger.debug(f"  ⚠️ Fallback XPath generation failed: {e}")
         
@@ -175,6 +186,14 @@ class DiscoveryTracker:
             "discovery_url": self.current_url,  # Track URL where discovery was made
             "timestamp": datetime.now().isoformat() + "Z"
         }
+        
+        # FIX #2: Add step_number to discovery if execution_context is available
+        if self.execution_context:
+            step_num = self.execution_context.current_step_number
+            discovery["step_number"] = step_num
+            logger.info(f"     Step Number: {step_num}")
+        else:
+            logger.warning(f"  ⚠️  No execution_context available - step_number not set for discovery: {element_name}")
         
         self.discoveries.append(discovery)
         logger.info(f"  📝 Tracked discovery: {element_name} via {discovery_method} on {self.current_url}")
