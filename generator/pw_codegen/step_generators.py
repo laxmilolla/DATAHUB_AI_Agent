@@ -353,6 +353,19 @@ def generate_fill_step(
         if match:
             field_name = match.group(1).strip()
     
+    # Get element_id from discovery (REQUIRED for pure registry system)
+    element_id = discovery.get('element_id') if discovery else None
+    
+    # If element_id is missing, try to backfill from registry
+    if not element_id and discovery:
+        backfilled = backfill_element_id(discovery, registry)
+        if backfilled:
+            element_id = discovery.get('element_id')
+    
+    # CRITICAL: Always use registry lookup - never hardcoded selectors
+    if not element_id:
+        raise Exception(f"❌ Step {step_num}: Discovery missing element_id for '{field_name}' - cannot generate Playwright step. Registry must be complete.")
+    
     # Escape text for Python string
     text_escaped = escape_string(text)
     
@@ -361,6 +374,10 @@ def generate_fill_step(
     
     # Generate code
     code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
+    element_id_escaped = escape_string(element_id)
+    code += f"{ind}element_id = '{element_id_escaped}'\n"
+    code += f"{ind}\n"
     
     if is_totp_step:
         code += f"{ind}# TOTP step - generate code dynamically\n"
@@ -381,39 +398,12 @@ def generate_fill_step(
     else:
         code += f"{ind}fill_text = '{text_escaped}'\n"
     
-    # Use selector from action (what AI actually used)
-    selector_escaped = escape_string(selector)
-    
-    code += f"{ind}selector = '{selector_escaped}'\n"
     code += f"{ind}\n"
     code += f"{ind}try:\n"
+    code += f"{ind}    xpath = get_xpath_by_id(element_id, page.url)  # Lookup from JSON registry (prefers current page registry)\n"
+    code += f"{ind}    selector = f'xpath={{xpath}}'\n"
     code += f"{ind}    element = page.locator(selector).nth(0)\n"
     code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
-    
-    # For TOTP fields, try multiple selectors if the first one fails
-    if is_totp_step:
-        code += f"{ind}    # TOTP field - try multiple selectors if needed\n"
-        code += f"{ind}    if selector == \"input[name='code']\" or 'input[name=\"code\"]' in selector:\n"
-        code += f"{ind}        totp_selectors = [\n"
-        code += f"{ind}            \"input.one-time-code-input__input\",\n"
-        code += f"{ind}            \"input[autocomplete='one-time-code']\",\n"
-        code += f"{ind}            \"input[type='text'][name='code']\",\n"
-        code += f"{ind}            \"input[name='code']:not([type='hidden'])\",\n"
-        code += f"{ind}            \"lg-one-time-code-input input[type='text']\",\n"
-        code += f"{ind}        ]\n"
-        code += f"{ind}        selector_found = False\n"
-        code += f"{ind}        for totp_sel in totp_selectors:\n"
-        code += f"{ind}            try:\n"
-        code += f"{ind}                test_elem = page.locator(totp_sel).first\n"
-        code += f"{ind}                if test_elem.is_visible(timeout=1000):\n"
-        code += f"{ind}                    selector = totp_sel\n"
-        code += f"{ind}                    element = test_elem\n"
-        code += f"{ind}                    selector_found = True\n"
-        code += f"{ind}                    break\n"
-        code += f"{ind}            except:\n"
-        code += f"{ind}                continue\n"
-        code += f"{ind}        if not selector_found:\n"
-        code += f"{ind}            element = page.locator(selector).nth(0)\n"
     
     code += f"{ind}    \n"
     code += f"{ind}    # Check if field is readonly/disabled\n"
@@ -443,7 +433,7 @@ def generate_fill_step(
     code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_{sanitize_filename(field_name)}_failed.png')\n"
     code += f"{ind}    except:\n"
     code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
-    code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name}: {{e}}')\n"
+    code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (element_id: {{element_id}}): {{e}}')\n"
     # Don't raise - continue to next step to capture more screenshots
     code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
     code += f"{ind}\n"

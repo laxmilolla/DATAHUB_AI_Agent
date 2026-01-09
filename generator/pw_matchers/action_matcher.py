@@ -87,12 +87,28 @@ def find_action_by_content(step_text: str, step_num: int, actions_taken: List[Di
                     return action
     
     elif 'click' in step_lower and 'login' in step_lower:
-        # Find browser_click with Login selector
+        # Find browser_click with Login selector - prioritize exact matches
+        # Extract element name from step (e.g., "Click On Login.gov button" -> "Login.gov")
+        element_match = re.search(r'click\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+button|\s+link|\s+tab|$)', step_lower)
+        element_name = element_match.group(1).strip() if element_match else ''
+        
+        # First pass: exact match
         for action in actions_taken:
             if action.get('tool') == 'browser_click':
-                selector = action.get('input', {}).get('selector', '')
-                result = action.get('result', '')
-                if 'login' in selector.lower() or 'login' in result.lower():
+                selector = action.get('input', {}).get('selector', '').lower()
+                result = action.get('result', '').lower()
+                # Exact match (e.g., "login.gov" matches "login.gov")
+                if element_name and element_name.lower() in selector and selector.count(element_name.lower()) == 1:
+                    return action
+                if element_name and element_name.lower() in result:
+                    return action
+        
+        # Second pass: substring match (fallback)
+        for action in actions_taken:
+            if action.get('tool') == 'browser_click':
+                selector = action.get('input', {}).get('selector', '').lower()
+                result = action.get('result', '').lower()
+                if 'login' in selector or 'login' in result:
                     return action
     
     elif 'click' in step_lower and 'grant' in step_lower:
@@ -109,11 +125,27 @@ def find_action_by_content(step_text: str, step_num: int, actions_taken: List[Di
         element_match = re.search(r'click\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+button|\s+link|\s+tab|$)', step_lower)
         if element_match:
             element_name = element_match.group(1).strip()
+            element_name_lower = element_name.lower()
+            
+            # First pass: exact match (element name exactly matches selector text)
             for action in actions_taken:
                 if action.get('tool') == 'browser_click':
-                    selector = action.get('input', {}).get('selector', '')
-                    result = action.get('result', '')
-                    if element_name.lower() in selector.lower() or element_name.lower() in result.lower():
+                    selector = action.get('input', {}).get('selector', '').lower()
+                    result = action.get('result', '').lower()
+                    # Check for exact match (normalize text= prefix)
+                    selector_text = selector.replace('text=', '').strip()
+                    if selector_text == element_name_lower or element_name_lower == selector_text:
+                        return action
+                    # Also check result for exact match
+                    if element_name_lower in result and result.count(element_name_lower) == 1:
+                        return action
+            
+            # Second pass: substring match (fallback)
+            for action in actions_taken:
+                if action.get('tool') == 'browser_click':
+                    selector = action.get('input', {}).get('selector', '').lower()
+                    result = action.get('result', '').lower()
+                    if element_name_lower in selector or element_name_lower in result:
                         return action
     
     # Fallback: Try iteration matching if content matching failed
