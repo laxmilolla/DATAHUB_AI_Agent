@@ -46,13 +46,14 @@ class PlaywrightGenerator:
         # Initialize core generator
         self.core_generator = PlaywrightGeneratorCore(self.project_root)
     
-    def generate(self, execution_id: str, test_name: str = None) -> Dict[str, Any]:
+    def generate(self, execution_id: str, test_name: str = None, validate_selectors: bool = True) -> Dict[str, Any]:
         """
         Generate Playwright test from successful AI execution
         
         Args:
             execution_id: The execution ID (e.g., 'exec_172351d5')
             test_name: Optional custom test name
+            validate_selectors: Whether to validate selectors before generation (default: True)
             
         Returns:
             Dict with 'code', 'filename', 'metadata'
@@ -68,9 +69,9 @@ class PlaywrightGenerator:
         if not test_name:
             test_name = generate_test_name(execution['story'])
         
-        # Generate code using core generator
+        # Generate code using core generator (with selector validation)
         code = self.core_generator.generate_test_code(
-            execution, discoveries, test_name, registry_files
+            execution, discoveries, test_name, registry_files, validate_selectors=validate_selectors
         )
         
         # Save to file

@@ -355,8 +355,19 @@ def generate_fill_step(
         if match:
             field_name = match.group(1).strip()
     
-    # Check if this is a TOTP step (before checking element_id)
+    # Check if this is a TOTP step (check both step_text and action/discovery)
     is_totp_step = any(keyword in step_text.lower() for keyword in ['totp', 'one-time', 'one time', '2fa', 'two-factor', 'authenticator code', 'security code'])
+    
+    # Also check action text and discovery name for TOTP indicators
+    if not is_totp_step and action:
+        action_text = str(action.get('input', {})).lower() + str(action.get('result', '')).lower()
+        is_totp_step = any(keyword in action_text for keyword in ['totp', 'one-time', 'one time', '2fa', 'two-factor', 'authenticator', 'otp'])
+    
+    # Also check discovery name/selector for TOTP indicators
+    if not is_totp_step and discovery:
+        disc_name = str(discovery.get('name', '')).lower()
+        disc_selector = str(discovery.get('final_selector', '') or discovery.get('original_query', '')).lower()
+        is_totp_step = any(keyword in (disc_name + disc_selector) for keyword in ['totp', 'one-time', 'one-time-code', 'authenticator'])
     
     # Get element_id from discovery (REQUIRED for pure registry system)
     element_id = discovery.get('element_id') if discovery else None

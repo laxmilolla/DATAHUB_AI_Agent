@@ -531,12 +531,26 @@ def generate_and_validate(exec_id):
         data = request.get_json(silent=True) or {}
         test_name = data.get('test_name')
         validate = data.get('validate', True)
+        validate_selectors = data.get('validate_selectors', True)  # Pre-generation selector validation
         
         project_root = current_app.config['PROJECT_ROOT']
         
-        # Step 1: Generate Playwright code
-        generator = PlaywrightGenerator(project_root)
-        generation_result = generator.generate(exec_id, test_name)
+        # Step 1: Generate Playwright code (with pre-validation)
+        try:
+            generator = PlaywrightGenerator(project_root)
+            generation_result = generator.generate(exec_id, test_name, validate_selectors=validate_selectors)
+        except Exception as e:
+            # If selector validation fails, return detailed error
+            error_msg = str(e)
+            if "Selector Validation Failed" in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'error_type': 'selector_validation_failed',
+                    'execution_id': exec_id
+                }), 400
+            # Re-raise other errors
+            raise
         
         result = {
             'success': True,

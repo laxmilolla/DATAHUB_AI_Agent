@@ -38,6 +38,14 @@ from generator.pw_codegen.code_formatter import generate_test_name
 
 logger = logging.getLogger(__name__)
 
+# Import validator (optional - only if validation is enabled)
+try:
+    from validator.selector_validator import SelectorValidator
+    VALIDATOR_AVAILABLE = True
+except ImportError:
+    VALIDATOR_AVAILABLE = False
+    logger.warning("SelectorValidator not available - validation will be skipped")
+
 
 class PlaywrightGeneratorCore:
     """Core orchestrator for Playwright test generation"""
@@ -53,7 +61,8 @@ class PlaywrightGeneratorCore:
         execution: Dict,
         discoveries: Dict,
         test_name: str,
-        registry_files: List[str]
+        registry_files: List[str],
+        validate_selectors: bool = True
     ) -> str:
         """
         Generate complete Python Playwright test code
@@ -63,12 +72,47 @@ class PlaywrightGeneratorCore:
             discoveries: Discoveries dictionary
             test_name: Test function name
             registry_files: List of registry file paths
+            validate_selectors: Whether to validate selectors before generation (default: True)
         Returns:
             Complete test code as string
+        Raises:
+            Exception: If selector validation fails
         """
         story = execution['story']
         actions_taken = execution.get('actions_taken', [])
         discoveries_list = discoveries.get('discoveries', [])
+        
+        # PRE-VALIDATION: Validate selectors before generating code
+        if validate_selectors and VALIDATOR_AVAILABLE:
+            logger.info("🔍 Pre-validating selectors before code generation...")
+            validator = SelectorValidator(self.project_root)
+            validation_result = validator.validate_all_selectors(
+                execution, discoveries_list, actions_taken
+            )
+            
+            if not validation_result['all_valid']:
+                # Build detailed error message
+                error_msg = "❌ Selector Validation Failed\n\n"
+                error_msg += "The following selectors failed validation:\n\n"
+                
+                for error in validation_result['errors']:
+                    error_msg += f"  • {error}\n"
+                
+                if validation_result['warnings']:
+                    error_msg += "\n⚠️  Warnings:\n"
+                    for warning in validation_result['warnings']:
+                        error_msg += f"  • {warning}\n"
+                
+                error_msg += "\n💡 Suggestions:\n"
+                error_msg += "  1. Check registry files for correct XPaths\n"
+                error_msg += "  2. Verify elements exist on the page\n"
+                error_msg += "  3. Update registry with correct selectors\n"
+                error_msg += "  4. Re-run AI execution to capture correct elements\n"
+                
+                logger.error(error_msg)
+                raise Exception(error_msg)
+            
+            logger.info(f"✅ All {len(validation_result['validated_steps'])} selectors validated successfully")
         
         # NO MERGE: Use page-specific registries only (loaded at runtime in generated script)
         # Registry files are passed to template, but not merged here to avoid conflicts
