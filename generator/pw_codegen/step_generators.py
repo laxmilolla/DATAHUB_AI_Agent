@@ -215,7 +215,9 @@ def generate_click_step(
     code += f"{ind}    except:\n"
     code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
     if is_optional:
-        code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional): {{e}}')\n"
+        # Optional steps: log and continue (don't fail test)
+        code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional step): {{e}}')\n"
+        code += f"{ind}    # Optional step - continuing without failing test\n"
     else:
         code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}')\n"
         # Don't raise - continue to next step to capture more screenshots
