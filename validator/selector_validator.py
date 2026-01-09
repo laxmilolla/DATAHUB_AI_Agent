@@ -163,21 +163,34 @@ class SelectorValidator:
             'clickable': False
         }
         
+        # Get registry path early for error messages
+        registry_info = self._load_registry_for_url(discovery_url)
+        registry_path = registry_info.get('path') if registry_info else None
+        
         # Check 1: element_id exists
         if not element_id:
-            result['error'] = f"Step {step_num}: '{element_name}' missing element_id - cannot validate"
+            registry_info_str = f" (Registry: {registry_path})" if registry_path else ""
+            result['error'] = f"Step {step_num}: '{element_name}' missing element_id - cannot validate{registry_info_str}"
             return result
         
         # Check 2: XPath exists
         if not xpath:
-            result['error'] = f"Step {step_num}: '{element_name}' missing XPath in discovery"
+            registry_info_str = f" (Registry: {registry_path})" if registry_path else ""
+            result['error'] = f"Step {step_num}: '{element_name}' missing XPath in discovery{registry_info_str}"
             return result
         
         # Check 3: Load registry and verify XPath exists
-        registry = self._load_registry_for_url(discovery_url)
+        registry_info = self._load_registry_for_url(discovery_url)
+        registry = registry_info.get('data') if registry_info else None
+        registry_path = registry_info.get('path') if registry_info else None
+        
         if not registry:
-            result['warning'] = f"Step {step_num}: '{element_name}' - Registry not found for URL {discovery_url}"
+            registry_path_str = f" (Registry: {registry_path})" if registry_path else ""
+            result['warning'] = f"Step {step_num}: '{element_name}' - Registry not found for URL {discovery_url}{registry_path_str}"
             # Continue validation anyway (XPath might still work)
+        
+        # Store registry path for error messages
+        result['registry_path'] = registry_path
         
         # Check 4: Navigate to page and find element
         try:
@@ -187,7 +200,8 @@ class SelectorValidator:
                 url = action.get('input', {}).get('url', '')
             
             if not url:
-                result['error'] = f"Step {step_num}: '{element_name}' - No URL found for validation"
+                registry_info_str = f" (Registry: {registry_path})" if registry_path else ""
+                result['error'] = f"Step {step_num}: '{element_name}' - No URL found for validation{registry_info_str}"
                 return result
             
             # Navigate to page
@@ -209,7 +223,8 @@ class SelectorValidator:
                 count = await locator.count()
                 
                 if count == 0:
-                    result['error'] = f"Step {step_num}: '{element_name}' - Element not found using XPath: {xpath}"
+                    registry_info = f" (Registry: {registry_path})" if registry_path else ""
+                    result['error'] = f"Step {step_num}: '{element_name}' - Element not found using XPath: {xpath}{registry_info}"
                     return result
                 
                 result['found'] = True
@@ -246,20 +261,26 @@ class SelectorValidator:
                 result['valid'] = True
                 
             except PlaywrightTimeoutError:
-                result['error'] = f"Step {step_num}: '{element_name}' - Timeout finding element with XPath: {xpath}"
+                registry_info = f" (Registry: {registry_path})" if registry_path else ""
+                result['error'] = f"Step {step_num}: '{element_name}' - Timeout finding element with XPath: {xpath}{registry_info}"
                 return result
             except Exception as e:
-                result['error'] = f"Step {step_num}: '{element_name}' - Error finding element: {str(e)}"
+                registry_info = f" (Registry: {registry_path})" if registry_path else ""
+                result['error'] = f"Step {step_num}: '{element_name}' - Error finding element: {str(e)}{registry_info}"
                 return result
                 
         except Exception as e:
-            result['error'] = f"Step {step_num}: '{element_name}' - Error navigating to page: {str(e)}"
+            registry_info_str = f" (Registry: {registry_path})" if registry_path else ""
+            result['error'] = f"Step {step_num}: '{element_name}' - Error navigating to page: {str(e)}{registry_info_str}"
             return result
         
         return result
     
     def _load_registry_for_url(self, url: str) -> Optional[Dict]:
-        """Load registry for a given URL"""
+        """
+        Load registry for a given URL
+        Returns dict with 'data' (registry dict) and 'path' (relative path string)
+        """
         if not url:
             return None
         
@@ -283,14 +304,18 @@ class SelectorValidator:
         # Try to load registry file
         domain_dir = self.element_maps_dir / domain
         if not domain_dir.exists():
-            return None
+            # Return path even if file doesn't exist (for error messages)
+            expected_path = f'element_maps/{domain}/{page}_page.json'
+            return {'data': None, 'path': expected_path}
         
         # Try different naming patterns
         registry_file = domain_dir / f'{page}_page.json'
         if registry_file.exists():
             try:
                 with open(registry_file, 'r') as f:
-                    return json.load(f)
+                    registry_data = json.load(f)
+                    relative_path = f'element_maps/{domain}/{page}_page.json'
+                    return {'data': registry_data, 'path': relative_path}
             except:
                 pass
         
@@ -301,7 +326,9 @@ class SelectorValidator:
             if registry_file.exists():
                 try:
                     with open(registry_file, 'r') as f:
-                        return json.load(f)
+                        registry_data = json.load(f)
+                        relative_path = f'element_maps/{domain}/{page_no_ext}_page.json'
+                        return {'data': registry_data, 'path': relative_path}
                 except:
                     pass
         
@@ -311,11 +338,15 @@ class SelectorValidator:
             if registry_file.exists():
                 try:
                     with open(registry_file, 'r') as f:
-                        return json.load(f)
+                        registry_data = json.load(f)
+                        relative_path = f'element_maps/{domain}/{page_name}'
+                        return {'data': registry_data, 'path': relative_path}
                 except:
                     pass
         
-        return None
+        # Return expected path even if file doesn't exist (for error messages)
+        expected_path = f'element_maps/{domain}/{page}_page.json'
+        return {'data': None, 'path': expected_path}
 
 
 # Example usage

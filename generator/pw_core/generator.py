@@ -104,9 +104,9 @@ class PlaywrightGeneratorCore:
                         error_msg += f"  • {warning}\n"
                 
                 error_msg += "\n💡 Suggestions:\n"
-                error_msg += "  1. Check registry files for correct XPaths\n"
+                error_msg += "  1. Check the registry files mentioned above for correct XPaths\n"
                 error_msg += "  2. Verify elements exist on the page\n"
-                error_msg += "  3. Update registry with correct selectors\n"
+                error_msg += "  3. Update the registry file with correct selectors\n"
                 error_msg += "  4. Re-run AI execution to capture correct elements\n"
                 
                 logger.error(error_msg)
