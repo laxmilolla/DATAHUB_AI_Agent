@@ -109,7 +109,7 @@ class Agent:
             # Get current URL for discovery tracker
             current_url = page.url
             self.discovery_tracker = DiscoveryTracker(
-                page, self.xpath_generator, self.element_registry, current_url
+                page, self.xpath_generator, self.element_registry, current_url, self.context
             )
             
             # Initialize element locator
