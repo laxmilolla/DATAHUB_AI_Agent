@@ -160,6 +160,18 @@ class BrowserClickTool:
         candidates = []
         actual_button_element = None
         
+        # CRITICAL: Search for button element BEFORE click (page might navigate after click)
+        # This ensures we have the button element reference for XPath generation
+        if 'login' in selector.lower() or 'login' in str(selector).lower():
+            try:
+                button_locator = self.page.locator('#header-navbar-login-button, button:has-text("Login"), [id*="login"][role="button"]').first
+                button_count = await button_locator.count()
+                if button_count > 0:
+                    actual_button_element = await button_locator.element_handle()
+                    logger.info(f"  ✅ Found Login button element BEFORE click for XPath generation")
+            except Exception as e:
+                logger.debug(f"  ⚠️ Could not find Login button before click: {e}")
+        
         for i, match in enumerate(visible_matches):
             description = await self.llm_helper.describe_element(match)
             element_props = await self._get_element_props(match)
@@ -169,7 +181,7 @@ class BrowserClickTool:
             
             if is_button and not actual_button_element:
                 actual_button_element = match
-                logger.info(f"  🔍 Found button element: tag={element_props['tagName']}, id={element_props['id']}")
+                logger.info(f"  🔍 Found button element in matches: tag={element_props['tagName']}, id={element_props['id']}")
             
             candidates.append({
                 "index": len(candidates),
@@ -198,7 +210,7 @@ class BrowserClickTool:
             best_index = await self.llm_helper.choose_element(candidates, selector)
             chosen_locator = candidates[best_index]["element"]
             
-            # Determine element for XPath generation
+            # Determine element for XPath generation - prioritize actual_button_element
             if actual_button_element:
                 original_element_for_xpath = actual_button_element
             elif candidates[best_index].get("is_original", True):
