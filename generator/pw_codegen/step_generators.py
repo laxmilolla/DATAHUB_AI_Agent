@@ -353,6 +353,9 @@ def generate_fill_step(
         if match:
             field_name = match.group(1).strip()
     
+    # Check if this is a TOTP step (before checking element_id)
+    is_totp_step = any(keyword in step_text.lower() for keyword in ['totp', 'one-time', 'one time', '2fa', 'two-factor', 'authenticator code', 'security code'])
+    
     # Get element_id from discovery (REQUIRED for pure registry system)
     element_id = discovery.get('element_id') if discovery else None
     
@@ -362,21 +365,28 @@ def generate_fill_step(
         if backfilled:
             element_id = discovery.get('element_id')
     
-    # CRITICAL: Always use registry lookup - never hardcoded selectors
-    if not element_id:
-        raise Exception(f"❌ Step {step_num}: Discovery missing element_id for '{field_name}' - cannot generate Playwright step. Registry must be complete.")
-    
     # Escape text for Python string
     text_escaped = escape_string(text)
     
-    # Check if this is a TOTP step
-    is_totp_step = any(keyword in step_text.lower() for keyword in ['totp', 'one-time', 'one time', '2fa', 'two-factor', 'authenticator code', 'security code'])
-    
     # Generate code
     code = f"{ind}# Step {step_num}: {step_text}\n"
-    code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
-    element_id_escaped = escape_string(element_id)
-    code += f"{ind}element_id = '{element_id_escaped}'\n"
+    
+    # TOTP fields may not have element_id (dynamic fields) - allow fallback to action selector
+    use_registry_lookup = element_id is not None
+    
+    if use_registry_lookup:
+        code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
+        element_id_escaped = escape_string(element_id)
+        code += f"{ind}element_id = '{element_id_escaped}'\n"
+    elif is_totp_step:
+        # TOTP fallback: use action selector (TOTP fields are often dynamic and may not be in registry)
+        code += f"{ind}# TOTP field - using action selector (element_id not available, TOTP fields are dynamic)\n"
+        selector_escaped = escape_string(selector)
+        code += f"{ind}selector = '{selector_escaped}'\n"
+    else:
+        # Non-TOTP fields MUST have element_id
+        raise Exception(f"❌ Step {step_num}: Discovery missing element_id for '{field_name}' - cannot generate Playwright step. Registry must be complete.")
+    
     code += f"{ind}\n"
     
     if is_totp_step:
@@ -400,9 +410,36 @@ def generate_fill_step(
     
     code += f"{ind}\n"
     code += f"{ind}try:\n"
-    code += f"{ind}    xpath = get_xpath_by_id(element_id, page.url)  # Lookup from JSON registry (prefers current page registry)\n"
-    code += f"{ind}    selector = f'xpath={{xpath}}'\n"
-    code += f"{ind}    element = page.locator(selector).nth(0)\n"
+    
+    if use_registry_lookup:
+        code += f"{ind}    xpath = get_xpath_by_id(element_id, page.url)  # Lookup from JSON registry (prefers current page registry)\n"
+        code += f"{ind}    selector = f'xpath={{xpath}}'\n"
+        code += f"{ind}    element = page.locator(selector).nth(0)\n"
+    else:
+        # TOTP fallback: use multiple selectors if needed
+        code += f"{ind}    # TOTP field - try multiple selectors if needed\n"
+        code += f"{ind}    totp_selectors = [\n"
+        code += f"{ind}        \"input.one-time-code-input__input\",\n"
+        code += f"{ind}        \"input[autocomplete='one-time-code']\",\n"
+        code += f"{ind}        \"input[type='text'][name='code']\",\n"
+        code += f"{ind}        \"input[name='code']:not([type='hidden'])\",\n"
+        code += f"{ind}        \"lg-one-time-code-input input[type='text']\",\n"
+        code += f"{ind}        selector,  # Fallback to action selector\n"
+        code += f"{ind}    ]\n"
+        code += f"{ind}    selector_found = False\n"
+        code += f"{ind}    for totp_sel in totp_selectors:\n"
+        code += f"{ind}        try:\n"
+        code += f"{ind}            test_elem = page.locator(totp_sel).first\n"
+        code += f"{ind}            if test_elem.is_visible(timeout=1000):\n"
+        code += f"{ind}                selector = totp_sel\n"
+        code += f"{ind}                element = test_elem\n"
+        code += f"{ind}                selector_found = True\n"
+        code += f"{ind}                break\n"
+        code += f"{ind}        except:\n"
+        code += f"{ind}            continue\n"
+        code += f"{ind}    if not selector_found:\n"
+        code += f"{ind}        element = page.locator(selector).nth(0)\n"
+    
     code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
     
     code += f"{ind}    \n"
@@ -433,7 +470,10 @@ def generate_fill_step(
     code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_{sanitize_filename(field_name)}_failed.png')\n"
     code += f"{ind}    except:\n"
     code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
-    code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (element_id: {{element_id}}): {{e}}')\n"
+    if use_registry_lookup:
+        code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (element_id: {{element_id}}): {{e}}')\n"
+    else:
+        code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (selector: {{selector}}): {{e}}')\n"
     # Don't raise - continue to next step to capture more screenshots
     code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
     code += f"{ind}\n"
