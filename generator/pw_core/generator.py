@@ -11,7 +11,6 @@ from generator.pw_loaders.execution_loader import load_execution, validate_execu
 from generator.pw_loaders.discovery_loader import load_discoveries, validate_discoveries
 from generator.pw_loaders.registry_loader import (
     detect_registry_files,
-    merge_registries,
     get_registry_path
 )
 from generator.pw_matchers.action_matcher import (
@@ -71,15 +70,16 @@ class PlaywrightGeneratorCore:
         actions_taken = execution.get('actions_taken', [])
         discoveries_list = discoveries.get('discoveries', [])
         
-        # Merge all registries
-        merged_registry = merge_registries(registry_files, self.element_maps_dir)
+        # NO MERGE: Use page-specific registries only (loaded at runtime in generated script)
+        # Registry files are passed to template, but not merged here to avoid conflicts
         
         # Extract test-specific constants
         test_constants = extract_test_constants(discoveries_list)
         
         # Generate test body (sequential code generation)
+        # No registry parameter needed - all lookups use element_id via page-specific registries at runtime
         test_body = self._generate_sequential_code(
-            story, actions_taken, discoveries_list, merged_registry, indent=12
+            story, actions_taken, discoveries_list, indent=12
         )
         
         # Build complete test template
@@ -100,7 +100,6 @@ class PlaywrightGeneratorCore:
         story: str,
         actions_taken: List[Dict],
         discoveries: List[Dict],
-        registry: Dict,
         indent: int = 12
     ) -> str:
         """
@@ -182,31 +181,9 @@ class PlaywrightGeneratorCore:
                 # Find corresponding discovery for this click
                 discovery = find_discovery_by_step(step_num, step_text, discoveries, action)
                 
-                # If no discovery found, try to find element in registry by step text/action selector
-                if not discovery:
-                    selector = action.get('input', {}).get('selector', '')
-                    element_name_from_step = None
-                    if 'checkbox' in step_text.lower():
-                        checkbox_match = re.search(r'select\s+(?:the\s+)?(.+?)\s+checkbox', step_text, re.IGNORECASE)
-                        if checkbox_match:
-                            element_name_from_step = checkbox_match.group(1).strip()
-                    
-                    # Try to find in registry
-                    if element_name_from_step and registry:
-                        elements = registry.get('elements', {})
-                        for key, elem_data in elements.items():
-                            if element_name_from_step.lower() in key.lower() or key.lower() in element_name_from_step.lower():
-                                # Create a discovery-like dict from registry entry
-                                discovery = {
-                                    'name': key,
-                                    'element_id': elem_data.get('element_id'),
-                                    'xpath': elem_data.get('xpath'),
-                                    'original_query': selector,
-                                    'final_selector': elem_data.get('selector', selector),
-                                    'discovery_method': 'registry_lookup'
-                                }
-                                logger.info(f"  🔍 Found element in registry for Step {step_num}: {key} (ID: {discovery.get('element_id', 'N/A')})")
-                                break
+                # NO NAME-BASED FALLBACK: Rely only on discovery's element_id
+                # Name-based lookup causes conflicts when same element name exists in multiple registries
+                # element_id is unique and page-specific, so it's the only reliable lookup method
                 
                 # Find next step's discovery (for popup dismissal - wait for next element to be clickable)
                 next_step_discovery = None
@@ -225,12 +202,12 @@ class PlaywrightGeneratorCore:
                                     next_step_discovery = find_discovery_by_step(next_step_num, next_step_text, discoveries, next_action)
                                     break
                 
-                code += generate_click_step(step_num, step_text, action, discovery, registry, indent, next_step_discovery)
+                code += generate_click_step(step_num, step_text, action, discovery, None, indent, next_step_discovery)
             
             elif tool == 'browser_fill':
                 # Find corresponding discovery for this fill action
                 discovery = find_discovery_by_step(step_num, step_text, discoveries, action)
-                code += generate_fill_step(step_num, step_text, action, discovery, registry, indent)
+                code += generate_fill_step(step_num, step_text, action, discovery, None, indent)
             
             elif tool == 'browser_verify_table':
                 # Find corresponding verification discovery (must be table_verification type)

@@ -62,9 +62,8 @@ from pathlib import Path
 REGISTRY_PATHS = {registry_paths_list_str}
 
 # Load registries per domain/page (for dynamic loading based on current page)
+# NO MERGE: Keep registries separate to avoid conflicts when same element name exists in multiple registries
 REGISTRIES_BY_PATH = {{}}  # registry_path -> registry_data
-REGISTRY = {{}}  # Merged registry (fallback)
-REGISTRY_ID_INDEX = {{}}  # Merged id_index (fallback)
 loaded_count = 0
 
 for registry_path_str in REGISTRY_PATHS:
@@ -73,11 +72,8 @@ for registry_path_str in REGISTRY_PATHS:
         if registry_path.exists():
             with open(registry_path, 'r') as f:
                 registry_data = json.load(f)
-                # Store per-path for dynamic loading
+                # Store per-path for dynamic loading (NO MERGE - prevents conflicts)
                 REGISTRIES_BY_PATH[registry_path_str] = registry_data
-                # Also merge for fallback
-                REGISTRY.update(registry_data.get('elements', {{}}))
-                REGISTRY_ID_INDEX.update(registry_data.get('id_index', {{}}))
             loaded_count += 1
             print(f"✅ Loaded registry: {{len(registry_data.get('elements', {{}}))}} elements from {{registry_path.name}}")
         else:
@@ -86,7 +82,9 @@ for registry_path_str in REGISTRY_PATHS:
         print(f"⚠️  Failed to load registry {{registry_path_str}}: {{e}}")
 
 if loaded_count > 0:
-    print(f"✅ Loaded {{loaded_count}} registries: {{len(REGISTRY)}} total elements, {{len(REGISTRY_ID_INDEX)}} total IDs")
+    total_elements = sum(len(reg.get('elements', {{}})) for reg in REGISTRIES_BY_PATH.values())
+    total_ids = sum(len(reg.get('id_index', {{}})) for reg in REGISTRIES_BY_PATH.values())
+    print(f"✅ Loaded {{loaded_count}} registries: {{total_elements}} total elements, {{total_ids}} total IDs (separate, not merged)")
 
 def get_registry_for_page(page_url):
     """Get registry for current page based on URL"""
@@ -159,38 +157,59 @@ def get_registry_for_page(page_url):
     return None
 
 def get_xpath_by_id(element_id, page_url=None):
-    """Get XPath from registry by unique ID - prefers registry for current page"""
+    """Get XPath from registry by unique ID - prefers registry for current page, searches all registries for same domain if not found"""
     if not element_id:
         raise Exception(f"❌ element_id is required")
     
-    # Try to get registry for current page first
-    current_registry = None
-    current_id_index = None
+    from urllib.parse import urlparse
     
+    # STEP 1: Try to get registry for current page first
     if page_url:
         page_registry = get_registry_for_page(page_url)
         if page_registry:
             current_registry = page_registry.get('elements', {{}})
             current_id_index = page_registry.get('id_index', {{}})
+            
+            # Check if element_id exists in current page registry
+            if element_id in current_id_index:
+                registry_key = current_id_index[element_id]
+                if registry_key in current_registry:
+                    xpath = current_registry[registry_key].get('xpath')
+                    if xpath:
+                        return xpath
     
-    # Use current page registry if available, otherwise use merged registry
-    id_index_to_use = current_id_index if current_id_index else REGISTRY_ID_INDEX
-    registry_to_use = current_registry if current_registry else REGISTRY
+    # STEP 2: If not found in page-specific registry, search all registries for same domain
+    if page_url:
+        parsed = urlparse(page_url)
+        domain = parsed.netloc.split(':')[0]  # Remove port if present
+        
+        # Search all registries for this domain
+        for registry_path_str, registry_data in REGISTRIES_BY_PATH.items():
+            if domain in registry_path_str:
+                id_index = registry_data.get('id_index', {{}})
+                elements = registry_data.get('elements', {{}})
+                
+                if element_id in id_index:
+                    registry_key = id_index[element_id]
+                    if registry_key in elements:
+                        xpath = elements[registry_key].get('xpath')
+                        if xpath:
+                            return xpath
     
-    if element_id not in id_index_to_use:
-        raise Exception(f"❌ element_id '{{element_id}}' not found in registry id_index")
+    # STEP 3: Last resort - search ALL registries (cross-domain fallback)
+    for registry_data in REGISTRIES_BY_PATH.values():
+        id_index = registry_data.get('id_index', {{}})
+        elements = registry_data.get('elements', {{}})
+        
+        if element_id in id_index:
+            registry_key = id_index[element_id]
+            if registry_key in elements:
+                xpath = elements[registry_key].get('xpath')
+                if xpath:
+                    return xpath
     
-    registry_key = id_index_to_use[element_id]
-    
-    if registry_key not in registry_to_use:
-        raise Exception(f"❌ Registry key '{{registry_key}}' not found for element_id '{{element_id}}'")
-    
-    xpath = registry_to_use[registry_key].get('xpath')
-    
-    if not xpath:
-        raise Exception(f"❌ XPath missing for element_id '{{element_id}}' (registry_key: '{{registry_key}}')")
-    
-    return xpath
+    # Not found in any registry
+    raise Exception(f"❌ element_id '{{element_id}}' not found in any registry id_index")
 
 
 def {test_name}():
