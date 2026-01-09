@@ -191,8 +191,9 @@ class BrowserClickTool:
                 "is_button": is_button
             })
             
-            # Tree climbing for non-interactive elements
-            if not is_interactive and not using_registry_xpath:
+            # Tree climbing for non-interactive elements (but NOT for links/buttons)
+            # CRITICAL FIX: Don't climb for links - they're always interactive
+            if not is_interactive and not using_registry_xpath and element_props['tagName'] != 'a':
                 logger.info(f"  🔍 Candidate {i}: Not interactive, climbing tree...")
                 parent = await self._try_tree_climbing(match)
                 if parent:
@@ -210,15 +211,15 @@ class BrowserClickTool:
             best_index = await self.llm_helper.choose_element(candidates, selector)
             chosen_locator = candidates[best_index]["element"]
             
-            # Determine element for XPath generation - prioritize actual_button_element
-            if actual_button_element:
-                original_element_for_xpath = actual_button_element
-            elif candidates[best_index].get("is_original", True):
+            # Determine element for XPath generation - prioritize original element, not parent
+            # CRITICAL FIX: Always use original element for XPath, not parent (parent is only for clicking)
+            if candidates[best_index].get("is_original", True):
+                # LLM chose original element - use it
                 original_element_for_xpath = chosen_locator
             else:
-                # LLM chose parent - find button from original matches
-                button_match = next((m for m in visible_matches if await self._is_button_element(m)), None)
-                original_element_for_xpath = button_match if button_match else candidates[best_index].get("original_element", visible_matches[0])
+                # LLM chose parent - use original element for XPath (parent is only for clicking)
+                original_element_for_xpath = candidates[best_index].get("original_element", visible_matches[0])
+                logger.info(f"  🔍 LLM chose parent for clicking, but using original element for XPath generation")
         else:
             chosen_locator = candidates[0]["element"]
             original_element_for_xpath = actual_button_element if actual_button_element else candidates[0]["element"]
@@ -232,13 +233,22 @@ class BrowserClickTool:
         
         element_props = await self._get_element_props(match)
         is_interactive = self._is_interactive(element_props)
-        is_button = element_props['tagName'] == 'button' or (element_props.get('id') and 'login' in element_props['id'].lower())
+        tag_name = element_props['tagName']
         
+        # CRITICAL FIX: Don't replace <a> links with button parents
+        # Links are always interactive and should never trigger tree climbing
+        if tag_name == 'a':
+            logger.info(f"  ✅ Link element detected - keeping original (no tree climbing)")
+            return match, match
+        
+        # For other elements, check if interactive
         if not is_interactive:
             logger.info(f"  🔍 Element not interactive, climbing tree...")
             parent = await self._try_tree_climbing(match)
             if parent:
-                return parent, match if is_button else match
+                # CRITICAL FIX: Always use original element for XPath, not parent
+                # Parent is only for clicking, XPath should reflect what was actually targeted
+                return parent, match
             else:
                 return match, match
         else:
@@ -497,7 +507,26 @@ class BrowserClickTool:
         return chosen_locator
     
     async def _try_tree_climbing(self, element: Locator, max_depth: int = 5) -> Optional[Locator]:
-        """Try tree climbing to find interactive parent"""
+        """
+        Try tree climbing to find interactive parent
+        CRITICAL: Only climbs for truly non-interactive elements (text, spans, divs)
+        Never replaces <a> links or other interactive elements
+        """
+        # Get original element tag to check if it's already interactive
+        try:
+            original_props = await element.evaluate("""el => ({
+                tagName: el.tagName.toLowerCase(),
+                role: el.getAttribute('role')
+            })""")
+            
+            # CRITICAL FIX: Don't climb if original element is already a link or button
+            # Links and buttons should never be replaced by parents
+            if original_props['tagName'] in ['a', 'button']:
+                logger.info(f"  ✅ Original element is {original_props['tagName']} - skipping tree climbing")
+                return None
+        except:
+            pass
+        
         current_elem = element
         for depth in range(1, max_depth + 1):
             try:
@@ -526,7 +555,7 @@ class BrowserClickTool:
                 )
                 
                 if ancestor_is_interactive:
-                    logger.info(f"  ✅ Found interactive ancestor at depth {depth}")
+                    logger.info(f"  ✅ Found interactive ancestor at depth {depth} (tag: {parent_props['tagName']})")
                     return parent_elem
                 else:
                     current_elem = parent_elem

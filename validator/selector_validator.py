@@ -217,15 +217,54 @@ class SelectorValidator:
             except:
                 pass
             
-            # Try to find element using XPath
+            # Try to find element using XPath (with fallback to alternative selectors)
             try:
                 locator = page.locator(f"xpath={xpath}")
                 count = await locator.count()
                 
+                # If primary XPath fails, try alternative selectors
                 if count == 0:
-                    registry_info = f" (Registry: {registry_path})" if registry_path else ""
-                    result['error'] = f"Step {step_num}: '{element_name}' - Element not found using XPath: {xpath}{registry_info}"
-                    return result
+                    # Try alternative selectors from action and discovery
+                    alternative_selectors = self._get_alternative_selectors(discovery, action)
+                    found_alternative = False
+                    working_selector = None
+                    
+                    for alt_selector in alternative_selectors:
+                        try:
+                            alt_locator = page.locator(alt_selector)
+                            alt_count = await alt_locator.count()
+                            if alt_count > 0:
+                                # Check if it's visible
+                                try:
+                                    if await alt_locator.first.is_visible(timeout=2000):
+                                        found_alternative = True
+                                        working_selector = alt_selector
+                                        locator = alt_locator
+                                        count = alt_count
+                                        logger.info(f"  ✅ Found element using alternative selector: {alt_selector}")
+                                        break
+                                except:
+                                    continue
+                        except:
+                            continue
+                    
+                    if not found_alternative:
+                        # Build error message with suggestions
+                        registry_info = f" (Registry: {registry_path})" if registry_path else ""
+                        error_msg = f"Step {step_num}: '{element_name}' - Element not found using XPath: {xpath}{registry_info}"
+                        
+                        if alternative_selectors:
+                            error_msg += f"\n   Tried alternative selectors: {', '.join(alternative_selectors[:3])}"
+                            error_msg += f"\n   💡 Suggestion: Update registry XPath or check if element exists on page"
+                        
+                        result['error'] = error_msg
+                        result['tried_alternatives'] = alternative_selectors
+                        return result
+                    else:
+                        # Found using alternative - add warning
+                        result['warning'] = f"Step {step_num}: '{element_name}' - Primary XPath failed, but found using alternative selector: {working_selector}"
+                        result['working_selector'] = working_selector
+                        result['primary_xpath_failed'] = True
                 
                 result['found'] = True
                 
@@ -347,6 +386,50 @@ class SelectorValidator:
         # Return expected path even if file doesn't exist (for error messages)
         expected_path = f'element_maps/{domain}/{page}_page.json'
         return {'data': None, 'path': expected_path}
+    
+    def _get_alternative_selectors(self, discovery: Dict, action: Optional[Dict]) -> List[str]:
+        """
+        Get alternative selectors to try when primary XPath fails
+        Returns list of selector strings (Playwright locator format)
+        """
+        alternatives = []
+        
+        # 1. Try final_selector from discovery (the selector that actually worked)
+        if discovery:
+            final_selector = discovery.get('final_selector', '')
+            if final_selector and final_selector != discovery.get('xpath', ''):
+                alternatives.append(final_selector)
+            
+            # 2. Try original_query from discovery
+            original_query = discovery.get('original_query', '')
+            if original_query and original_query not in alternatives:
+                alternatives.append(original_query)
+        
+        # 3. Try selector from action input (what AI actually used)
+        if action:
+            action_selector = action.get('input', {}).get('selector', '')
+            if action_selector and action_selector not in alternatives:
+                alternatives.append(action_selector)
+        
+        # 4. Try text-based selector from element name
+        element_name = discovery.get('name', '') if discovery else ''
+        if element_name:
+            # Try text= selector
+            text_selector = f"text={element_name}"
+            if text_selector not in alternatives:
+                alternatives.append(text_selector)
+            
+            # Try button with text
+            button_text_selector = f"button:has-text('{element_name}')"
+            if button_text_selector not in alternatives:
+                alternatives.append(button_text_selector)
+            
+            # Try link with text
+            link_text_selector = f"a:has-text('{element_name}')"
+            if link_text_selector not in alternatives:
+                alternatives.append(link_text_selector)
+        
+        return alternatives
 
 
 # Example usage
