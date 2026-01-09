@@ -15,6 +15,7 @@ from generator.pw_loaders.registry_loader import (
     get_registry_path
 )
 from generator.pw_matchers.action_matcher import (
+    find_action_by_step_number,
     find_action_by_content,
     find_action_by_iteration,
     find_wait_action
@@ -148,11 +149,16 @@ class PlaywrightGeneratorCore:
             # Find corresponding action from actions_taken
             action = None
             
-            # For wait steps, match by step text content
-            if 'wait' in step_text.lower() and any(char.isdigit() for char in step_text):
+            # PRIORITY 1: Direct lookup by step_number (like element_id for XPaths)
+            # This uses the AI's decision directly - most reliable
+            action = find_action_by_step_number(step_num, actions_taken)
+            
+            # PRIORITY 2: For wait steps, match by step text content
+            if not action and 'wait' in step_text.lower() and any(char.isdigit() for char in step_text):
                 action = find_wait_action(step_text, actions_taken)
-            else:
-                # For other steps, use content-based matching
+            
+            # PRIORITY 3: Fallback to content-based matching (for backward compatibility)
+            if not action:
                 action = find_action_by_content(step_text, step_num, actions_taken)
             
             # Generate code based on action type

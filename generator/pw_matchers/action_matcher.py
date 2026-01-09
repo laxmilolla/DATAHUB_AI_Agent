@@ -9,6 +9,24 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def find_action_by_step_number(step_num: int, actions_taken: List[Dict]) -> Optional[Dict]:
+    """
+    Find action by stored step_number (direct lookup - like element_id for XPaths).
+    This is the preferred method as it uses the AI's decision directly.
+    
+    Args:
+        step_num: Story step number
+        actions_taken: List of actions taken during execution
+    Returns:
+        Action dictionary or None
+    """
+    for action in actions_taken:
+        if action.get('step_number') == step_num:
+            logger.info(f"  ✅ Found action for Step {step_num} via direct step_number lookup (iteration: {action.get('iteration')})")
+            return action
+    return None
+
+
 def find_action_by_iteration(step_num: int, actions_taken: List[Dict]) -> Optional[Dict]:
     """
     Find action corresponding to a story step number by iteration

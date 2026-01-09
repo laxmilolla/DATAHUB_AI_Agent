@@ -176,6 +176,7 @@ class Agent:
                         # Add to actions
                         self.context.add_action({
                             "iteration": iteration,
+                            "step_number": self.context.current_step_number,  # Store which story step this action belongs to (like element_id for XPaths)
                             "tool": tool_name,
                             "input": tool_input,
                             "result": result_text
