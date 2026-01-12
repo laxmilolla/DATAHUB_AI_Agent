@@ -1347,15 +1347,24 @@
                 
                 if (response.ok) {
                     showActionMessage(`✅ Test Generated Successfully!`, 'success');
-                    displayPlaywrightResults(result);
                     
-                    // Show "Run Test" button to generate screenshots
-                    const runTestBtn = document.createElement('button');
-                    runTestBtn.className = 'btn-primary';
-                    runTestBtn.style.cssText = 'font-size: 1em; padding: 12px 24px; margin-top: 15px;';
-                    runTestBtn.textContent = '▶️ Run Test (Generate Screenshots)';
-                    runTestBtn.onclick = () => runPlaywrightTest();
-                    statusDiv.appendChild(runTestBtn);
+                    // Show success message with Run Test button
+                    statusDiv.innerHTML = `
+                        <div class="alert alert-success" style="margin-bottom: 15px;">
+                            <div class="alert-icon">✅</div>
+                            <div class="alert-content">
+                                <h4>Test Generated Successfully!</h4>
+                                <p>Test file: ${result.test_file || 'N/A'}</p>
+                            </div>
+                        </div>
+                        <div style="text-align: center;">
+                            <button class="btn-primary" onclick="runPlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
+                                ▶️ Run Test (Generate Screenshots)
+                            </button>
+                        </div>
+                    `;
+                    
+                    displayPlaywrightResults(result);
                     
                     // Reload main results to update Overview tab with Playwright data
                     await pollResults();
