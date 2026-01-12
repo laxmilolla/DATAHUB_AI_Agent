@@ -40,9 +40,15 @@ class TestRunner:
         start_time = time.time()
         
         # Run the test as a subprocess
+        # Use venv Python if available, otherwise system Python
+        python_executable = sys.executable
+        venv_python = self.project_root / 'venv' / 'bin' / 'python3'
+        if venv_python.exists():
+            python_executable = str(venv_python)
+        
         try:
             result = subprocess.run(
-                [sys.executable, str(test_path)],
+                [python_executable, str(test_path)],
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout (test includes login flow which can be slow)
