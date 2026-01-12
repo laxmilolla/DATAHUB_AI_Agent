@@ -525,9 +525,26 @@ class BrowserClickTool:
             
             discovery_method = "tree_climbing" if original_element_for_xpath != chosen_locator else "direct"
             
+            # Extract element type from element_attrs (tag name)
+            element_type = 'unknown'
+            if element_attrs and element_attrs.get('tag'):
+                tag = element_attrs.get('tag').lower()
+                # Map tag names to readable types
+                if tag == 'a':
+                    element_type = 'link'
+                elif tag == 'button':
+                    element_type = 'button'
+                elif tag == 'input':
+                    element_type = 'input'
+                elif tag == 'select':
+                    element_type = 'select'
+                else:
+                    element_type = tag  # Use tag name as-is for other elements
+            
             metadata = {
                 "element_attrs": element_attrs,
-                "relationship": "parent" if original_element_for_xpath != chosen_locator else "direct"
+                "relationship": "parent" if original_element_for_xpath != chosen_locator else "direct",
+                "type": element_type  # CRITICAL: Set type so registry saves correct element type (link vs button)
             }
             
             await self.discovery_tracker.track(

@@ -217,14 +217,35 @@ class BrowserFillTool:
             if not using_registry_xpath:
                 try:
                     element_name = element_name_for_registry or selector
+                    
+                    # Extract element attributes to get tag/type
+                    element_attrs = {}
+                    element_type = 'input'  # Default for fill operations
+                    try:
+                        fill_locator = self.page.locator(selector).first
+                        tag_name = await fill_locator.evaluate("el => el.tagName?.toLowerCase() || ''")
+                        if tag_name:
+                            element_attrs['tag'] = tag_name
+                            if tag_name == 'input':
+                                element_type = 'input'
+                            elif tag_name == 'textarea':
+                                element_type = 'textarea'
+                            else:
+                                element_type = tag_name
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not extract element attributes: {e}")
+                    
                     await self.discovery_tracker.track(
                         element_name=element_name,
                         original_query=original_selector,
                         final_selector=selector,
                         discovery_method="direct",
-                        metadata={"element_attrs": {}}
+                        metadata={
+                            "element_attrs": element_attrs,
+                            "type": element_type  # Set type so registry saves correct element type
+                        }
                     )
-                    logger.info(f"  ✅ Discovery tracked: {element_name}")
+                    logger.info(f"  ✅ Discovery tracked: {element_name} (type: {element_type})")
                 except Exception as e:
                     logger.warning(f"  ⚠️ Failed to track discovery: {e}")
             else:
