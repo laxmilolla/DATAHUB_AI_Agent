@@ -454,6 +454,42 @@ class SelectorValidator:
                 alternatives.append(link_text_selector)
         
         return alternatives
+    
+    def _is_totp_field(self, element_name: str, discovery: Dict, action: Optional[Dict]) -> bool:
+        """Check if element is a TOTP field (skip validation)"""
+        name_lower = element_name.lower()
+        if 'totp' in name_lower or 'one-time' in name_lower or 'authenticator' in name_lower:
+            return True
+        
+        # Check discovery selector
+        final_selector = discovery.get('final_selector', '').lower()
+        if 'totp' in final_selector or 'one-time-code' in final_selector:
+            return True
+        
+        # Check action input
+        if action:
+            action_input = action.get('input', {})
+            if 'totp' in str(action_input).lower() or 'one-time' in str(action_input).lower():
+                return True
+        
+        return False
+    
+    def _is_optional_element(self, step_num: int, element_name: str, action: Optional[Dict]) -> bool:
+        """Check if element is optional/conditional (skip validation)"""
+        # Known optional elements (conditional, only appear sometimes)
+        optional_elements = ['continue', 'grant']
+        if element_name.lower() in optional_elements:
+            return True
+        
+        # Check action result for optional indicators
+        if action:
+            step_text = action.get('input', {}).get('text', '').lower()
+            
+            # Check for optional keywords in step text
+            if any(keyword in step_text for keyword in ['if appears', 'if there is', 'optional', '(if appears)']):
+                return True
+        
+        return False
 
 
 # Example usage
