@@ -63,15 +63,46 @@ class ElementLocator:
                 clean_text = clean_text[5:]
             clean_text = clean_text.strip()
             
-            # Find all matching elements by name using word boundaries
+            # Find all matching elements by name with priority ordering
             matches = []
             for name, elem in element_map.get("elements", {}).items():
                 name_lower = name.lower()
-                # Use word boundary matching to avoid partial matches
+                name_clean = name_lower.replace('text=', '').replace('selector=', '').strip()
+                
+                # PRIORITY 1: Exact match (highest priority)
+                if name_clean == clean_text or name_lower == clean_text:
+                    matches.insert(0, (name, elem))  # Insert at beginning for highest priority
+                    logger.info(f"  ✓ Exact match (PRIORITY 1): {name}")
+                    continue
+                
+                # PRIORITY 2: Starts with query (e.g., "Login" matches "Login button" but not "Smart Card Login")
+                if name_clean.startswith(clean_text) or name_lower.startswith(clean_text):
+                    matches.append((name, elem))
+                    logger.info(f"  ✓ Starts with match (PRIORITY 2): {name}")
+                    continue
+                
+                # PRIORITY 3: Word boundary match, but only if query is a complete word at start
+                # This prevents "Login" from matching "Smart Card Login"
+                pattern_start = r'^' + re.escape(clean_text) + r'\b'
+                if re.search(pattern_start, name_lower):
+                    matches.append((name, elem))
+                    logger.info(f"  ✓ Word boundary start match (PRIORITY 3): {name}")
+                    continue
+                
+                # PRIORITY 4: Word boundary anywhere, but prefer shorter matches
+                # Only match if query is a complete word (not substring)
                 pattern = r'\b' + re.escape(clean_text) + r'\b'
                 if re.search(pattern, name_lower):
-                    matches.append((name, elem))
-                    logger.info(f"  ✓ Name match: {name}")
+                    # Skip if name is much longer than query (likely wrong match)
+                    # e.g., "Login" should not match "Smart Card Login" (3 words vs 1 word)
+                    query_words = len(clean_text.split())
+                    name_words = len(name_clean.split())
+                    # Only allow if name has same or fewer words, or query is at start
+                    if query_words >= name_words or name_clean.startswith(clean_text.split()[0]):
+                        matches.append((name, elem))
+                        logger.info(f"  ✓ Word boundary match (PRIORITY 4): {name}")
+                    else:
+                        logger.info(f"  ✗ Skipped long match: {name} (query: {query_words} words, name: {name_words} words)")
             
             if not matches:
                 logger.info(f"  ⚠️ No name matches for '{clean_text}'")
