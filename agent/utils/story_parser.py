@@ -58,6 +58,8 @@ class StoryParser:
         # Detect LOCATION
         if "sidebar" in step_text or "filter panel" in step_text or "left" in step_text:
             metadata["location"] = "sidebar"
+        elif "header" in step_text or "top" in step_text or "navbar" in step_text:
+            metadata["location"] = "header"
         elif "table" in step_text or "bottom" in step_text or "main" in step_text or "content" in step_text:
             metadata["location"] = "table"
         
@@ -82,14 +84,32 @@ class StoryParser:
     
     def _detect_element_type(self, step_text: str) -> str:
         """
-        Detect element type (tab, accordion, checkbox)
+        Detect element type from step text
+        Priority: link > button > input > select > radio > checkbox > tab > accordion
         """
-        if "tab" in step_text:
-            return "tab"
-        elif "accordion" in step_text or "expand" in step_text:
-            return "accordion"
-        elif "checkbox" in step_text or "check box" in step_text:
+        step_lower = step_text.lower()
+        
+        # Priority order matters - check most specific first
+        if "link" in step_lower:
+            return "link"
+        elif "button" in step_lower:
+            return "button"
+        elif "input field" in step_lower or ("input" in step_lower and "field" in step_lower):
+            return "input"
+        elif "select" in step_lower or "dropdown" in step_lower:
+            return "select"
+        elif "radio" in step_lower:
+            return "radio"
+        elif "checkbox" in step_lower or "check box" in step_lower:
             return "checkbox"
+        elif "tab" in step_lower:
+            return "tab"
+        elif "accordion" in step_lower or "expand" in step_lower:
+            return "accordion"
+        # Infer input type for "Enter" or "Fill" actions
+        elif "enter" in step_lower or "fill" in step_lower:
+            return "input"
+        
         return None
     
     def _extract_parent_hint(self, step_text: str) -> str:
