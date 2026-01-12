@@ -1337,7 +1337,10 @@
                 const response = await fetch(`/api/executions/${executionId}/generate-and-validate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ validate: true })
+                    body: JSON.stringify({ 
+                        validate: false,  // Skip test execution (too slow, causes timeout)
+                        validate_selectors: true  // Only do pre-generation selector validation
+                    })
                 });
                 
                 const result = await response.json();
