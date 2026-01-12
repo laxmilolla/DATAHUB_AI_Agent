@@ -134,6 +134,36 @@ class BrowserClickTool:
             using_registry_xpath = False
             all_matches = await self.page.locator(selector).all()
         
+        # CRITICAL FIX: Filter text= selectors for exact text matches
+        # Prevents "text=Login" from matching "Smart Card Login"
+        if selector.startswith("text=") and not using_registry_xpath:
+            query_text = selector[5:].strip()  # Extract text after "text="
+            logger.info(f"  🔍 Filtering text= selector for exact match: '{query_text}'")
+            
+            exact_matches = []
+            for match in all_matches:
+                try:
+                    # Get normalized text content (trim whitespace)
+                    element_text = await match.evaluate("el => el.textContent?.trim() || ''")
+                    
+                    # Check for exact match (case-insensitive)
+                    if element_text.lower() == query_text.lower():
+                        exact_matches.append(match)
+                        logger.info(f"  ✅ Exact text match: '{element_text}'")
+                    else:
+                        logger.debug(f"  ✗ Skipped (not exact): '{element_text}' vs '{query_text}'")
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Could not check text for element: {e}")
+                    # If we can't check text, include it (fallback)
+                    exact_matches.append(match)
+            
+            # If we found exact matches, use them; otherwise use all matches
+            if exact_matches:
+                logger.info(f"  ✅ Found {len(exact_matches)} exact text matches (filtered from {len(all_matches)})")
+                all_matches = exact_matches
+            else:
+                logger.warning(f"  ⚠️ No exact text matches found, using all {len(all_matches)} matches")
+        
         # Filter to visible elements
         visible_matches = [m for m in all_matches if await m.is_visible()]
         
@@ -172,11 +202,32 @@ class BrowserClickTool:
             except Exception as e:
                 logger.debug(f"  ⚠️ Could not find Login button before click: {e}")
         
+        # CRITICAL FIX: Prioritize <a> links over other elements when multiple matches
+        # This ensures "Login" link is preferred over "Smart Card Login" heading
+        link_matches = []
+        other_matches = []
+        
+        for match in visible_matches:
+            element_props = await self._get_element_props(match)
+            tag_name = element_props['tagName']
+            
+            if tag_name == 'a':
+                link_matches.append(match)
+            else:
+                other_matches.append(match)
+        
+        # If we have link matches, prioritize them
+        if link_matches:
+            logger.info(f"  ✅ Found {len(link_matches)} link(s) - prioritizing over {len(other_matches)} other element(s)")
+            # Reorder: links first, then others
+            visible_matches = link_matches + other_matches
+        
         for i, match in enumerate(visible_matches):
             description = await self.llm_helper.describe_element(match)
             element_props = await self._get_element_props(match)
             
             is_interactive = self._is_interactive(element_props)
+            is_link = element_props['tagName'] == 'a'
             is_button = element_props['tagName'] == 'button' or (element_props.get('id') and 'login' in element_props['id'].lower())
             
             if is_button and not actual_button_element:
@@ -188,12 +239,13 @@ class BrowserClickTool:
                 "element": match,
                 "description": description,
                 "is_original": True,
+                "is_link": is_link,  # Add is_link flag for prioritization
                 "is_button": is_button
             })
             
             # Tree climbing for non-interactive elements (but NOT for links/buttons)
             # CRITICAL FIX: Don't climb for links - they're always interactive
-            if not is_interactive and not using_registry_xpath and element_props['tagName'] != 'a':
+            if not is_interactive and not using_registry_xpath and not is_link:
                 logger.info(f"  🔍 Candidate {i}: Not interactive, climbing tree...")
                 parent = await self._try_tree_climbing(match)
                 if parent:
