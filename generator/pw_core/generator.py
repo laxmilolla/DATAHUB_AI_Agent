@@ -293,17 +293,50 @@ class PlaywrightGeneratorCore:
                 # element_id is unique and page-specific, so it's the only reliable lookup method
                 
                 # Find next step's discovery (for popup dismissal - wait for next element to be clickable)
+                # CRITICAL: Use same matching logic as current step (sequential matching, not just step_number)
+                # This ensures we find the correct next action even when step_number doesn't match story step number
                 next_step_discovery = None
                 if step_num < len(story_lines):
                     current_line_idx = story_lines.index(line) if line in story_lines else -1
                     if current_line_idx >= 0:
                         for next_line in story_lines[current_line_idx + 1:]:
-                            next_step_match = re.match(r'[Ss]?tep\s+(\d+):\s*(.+)', next_line, re.IGNORECASE)
+                            next_step_match = re.match(r'[Ss]?tep\s+(\d+)\s*[a-z]?\s*:?\s*(.+)', next_line, re.IGNORECASE)
                             if next_step_match:
                                 next_step_num = int(next_step_match.group(1))
                                 next_step_text = next_step_match.group(2).strip()
-                                # Find next step's action
-                                next_action = find_action_by_iteration(next_step_num, actions_taken)
+                                
+                                # Find next step's action using SAME matching logic as current step
+                                next_action = None
+                                
+                                # PRIORITY 1: Direct lookup by step_number (but check action type match)
+                                next_action_by_step = find_action_by_step_number(next_step_num, actions_taken)
+                                if next_action_by_step:
+                                    next_action_idx = actions_taken.index(next_action_by_step)
+                                    # Don't check used_action_indices here - we're just looking ahead, not using it yet
+                                    # Check if action type matches story step intent
+                                    next_step_lower = next_step_text.lower()
+                                    next_action_tool = next_action_by_step.get('tool', '')
+                                    next_is_click_step = any(keyword in next_step_lower for keyword in ['click', 'press', 'tap', 'select'])
+                                    
+                                    # Skip if action type doesn't match (e.g., click step but action is wait)
+                                    if (next_is_click_step and next_action_tool == 'browser_click') or \
+                                       (not next_is_click_step):
+                                        next_action = next_action_by_step
+                                
+                                # PRIORITY 2: Sequential matching (use next unused action after current one)
+                                if not next_action and action_index < len(actions_taken):
+                                    # Use the action that would be matched next (after current action_index)
+                                    # This handles cases where step_number doesn't match story step number
+                                    candidate_next_action = actions_taken[action_index]
+                                    # Check if it's a click action and matches the next step intent
+                                    if candidate_next_action.get('tool') == 'browser_click':
+                                        next_action = candidate_next_action
+                                
+                                # PRIORITY 3: Content-based matching fallback
+                                if not next_action:
+                                    from generator.pw_matchers.action_matcher import find_action_by_content
+                                    next_action = find_action_by_content(next_step_text, next_step_num, actions_taken)
+                                
                                 if next_action and next_action.get('tool') == 'browser_click':
                                     # Find next step's discovery
                                     next_step_discovery = find_discovery_by_step(next_step_num, next_step_text, discoveries, next_action)
