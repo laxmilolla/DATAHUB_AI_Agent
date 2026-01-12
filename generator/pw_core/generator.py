@@ -339,7 +339,20 @@ class PlaywrightGeneratorCore:
                                 
                                 if next_action and next_action.get('tool') == 'browser_click':
                                     # Find next step's discovery
-                                    next_step_discovery = find_discovery_by_step(next_step_num, next_step_text, discoveries, next_action)
+                                    # CRITICAL: Use action's step_number (not story step_number) for accurate matching
+                                    next_action_step_num = next_action.get('step_number') or next_step_num
+                                    next_step_discovery = find_discovery_by_step(next_action_step_num, next_step_text, discoveries, next_action)
+                                    # CRITICAL: Verify we got the correct discovery (not the current step's discovery)
+                                    if next_step_discovery:
+                                        next_disc_name = next_step_discovery.get('name', '').lower()
+                                        next_disc_step = next_step_discovery.get('step_number')
+                                        # If discovery name matches current step's element, it's wrong - skip it
+                                        current_disc_name = discovery.get('name', '').lower() if discovery else ''
+                                        if next_disc_name == current_disc_name or next_disc_step == step_num:
+                                            logger.warning(f"  ⚠️ next_step_discovery matched current step's discovery ({next_disc_name}), skipping")
+                                            next_step_discovery = None
+                                        else:
+                                            logger.info(f"  ✅ Found next_step_discovery: {next_step_discovery.get('name')} (element_id: {next_step_discovery.get('element_id')}, step_number: {next_disc_step})")
                                     break
                 
                 code += generate_click_step(step_num, step_text, action, discovery, None, indent, next_step_discovery)
