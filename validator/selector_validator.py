@@ -458,19 +458,27 @@ class SelectorValidator:
     
     def _is_totp_field(self, element_name: str, discovery: Dict, action: Optional[Dict]) -> bool:
         """Check if element is a TOTP field (skip validation)"""
+        # Check element name keywords (more comprehensive)
         name_lower = element_name.lower()
-        if 'totp' in name_lower or 'one-time' in name_lower or 'authenticator' in name_lower:
+        totp_keywords = ['totp', 'one-time', 'one-time-code', 'one-time-code-input', 'authenticator', 'two-factor', '2fa']
+        if any(keyword in name_lower for keyword in totp_keywords):
             return True
         
         # Check discovery selector
         final_selector = discovery.get('final_selector', '').lower()
-        if 'totp' in final_selector or 'one-time-code' in final_selector:
+        if any(keyword in final_selector for keyword in ['totp', 'one-time-code', 'one-time-code-input']):
             return True
         
-        # Check action input
+        # Check original query
+        original_query = discovery.get('original_query', '').lower()
+        if any(keyword in original_query for keyword in ['totp', 'one-time-code']):
+            return True
+        
+        # Check action input (more comprehensive)
         if action:
             action_input = action.get('input', {})
-            if 'totp' in str(action_input).lower() or 'one-time' in str(action_input).lower():
+            action_str = str(action_input).lower()
+            if any(keyword in action_str for keyword in ['totp', 'one-time', 'totp_code', 'system_generated_totp']):
                 return True
         
         return False
