@@ -19,6 +19,7 @@ def generate_navigate_step(step_num: int, step_text: str, action: Dict, indent: 
     url = action.get('input', {}).get('url', '')
     
     code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     code += f"{ind}try:\n"
     code += f"{ind}    page.goto('{url}')\n"
     code += f"{ind}    page.wait_for_load_state('networkidle')\n"
@@ -46,6 +47,8 @@ def generate_navigate_step(step_num: int, step_text: str, action: Dict, indent: 
 def generate_wait_step(step_num: int, step_text: str, action: Dict, indent: int) -> str:
     """Generate wait code"""
     ind = ' ' * indent
+    code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     
     # Extract wait duration from step text
     wait_match = re.search(r'wait (\d+) seconds?', step_text, re.IGNORECASE)
@@ -55,8 +58,6 @@ def generate_wait_step(step_num: int, step_text: str, action: Dict, indent: int)
     else:
         # Default to 1 second if not specified
         duration_ms = 1000
-    
-    code = f"{ind}# Step {step_num}: {step_text}\n"
     code += f"{ind}try:\n"
     code += f"{ind}    page.wait_for_timeout({duration_ms})\n"
     code += f"{ind}    print('⏱️  Step {step_num}: Waited {duration_ms}ms')\n"
@@ -145,6 +146,7 @@ def generate_click_step(
     
     # Generate pure registry code
     code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     code += f"{ind}# Using element_id: {element_id} (PURE REGISTRY - XPath from JSON ONLY)\n"
     code += f"{ind}element_id = '{element_id_escaped}'\n"
     code += f"{ind}\n"
@@ -404,6 +406,7 @@ def generate_fill_step(
     
     # Generate code
     code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     
     # TOTP fields may not have element_id (dynamic fields) - allow fallback to action selector
     use_registry_lookup = element_id is not None
@@ -528,6 +531,7 @@ def generate_verify_step(
     if not discovery or discovery.get('discovery_method') != 'table_verification':
         # Generic verification
         code = f"{ind}# Step {step_num}: {step_text}\n"
+        code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
         code += f"{ind}print('⚠️  Step {step_num}: Verification performed by AI - add specific assertions if needed')\n\n"
         return code
     
@@ -537,6 +541,7 @@ def generate_verify_step(
     expected_value = metadata.get('expected_value', '')
     
     code = f"{ind}# Step {step_num}: {step_text}\n"
+    code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     code += f"{ind}# Verify: All rows in column contain expected value (values from test-specific constants - NO HARDCODING)\n"
     code += f"{ind}# Use verification values embedded in test (test-specific, not in registry)\n"
     code += f"{ind}column_name = VERIFY_COLUMN_NAME\n"
