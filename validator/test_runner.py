@@ -45,7 +45,7 @@ class TestRunner:
                 [sys.executable, str(test_path)],
                 capture_output=True,
                 text=True,
-                timeout=120,  # 2 minute timeout
+                timeout=300,  # 5 minute timeout (test includes login flow which can be slow)
                 cwd=str(self.project_root)
             )
             
