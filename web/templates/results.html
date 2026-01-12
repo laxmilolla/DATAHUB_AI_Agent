@@ -1349,6 +1349,14 @@
                     showActionMessage(`✅ Test Generated Successfully!`, 'success');
                     displayPlaywrightResults(result);
                     
+                    // Show "Run Test" button to generate screenshots
+                    const runTestBtn = document.createElement('button');
+                    runTestBtn.className = 'btn-primary';
+                    runTestBtn.style.cssText = 'font-size: 1em; padding: 12px 24px; margin-top: 15px;';
+                    runTestBtn.textContent = '▶️ Run Test (Generate Screenshots)';
+                    runTestBtn.onclick = () => runPlaywrightTest();
+                    statusDiv.appendChild(runTestBtn);
+                    
                     // Reload main results to update Overview tab with Playwright data
                     await pollResults();
                 } else {
@@ -1367,6 +1375,90 @@
                         <button class="btn-primary" onclick="generatePlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
                             🔄 Retry Generation
                         </button>
+                    </div>
+                `;
+            }
+        }
+        
+        async function runPlaywrightTest() {
+            const executionId = getExecutionIdFromURL();
+            if (!executionId) {
+                alert('Cannot determine execution ID');
+                return;
+            }
+            
+            let statusDiv = document.getElementById('playwright-status');
+            if (!statusDiv) {
+                statusDiv = document.createElement('div');
+                statusDiv.id = 'playwright-status';
+                statusDiv.style.marginTop = '20px';
+                const playwrightTab = document.querySelector('[onclick*="playwright"]');
+                if (playwrightTab) {
+                    playwrightTab.parentElement.appendChild(statusDiv);
+                }
+            }
+            
+            statusDiv.innerHTML = '<div style="text-align: center;"><span class="spinner"></span> Running test to generate screenshots... This may take 1-2 minutes.</div>';
+            
+            try {
+                const response = await fetch(`/api/executions/${executionId}/run-test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok || response.status === 202) {
+                    statusDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <div class="alert-icon">✅</div>
+                            <div class="alert-content">
+                                <h4>Test Execution Started</h4>
+                                <p>Test is running in the background. Screenshots will appear when ready.</p>
+                                <p style="margin-top: 10px; font-size: 0.9em;">Refresh the page in 1-2 minutes to see screenshots.</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Poll for results every 10 seconds
+                    let attempts = 0;
+                    const maxAttempts = 12; // 2 minutes max
+                    const pollInterval = setInterval(async () => {
+                        attempts++;
+                        await pollResults();
+                        
+                        // Check if screenshots are available
+                        const resultsResponse = await fetch(`/api/executions/${executionId}/results`);
+                        if (resultsResponse.ok) {
+                            const results = await resultsResponse.json();
+                            const screenshots = results.playwright_screenshots || [];
+                            
+                            if (screenshots.length > 0 || attempts >= maxAttempts) {
+                                clearInterval(pollInterval);
+                                statusDiv.innerHTML = `
+                                    <div class="alert alert-success">
+                                        <div class="alert-icon">✅</div>
+                                        <div class="alert-content">
+                                            <h4>Test Execution Complete</h4>
+                                            <p>Found ${screenshots.length} screenshots. Check the screenshots section below.</p>
+                                        </div>
+                                    </div>
+                                `;
+                                await pollResults(); // Final refresh
+                            }
+                        }
+                    }, 10000); // Poll every 10 seconds
+                } else {
+                    throw new Error(result.error || 'Failed to start test execution');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-error">
+                        <div class="alert-icon">❌</div>
+                        <div class="alert-content">
+                            <h4>Test Execution Failed</h4>
+                            <p>${error.message}</p>
+                        </div>
                     </div>
                 `;
             }

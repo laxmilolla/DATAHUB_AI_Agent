@@ -638,6 +638,83 @@ def get_generated_test(exec_id):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/executions/<exec_id>/run-test', methods=['POST'])
+def run_test(exec_id):
+    """Run generated Playwright test in background to generate screenshots"""
+    try:
+        from validator.test_runner import TestRunner
+        from validator.comparator import Comparator
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+        
+        if not metadata_file.exists():
+            return jsonify({'error': 'No generated test found for this execution'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        test_filename = metadata.get('filename')
+        if not test_filename:
+            return jsonify({'error': 'Test filename not found in metadata'}), 404
+        
+        # Run test in background thread to avoid timeout
+        def run_test_background():
+            try:
+                runner = TestRunner(project_root)
+                test_result = runner.run(test_filename, exec_id)
+                
+                # Compare results
+                comparator = Comparator(project_root)
+                comparison = comparator.compare(exec_id, test_result)
+                
+                # Save results to execution file
+                results_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+                if results_file.exists():
+                    with open(results_file, 'r') as f:
+                        exec_data = json.load(f)
+                    
+                    exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                    exec_data['playwright_validation'] = {
+                        'status': test_result.get('status'),
+                        'duration': test_result.get('duration'),
+                        'assertions_passed': test_result.get('assertions_passed'),
+                        'assertions_failed': test_result.get('assertions_failed'),
+                        'test_file': test_result.get('test_file'),
+                        'timestamp': test_result.get('timestamp'),
+                        'stdout': test_result.get('stdout', ''),
+                        'stderr': test_result.get('stderr', ''),
+                        'exit_code': test_result.get('exit_code', 0)
+                    }
+                    exec_data['playwright_comparison'] = comparison
+                    
+                    with open(results_file, 'w') as f:
+                        json.dump(exec_data, f, indent=2)
+            except Exception as e:
+                print(f"Error running test in background: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Start background thread
+        thread = threading.Thread(target=run_test_background)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Test execution started in background. Screenshots will be available shortly.',
+            'execution_id': exec_id
+        }), 202  # 202 Accepted (async processing)
+        
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        import traceback
+        print(f"Error starting test execution: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/executions/<exec_id>/download-test', methods=['GET'])
 def download_generated_test(exec_id):
     """Download generated test code as .py file for standalone execution"""
