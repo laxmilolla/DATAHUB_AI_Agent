@@ -85,7 +85,7 @@ class TestRunner:
             screenshots_from_disk = []
             if screenshots_dir.exists():
                 # Get test start time (subtract duration to get start)
-                test_start_time = start_time
+                test_start_time = start_time - duration  # Actual test start time
                 
                 # Find all pw_step* and pw_* screenshot files created/modified during test
                 # Include all variants: regular, _failed, _pre_attempt, _verify, etc.
@@ -93,8 +93,9 @@ class TestRunner:
                     try:
                         # Check if file was modified during test execution window
                         file_mtime = screenshot_file.stat().st_mtime
-                        # Include files created/modified within 5 minutes of test start (to account for test duration)
-                        if file_mtime >= test_start_time - 60:  # 1 minute buffer before test start
+                        # Include files created/modified during test execution (within 10 minutes of test start)
+                        # This accounts for test duration and ensures we capture all screenshots from this run
+                        if file_mtime >= test_start_time - 120:  # 2 minute buffer before test start
                             screenshot_name = screenshot_file.name
                             screenshot_path = f"storage/screenshots/{screenshot_name}"
                             

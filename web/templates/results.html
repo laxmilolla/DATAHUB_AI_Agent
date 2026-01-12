@@ -1373,10 +1373,11 @@
                             const pwValidation = results.playwright_validation || {};
                             const screenshots = results.playwright_screenshots || [];
                             
-                            // If test completed (has status) or screenshots available
-                            if (pwValidation.status || screenshots.length > 0 || attempts >= maxAttempts) {
+                            // If test completed (has status other than 'not started') or screenshots available
+                            const testCompleted = pwValidation.status && pwValidation.status !== 'not started';
+                            if (testCompleted || screenshots.length > 0 || attempts >= maxAttempts) {
                                 clearInterval(pollInterval);
-                                if (pwValidation.status) {
+                                if (testCompleted) {
                                     statusDiv.innerHTML = `
                                         <div class="alert ${pwValidation.status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-bottom: 15px;">
                                             <div class="alert-icon">${pwValidation.status === 'passed' ? '✅' : '❌'}</div>
