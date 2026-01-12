@@ -75,18 +75,11 @@ def find_discovery_by_step(step_num: int, step_text: str, discoveries: List[Dict
     best_match = None
     best_score = 0
     
-    # PRIORITY 0: If discovery has step_number, match by step_number first (most reliable)
-    for disc in discoveries:
-        disc_step_num = disc.get('step_number')
-        if disc_step_num == step_num:
-            # This discovery belongs to this step - high priority match
-            logger.info(f"  ✅ Found discovery with matching step_number {step_num}: {disc.get('name')}")
-            # Still check selector match for validation, but this is likely the right one
-            disc_query = disc.get('original_query', '').lower().strip()
-            if disc_query.startswith('text='):
-                disc_query = disc_query[5:].strip()
-            if selector_normalized == disc_query or selector_normalized in disc_query or disc_query in selector_normalized:
-                return disc  # Return immediately if step_number matches AND selector matches
+    # NOTE: We DON'T match by discovery's step_number directly because:
+    # - Discovery's step_number is the AI's action step_number (iteration-based)
+    # - Story step_number is the user's story step number
+    # - These don't always align (e.g., "Step 1 a" increments action step_number but not story step)
+    # Instead, we match by action selector/content, which is more reliable
     
     # If no step_number match, continue with normal matching
     for disc in discoveries:
