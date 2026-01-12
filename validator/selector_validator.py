@@ -176,6 +176,7 @@ class SelectorValidator:
         # Check 2: XPath exists
         if not xpath:
             # Skip validation for TOTP fields (they don't always have XPaths)
+            # Check TOTP BEFORE returning error
             if self._is_totp_field(element_name, discovery, action):
                 result['valid'] = True
                 result['warning'] = f"Step {step_num}: '{element_name}' - TOTP field (no XPath, skipping validation)"
