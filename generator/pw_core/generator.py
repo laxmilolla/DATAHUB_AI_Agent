@@ -334,7 +334,7 @@ class PlaywrightGeneratorCore:
                                 
                                 # PRIORITY 3: Content-based matching fallback
                                 if not next_action:
-                                    from generator.pw_matchers.action_matcher import find_action_by_content
+                                    # find_action_by_content is already imported at top of file
                                     next_action = find_action_by_content(next_step_text, next_step_num, actions_taken)
                                 
                                 if next_action and next_action.get('tool') == 'browser_click':
