@@ -602,7 +602,7 @@
                             📸 Screenshots (${screenshots.length})
                         </button>
                         <button class="tab-button" onclick="switchTab('playwright')">
-                            🎭 Playwright
+                            🎭 Playwright${safeArray(results.playwright_screenshots).length > 0 ? ` (${safeArray(results.playwright_screenshots).length})` : ''}
                         </button>
                     </div>
                     
@@ -1362,37 +1362,78 @@
                     
                     displayPlaywrightResults(result);
                     
-                    // Poll for test results every 5 seconds
+                    // Poll for test results every 3 seconds
                     let attempts = 0;
-                    const maxAttempts = 60; // 5 minutes max
+                    const maxAttempts = 100; // 5 minutes max (100 * 3s = 300s)
                     const pollInterval = setInterval(async () => {
                         attempts++;
-                        const resultsResponse = await fetch(`/api/executions/${executionId}/results`);
-                        if (resultsResponse.ok) {
-                            const results = await resultsResponse.json();
-                            const pwValidation = results.playwright_validation || {};
-                            const screenshots = results.playwright_screenshots || [];
-                            
-                            // If test completed (has status other than 'not started') or screenshots available
-                            const testCompleted = pwValidation.status && pwValidation.status !== 'not started';
-                            if (testCompleted || screenshots.length > 0 || attempts >= maxAttempts) {
-                                clearInterval(pollInterval);
-                                if (testCompleted) {
+                        try {
+                            const resultsResponse = await fetch(`/api/executions/${executionId}/results`);
+                            if (resultsResponse.ok) {
+                                const results = await resultsResponse.json();
+                                const pwValidation = results.playwright_validation || {};
+                                const screenshots = results.playwright_screenshots || [];
+                                
+                                // Update status message with progress
+                                if (attempts % 5 === 0) { // Update every 15 seconds
                                     statusDiv.innerHTML = `
-                                        <div class="alert ${pwValidation.status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-bottom: 15px;">
-                                            <div class="alert-icon">${pwValidation.status === 'passed' ? '✅' : '❌'}</div>
+                                        <div class="alert alert-info" style="margin-bottom: 15px;">
+                                            <div class="alert-icon">⏳</div>
                                             <div class="alert-content">
-                                                <h4>Test Execution Complete!</h4>
-                                                <p>Status: ${pwValidation.status || 'unknown'}</p>
-                                                <p>Screenshots: ${screenshots.length}</p>
+                                                <h4>Test Running...</h4>
+                                                <p>Status: ${pwValidation.status || 'running'}</p>
+                                                <p>Screenshots found: ${screenshots.length}</p>
+                                                <p style="font-size: 0.85em; margin-top: 5px;">Checking every 3 seconds... (${attempts}/${maxAttempts})</p>
                                             </div>
                                         </div>
                                     `;
                                 }
-                                await pollResults(); // Refresh to show screenshots
+                                
+                                // If test completed (has status other than 'not started') or screenshots available
+                                const testCompleted = pwValidation.status && pwValidation.status !== 'not started' && pwValidation.status !== 'running';
+                                if (testCompleted || (screenshots.length > 0 && attempts >= 5) || attempts >= maxAttempts) {
+                                    clearInterval(pollInterval);
+                                    if (testCompleted) {
+                                        statusDiv.innerHTML = `
+                                            <div class="alert ${pwValidation.status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-bottom: 15px;">
+                                                <div class="alert-icon">${pwValidation.status === 'passed' ? '✅' : '❌'}</div>
+                                                <div class="alert-content">
+                                                    <h4>Test Execution Complete!</h4>
+                                                    <p>Status: ${pwValidation.status || 'unknown'}</p>
+                                                    <p>Screenshots: ${screenshots.length}</p>
+                                                </div>
+                                            </div>
+                                        `;
+                                    } else if (screenshots.length > 0) {
+                                        statusDiv.innerHTML = `
+                                            <div class="alert alert-success" style="margin-bottom: 15px;">
+                                                <div class="alert-icon">✅</div>
+                                                <div class="alert-content">
+                                                    <h4>Screenshots Available!</h4>
+                                                    <p>Found ${screenshots.length} screenshots. Check the Playwright tab below.</p>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+                                    // Refresh entire page to show screenshots
+                                    await pollResults();
+                                    // Auto-switch to Playwright tab if screenshots are available
+                                    if (screenshots.length > 0) {
+                                        setTimeout(() => {
+                                            switchTab('playwright');
+                                            // Scroll to top of page
+                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                        }, 500);
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Polling error:', error);
+                            if (attempts >= maxAttempts) {
+                                clearInterval(pollInterval);
                             }
                         }
-                    }, 5000); // Poll every 5 seconds
+                    }, 3000); // Poll every 3 seconds
                     
                     // Reload main results to update Overview tab with Playwright data
                     await pollResults();
