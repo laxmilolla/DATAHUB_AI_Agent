@@ -266,7 +266,7 @@ class PlaywrightGeneratorCore:
             
             # PRIORITY 1: Direct lookup by step_number (fallback if no step mapping)
             # This uses the AI's decision directly - most reliable
-            # But only if the action hasn't been used yet AND matches the step type
+            # But only if the action hasn't been used yet AND matches the step type AND content
             if not action:
                 action_by_step = find_action_by_step_number(step_num, actions_taken)
                 if action_by_step:
@@ -287,11 +287,35 @@ class PlaywrightGeneratorCore:
                             # Action type mismatch - skip and use sequential matching
                             action_by_step = None
                         else:
-                            # Action type matches - use it
-                            action = action_by_step
-                            used_action_indices.add(action_idx)
-                            # Update action_index to after this action
-                            action_index = max(action_index, action_idx + 1)
+                            # CRITICAL: Also check if action content matches story step text
+                            # This prevents matching "Login" action when story says "Login.gov"
+                            action_selector = action_by_step.get('input', {}).get('selector', '').lower()
+                            # Extract key words from step text (e.g., "Login.gov" from "Click On Login.gov button")
+                            step_keywords = [word for word in step_lower.split() if len(word) > 3 and word not in ['click', 'press', 'tap', 'select', 'on', 'the', 'button', 'link']]
+                            
+                            # Check if action selector contains step keywords (e.g., "login.gov" in selector)
+                            content_matches = True
+                            if step_keywords and action_selector:
+                                # For click steps, check if selector matches step keywords
+                                if is_click_step:
+                                    # Extract text from selector (e.g., "login" from "text=Login")
+                                    selector_text = action_selector.replace('text=', '').replace('selector=', '').strip()
+                                    # Check if any step keyword is in selector text or vice versa
+                                    content_matches = any(
+                                        keyword in selector_text or selector_text in keyword 
+                                        for keyword in step_keywords
+                                    )
+                            
+                            if content_matches:
+                                # Action type AND content match - use it
+                                action = action_by_step
+                                used_action_indices.add(action_idx)
+                                # Update action_index to after this action
+                                action_index = max(action_index, action_idx + 1)
+                            else:
+                                # Action type matches but content doesn't - skip and use sequential matching
+                                logger.info(f"  ⚠️  Step {step_num}: Action step_number={step_num} type matches but content doesn't - using sequential matching")
+                                action_by_step = None
             
             # PRIORITY 2: Sequential matching (match actions in order to story steps)
             # This handles cases where step_number doesn't match story step number
