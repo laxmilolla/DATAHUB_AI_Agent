@@ -74,7 +74,7 @@
     },
     "Login": {
       "selector": "text=Login",
-      "xpath": "//h2[normalize-space(.)='Smart Card Login']",
+      "xpath": "//a[normalize-space(.)='Login']",
       "uniqueness_method": "text_only",
       "type": "unknown",
       "description": "Discovered by AI in test exec_69cf31aa",
