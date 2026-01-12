@@ -214,6 +214,15 @@ class Agent:
                 # Store discoveries in execution context so they're included in results
                 self.context.discoveries = discoveries
             
+            # Save step_number mapping (HYBRID APPROACH: execution-specific step mapping)
+            if discoveries and self.context.actions_taken:
+                self.registry_manager.save_step_mapping(
+                    story=self.context.story,
+                    actions_taken=self.context.actions_taken,
+                    discoveries=discoveries,
+                    parsed_steps=self.context.parsed_steps
+                )
+            
             # Get results
             results = self.context.get_results()
             

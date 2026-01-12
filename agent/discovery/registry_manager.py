@@ -4,8 +4,11 @@ Extracted from bedrock_playwright_agent.py lines 3412-3580
 CRITICAL: XPath preservation logic must be exact copy
 """
 import logging
+import json
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -254,5 +257,222 @@ class RegistryManager:
                         logger.error(f"  ❌ Failed to save registry file for {domain}/{page}: {save_error}", exc_info=True)
         except Exception as e:
             logger.error(f"  ❌ Failed to save discoveries to registry: {e}", exc_info=True)
+    
+    def save_step_mapping(self, story: str, actions_taken: List[Dict], discoveries: List[Dict], parsed_steps: Dict[int, Dict]) -> None:
+        """
+        Save execution-specific step_number mapping (HYBRID APPROACH)
+        Creates step_number → element_name mapping per execution
+        
+        Args:
+            story: Story text
+            actions_taken: List of actions taken during execution
+            discoveries: List of discoveries
+            parsed_steps: Parsed story steps with metadata
+        """
+        try:
+            logger.info(f"  💾 Saving step_number mapping for execution {self.execution_id}...")
+            
+            # Create execution-specific directory for step mappings
+            # Use the same maps_dir as the element registry
+            element_maps_dir = Path(self.element_registry.maps_dir)
+            step_mappings_dir = element_maps_dir / self.execution_id
+            step_mappings_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Parse story into steps
+            story_lines = story.split('\n')
+            story_steps = {}
+            for line in story_lines:
+                line = line.strip()
+                if not line or not line.startswith('Step'):
+                    continue
+                
+                # Extract step number: "Step 4:" or "4."
+                step_match = re.match(r'Step\s+(\d+)[\.:)]?\s*(.+)', line, re.IGNORECASE)
+                if not step_match:
+                    continue
+                
+                step_num = int(step_match.group(1))
+                step_text = step_match.group(2).strip()
+                story_steps[step_num] = step_text
+            
+            # Build step_number → element_name mapping
+            step_mapping = {}
+            reverse_mapping = {}  # element_name → step_number (for lookup)
+            
+            # Group discoveries by step_number
+            discoveries_by_step = {}
+            for disc in discoveries:
+                step_num = disc.get('step_number')
+                if step_num:
+                    if step_num not in discoveries_by_step:
+                        discoveries_by_step[step_num] = []
+                    discoveries_by_step[step_num].append(disc)
+            
+            # Map story steps to discoveries via actions
+            # Key insight: Story Step N should map to the element that was actually used in that step
+            # We match by finding the discovery whose action's step_number matches the story step
+            for story_step_num, step_text in story_steps.items():
+                step_lower = step_text.lower()
+                
+                # Check if this is an optional step
+                is_optional = ('optional' in step_lower or 
+                              'if there is' in step_lower or 
+                              'if appears' in step_lower or
+                              '(if appears)' in step_lower)
+                
+                # Find discovery for this story step
+                discovery_for_step = None
+                
+                # Strategy 1: Find discovery by matching action's step_number to story step
+                # Look for actions with step_number matching story step
+                for action in actions_taken:
+                    action_step_num = action.get('step_number')
+                    if action_step_num == story_step_num:
+                        action_tool = action.get('tool', '')
+                        action_selector = action.get('input', {}).get('selector', '').lower()
+                        
+                        # Find discovery that matches this action
+                        for disc in discoveries:
+                            disc_step_num = disc.get('step_number')
+                            disc_selector = (disc.get('final_selector') or disc.get('original_query', '')).lower()
+                            
+                            # Match by step_number (most reliable)
+                            if disc_step_num == action_step_num:
+                                discovery_for_step = disc
+                                break
+                            
+                            # Match by selector (fallback)
+                            if action_selector and disc_selector and action_selector in disc_selector:
+                                discovery_for_step = disc
+                                break
+                        
+                        if discovery_for_step:
+                            break
+                
+                # Strategy 2: For optional steps, check if element appears in next steps
+                if not discovery_for_step and is_optional:
+                    # Extract element name from step text
+                    element_keywords = []
+                    if 'continue' in step_lower:
+                        element_keywords = ['continue']
+                    elif 'grant' in step_lower:
+                        element_keywords = ['grant']
+                    elif 'reminder' in step_lower or '2fa' in step_lower:
+                        element_keywords = ['submit', 'reminder']
+                    
+                    # Look for discovery in next few steps
+                    for disc in discoveries:
+                        disc_name_lower = disc.get('name', '').lower()
+                        disc_step_num = disc.get('step_number')
+                        
+                        # Check if discovery matches keywords and is in next steps
+                        if any(kw in disc_name_lower for kw in element_keywords):
+                            if disc_step_num and disc_step_num > story_step_num:
+                                discovery_for_step = disc
+                                break
+                
+                # Build mapping entry
+                if discovery_for_step:
+                    element_name = discovery_for_step.get('name')
+                    action_step_num = action_for_step.get('step_number') if action_for_step else None
+                    action_tool = action_for_step.get('tool', '') if action_for_step else None
+                    
+                    mapping_entry = {
+                        "element": element_name,
+                        "is_optional": is_optional,
+                        "action_step_number": action_step_num,
+                        "action_type": action_tool
+                    }
+                    
+                    # For optional steps, check if actual click happened in next step
+                    if is_optional and action_tool != 'browser_click':
+                        # Look for actual click action in next steps
+                        for next_action in actions_taken:
+                            next_step_num = next_action.get('step_number')
+                            if next_step_num and next_step_num > story_step_num:
+                                next_selector = next_action.get('input', {}).get('selector', '').lower()
+                                if element_name.lower() in next_selector or next_selector in element_name.lower():
+                                    mapping_entry["actual_action_step"] = next_step_num
+                                    break
+                    
+                    step_mapping[str(story_step_num)] = mapping_entry
+                    reverse_mapping[element_name] = story_step_num
+                elif is_optional:
+                    # Optional step but no discovery found - element didn't appear
+                    step_mapping[str(story_step_num)] = {
+                        "element": None,
+                        "is_optional": True,
+                        "action_step_number": action_for_step.get('step_number') if action_for_step else None,
+                        "action_type": action_for_step.get('tool', '') if action_for_step else None
+                    }
+            
+            # Save step mapping to execution-specific file
+            # Group by page (similar to registry structure)
+            mappings_by_page = {}
+            for disc in discoveries:
+                discovery_url = disc.get('discovery_url', '')
+                if not discovery_url:
+                    continue
+                
+                # Extract domain and page (same logic as save_discoveries)
+                domain = discovery_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
+                url_without_query = discovery_url.split('?')[0].split('#')[0]
+                path_part = url_without_query.replace('https://', '').replace('http://', '').split('/', 1)[1] if '/' in url_without_query.replace('https://', '').replace('http://', '') else ''
+                
+                if not path_part or path_part == '':
+                    page = 'home'
+                elif path_part == 'explore':
+                    page = 'explore'
+                else:
+                    page = path_part.rstrip('/').split('/')[-1]
+                    page = re.sub(r'[<>:"/\\|?*]', '_', page)
+                    page = page.split('?')[0].split('#')[0]
+                
+                page_key = f"{domain}/{page}"
+                if page_key not in mappings_by_page:
+                    mappings_by_page[page_key] = {
+                        "execution_id": self.execution_id,
+                        "domain": domain,
+                        "page": page,
+                        "step_mapping": {},
+                        "reverse_mapping": {}
+                    }
+            
+            # If no discoveries, create at least one mapping file
+            if not mappings_by_page:
+                mappings_by_page["default"] = {
+                    "execution_id": self.execution_id,
+                    "domain": "default",
+                    "page": "default",
+                    "step_mapping": {},
+                    "reverse_mapping": {}
+                }
+            
+            # Distribute step mappings to pages (simplified: put all in first page)
+            # In future, could distribute based on discovery_url
+            first_page_key = list(mappings_by_page.keys())[0]
+            mappings_by_page[first_page_key]["step_mapping"] = step_mapping
+            mappings_by_page[first_page_key]["reverse_mapping"] = reverse_mapping
+            
+            # Save each page mapping
+            for page_key, mapping_data in mappings_by_page.items():
+                domain = mapping_data["domain"]
+                page = mapping_data["page"]
+                
+                # Create domain subdirectory
+                domain_dir = step_mappings_dir / domain
+                domain_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Save mapping file
+                mapping_file = domain_dir / f"{page}_steps.json"
+                with open(mapping_file, 'w') as f:
+                    json.dump(mapping_data, f, indent=2)
+                
+                logger.info(f"  ✅ Saved step mapping to {mapping_file}")
+            
+            logger.info(f"  ✅ Saved step_number mapping for {len(step_mapping)} steps")
+            
+        except Exception as e:
+            logger.error(f"  ❌ Failed to save step_number mapping: {e}", exc_info=True)
 
 

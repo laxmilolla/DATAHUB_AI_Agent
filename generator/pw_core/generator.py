@@ -13,6 +13,11 @@ from generator.pw_loaders.registry_loader import (
     detect_registry_files,
     get_registry_path
 )
+from generator.pw_loaders.step_mapping_loader import (
+    load_step_mapping,
+    get_element_name_for_step,
+    is_optional_step
+)
 from generator.pw_matchers.action_matcher import (
     find_action_by_step_number,
     find_action_by_content,
@@ -81,6 +86,16 @@ class PlaywrightGeneratorCore:
         story = execution['story']
         actions_taken = execution.get('actions_taken', [])
         discoveries_list = discoveries.get('discoveries', [])
+        execution_id = execution.get('execution_id', '')
+        
+        # Load step_number mapping (HYBRID APPROACH)
+        step_mapping = None
+        if execution_id:
+            step_mapping = load_step_mapping(execution_id, self.element_maps_dir)
+            if step_mapping:
+                logger.info(f"✅ Loaded step_number mapping for {execution_id}")
+            else:
+                logger.warning(f"⚠️  Step mapping not found for {execution_id} - will use fallback matching")
         
         # PRE-VALIDATION: Validate selectors before generating code
         if validate_selectors and VALIDATOR_AVAILABLE:
@@ -123,7 +138,7 @@ class PlaywrightGeneratorCore:
         # Generate test body (sequential code generation)
         # No registry parameter needed - all lookups use element_id via page-specific registries at runtime
         test_body = self._generate_sequential_code(
-            story, actions_taken, discoveries_list, indent=12
+            story, actions_taken, discoveries_list, step_mapping, indent=12
         )
         
         # Build complete test template
@@ -144,6 +159,7 @@ class PlaywrightGeneratorCore:
         story: str,
         actions_taken: List[Dict],
         discoveries: List[Dict],
+        step_mapping: Optional[Dict] = None,
         indent: int = 12
     ) -> str:
         """
@@ -206,33 +222,76 @@ class PlaywrightGeneratorCore:
             # Find corresponding action from actions_taken
             action = None
             
-            # PRIORITY 1: Direct lookup by step_number (like element_id for XPaths)
+            # PRIORITY 0: Use step_number mapping (HYBRID APPROACH - most reliable)
+            # Direct lookup: Story Step N → step_mapping → Element name → Discovery → XPath
+            if step_mapping:
+                element_name = get_element_name_for_step(step_num, step_mapping)
+                
+                if element_name:
+                    # Find discovery by element name
+                    discovery = None
+                    for disc in discoveries:
+                        if disc.get('name') == element_name:
+                            discovery = disc
+                            break
+                    
+                    # Find action that matches this discovery
+                    if discovery:
+                        # Find action by discovery's step_number or by selector match
+                        disc_step_num = discovery.get('step_number')
+                        if disc_step_num:
+                            action = find_action_by_step_number(disc_step_num, actions_taken)
+                            if action:
+                                action_idx = actions_taken.index(action)
+                                if action_idx not in used_action_indices:
+                                    used_action_indices.add(action_idx)
+                                    action_index = max(action_index, action_idx + 1)
+                                    logger.info(f"  ✅ Step {step_num}: Using step mapping → {element_name} → action step_number={disc_step_num}")
+                        else:
+                            # Fallback: match by selector
+                            disc_selector = discovery.get('final_selector') or discovery.get('original_query', '')
+                            for act in actions_taken:
+                                act_selector = act.get('input', {}).get('selector', '')
+                                if disc_selector and act_selector and disc_selector.lower() in act_selector.lower():
+                                    action = act
+                                    action_idx = actions_taken.index(action)
+                                    if action_idx not in used_action_indices:
+                                        used_action_indices.add(action_idx)
+                                        action_index = max(action_index, action_idx + 1)
+                                        break
+                elif is_optional_step(step_num, step_mapping):
+                    # Optional step but element didn't appear - skip action matching
+                    logger.info(f"  ℹ️  Step {step_num}: Optional step, element didn't appear")
+                    # Will generate optional step code below
+            
+            # PRIORITY 1: Direct lookup by step_number (fallback if no step mapping)
             # This uses the AI's decision directly - most reliable
             # But only if the action hasn't been used yet AND matches the step type
-            action_by_step = find_action_by_step_number(step_num, actions_taken)
-            if action_by_step:
-                action_idx = actions_taken.index(action_by_step)
-                if action_idx not in used_action_indices:
-                    # CRITICAL: Check if action type matches story step intent
-                    # If story says "click" but action is "wait", skip it and use sequential matching
-                    step_lower = step_text.lower()
-                    action_tool = action_by_step.get('tool', '')
-                    is_click_step = any(keyword in step_lower for keyword in ['click', 'press', 'tap', 'select'])
-                    is_fill_step = any(keyword in step_lower for keyword in ['enter', 'fill', 'type', 'input'])
-                    is_wait_step = 'wait' in step_lower
-                    
-                    # Skip if action type doesn't match story step intent
-                    if (is_click_step and action_tool != 'browser_click') or \
-                       (is_fill_step and action_tool != 'browser_fill') or \
-                       (is_wait_step and action_tool != 'browser_evaluate'):
-                        # Action type mismatch - skip and use sequential matching
-                        action_by_step = None
-                    else:
-                        # Action type matches - use it
-                        action = action_by_step
-                        used_action_indices.add(action_idx)
-                        # Update action_index to after this action
-                        action_index = max(action_index, action_idx + 1)
+            if not action:
+                action_by_step = find_action_by_step_number(step_num, actions_taken)
+                if action_by_step:
+                    action_idx = actions_taken.index(action_by_step)
+                    if action_idx not in used_action_indices:
+                        # CRITICAL: Check if action type matches story step intent
+                        # If story says "click" but action is "wait", skip it and use sequential matching
+                        step_lower = step_text.lower()
+                        action_tool = action_by_step.get('tool', '')
+                        is_click_step = any(keyword in step_lower for keyword in ['click', 'press', 'tap', 'select'])
+                        is_fill_step = any(keyword in step_lower for keyword in ['enter', 'fill', 'type', 'input'])
+                        is_wait_step = 'wait' in step_lower
+                        
+                        # Skip if action type doesn't match story step intent
+                        if (is_click_step and action_tool != 'browser_click') or \
+                           (is_fill_step and action_tool != 'browser_fill') or \
+                           (is_wait_step and action_tool != 'browser_evaluate'):
+                            # Action type mismatch - skip and use sequential matching
+                            action_by_step = None
+                        else:
+                            # Action type matches - use it
+                            action = action_by_step
+                            used_action_indices.add(action_idx)
+                            # Update action_index to after this action
+                            action_index = max(action_index, action_idx + 1)
             
             # PRIORITY 2: Sequential matching (match actions in order to story steps)
             # This handles cases where step_number doesn't match story step number
@@ -269,6 +328,16 @@ class PlaywrightGeneratorCore:
             
             # Generate code based on action type
             if not action:
+                # Check if this is an optional step that didn't appear
+                if step_mapping and is_optional_step(step_num, step_mapping):
+                    element_name = get_element_name_for_step(step_num, step_mapping)
+                    if element_name is None:
+                        # Optional step, element didn't appear - generate skip code
+                        code += f"{ind}# Step {step_num}: {step_text[:80]}\n"
+                        code += f"{ind}# Optional step - element didn't appear\n"
+                        code += f"{ind}print(f'ℹ️  Step {step_num}: Element not found (optional step)')\n\n"
+                        continue
+                
                 # No action found - add comment
                 code += f"{ind}# Step {step_num}: {step_text[:80]}\n"
                 code += f"{ind}# (No corresponding action found in execution)\n\n"
@@ -286,7 +355,21 @@ class PlaywrightGeneratorCore:
             
             elif tool == 'browser_click':
                 # Find corresponding discovery for this click
-                discovery = find_discovery_by_step(step_num, step_text, discoveries, action)
+                # PRIORITY: Use step_number mapping if available
+                discovery = None
+                if step_mapping:
+                    element_name = get_element_name_for_step(step_num, step_mapping)
+                    if element_name:
+                        # Find discovery by element name
+                        for disc in discoveries:
+                            if disc.get('name') == element_name:
+                                discovery = disc
+                                logger.info(f"  ✅ Step {step_num}: Found discovery via step mapping: {element_name}")
+                                break
+                
+                # Fallback to original discovery matching
+                if not discovery:
+                    discovery = find_discovery_by_step(step_num, step_text, discoveries, action)
                 
                 # NO NAME-BASED FALLBACK: Rely only on discovery's element_id
                 # Name-based lookup causes conflicts when same element name exists in multiple registries
