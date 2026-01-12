@@ -419,6 +419,18 @@ class BrowserClickTool:
         initial_html = await self.page.content()
         initial_url = self.page.url
         
+        # CRITICAL FIX: Extract element attributes BEFORE click/navigation
+        # After navigation, element handles become invalid and we'll find wrong elements
+        element_attrs_before_click = {}
+        if not using_registry_xpath:
+            try:
+                # Use the element that should be used for XPath generation
+                element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
+                element_attrs_before_click = await self.xpath_generator.extract_element_attributes(element_for_xpath)
+                logger.info(f"  📝 Extracted element attributes BEFORE click (tag: {element_attrs_before_click.get('tag', 'N/A')})")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Could not extract attributes before click: {e}")
+        
         strategies = [
             {"desc": "direct click", "method": lambda: self.action_executor.click(chosen_locator)},
             {"desc": "force click", "method": lambda: self.action_executor.click(chosen_locator, force=True)},
@@ -450,7 +462,8 @@ class BrowserClickTool:
                         await self._track_discovery(
                             chosen_locator, original_selector, element_name,
                             original_element_for_xpath, registry_button_element,
-                            discovery_url_before_click, new_url, url_changed
+                            discovery_url_before_click, new_url, url_changed,
+                            element_attrs_before_click  # Pass pre-extracted attributes
                         )
                     else:
                         logger.info(f"  🔒 Skipped discovery tracking (using registry XPath)")
