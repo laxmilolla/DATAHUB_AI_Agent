@@ -490,6 +490,30 @@ class SelectorValidator:
                 return True
         
         return False
+    
+    def _requires_authentication(self, step_num: int, discovery_url: str, action: Optional[Dict]) -> bool:
+        """Check if element requires authentication or previous steps (skip validation)"""
+        # If step number is high, it likely requires previous steps
+        # Steps after login/navigation typically require authentication
+        if step_num > 10:
+            return True
+        
+        # Check URL patterns that require authentication
+        if discovery_url:
+            url_lower = discovery_url.lower()
+            # Protected pages that require login
+            protected_paths = [
+                '/data-submissions',
+                '/submissions',
+                '/create',
+                '/dashboard',
+                '/profile',
+                '/settings'
+            ]
+            if any(path in url_lower for path in protected_paths):
+                return True
+        
+        return False
 
 
 # Example usage
