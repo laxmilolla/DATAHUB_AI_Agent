@@ -530,7 +530,6 @@ def generate_and_validate(exec_id):
         # Handle empty body gracefully
         data = request.get_json(silent=True) or {}
         test_name = data.get('test_name')
-        validate = data.get('validate', True)
         validate_selectors = data.get('validate_selectors', True)  # Pre-generation selector validation
         
         project_root = current_app.config['PROJECT_ROOT']
@@ -558,47 +557,53 @@ def generate_and_validate(exec_id):
             'test_file': generation_result['filename'],
             'test_path': generation_result['filepath'],
             'code_preview': generation_result['code'][:500] + '...',  # Preview only
-            'generated_at': generation_result['metadata']['generated_at']
+            'generated_at': generation_result['metadata']['generated_at'],
+            'test_running': True  # Indicate test is running
         }
         
-        # Step 2: Validate (if requested)
-        if validate:
-            runner = TestRunner(project_root)
-            test_result = runner.run(generation_result['filename'], exec_id)
-            
-            # Step 3: Compare results
-            comparator = Comparator(project_root)
-            comparison = comparator.compare(exec_id, test_result)
-            
-            result['validation'] = test_result
-            result['comparison'] = comparison
-            result['ready_for_cicd'] = comparison['match']
-            result['playwright_screenshots'] = test_result.get('screenshots', [])
-            
-            # Step 4: Save Playwright results back to execution file for UI display
-            results_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
-            if results_file.exists():
-                with open(results_file, 'r') as f:
-                    exec_data = json.load(f)
+        # Step 2: Run test in background thread (automatic, no separate button needed)
+        def run_test_background():
+            try:
+                runner = TestRunner(project_root)
+                test_result = runner.run(generation_result['filename'], exec_id)
                 
-                # Add Playwright test results to execution data
-                exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
-                exec_data['playwright_validation'] = {
-                    'status': test_result.get('status'),
-                    'duration': test_result.get('duration'),
-                    'assertions_passed': test_result.get('assertions_passed'),
-                    'assertions_failed': test_result.get('assertions_failed'),
-                    'test_file': test_result.get('test_file'),
-                    'timestamp': test_result.get('timestamp'),
-                    'stdout': test_result.get('stdout', ''),
-                    'stderr': test_result.get('stderr', ''),
-                    'exit_code': test_result.get('exit_code', 0)
-                }
-                exec_data['playwright_comparison'] = comparison
+                # Step 3: Compare results
+                comparator = Comparator(project_root)
+                comparison = comparator.compare(exec_id, test_result)
                 
-                # Write back to file
-                with open(results_file, 'w') as f:
-                    json.dump(exec_data, f, indent=2)
+                # Step 4: Save Playwright results back to execution file for UI display
+                results_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+                if results_file.exists():
+                    with open(results_file, 'r') as f:
+                        exec_data = json.load(f)
+                    
+                    # Add Playwright test results to execution data
+                    exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                    exec_data['playwright_validation'] = {
+                        'status': test_result.get('status'),
+                        'duration': test_result.get('duration'),
+                        'assertions_passed': test_result.get('assertions_passed'),
+                        'assertions_failed': test_result.get('assertions_failed'),
+                        'test_file': test_result.get('test_file'),
+                        'timestamp': test_result.get('timestamp'),
+                        'stdout': test_result.get('stdout', ''),
+                        'stderr': test_result.get('stderr', ''),
+                        'exit_code': test_result.get('exit_code', 0)
+                    }
+                    exec_data['playwright_comparison'] = comparison
+                    
+                    # Write back to file
+                    with open(results_file, 'w') as f:
+                        json.dump(exec_data, f, indent=2)
+            except Exception as e:
+                print(f"Error running test in background: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Start background thread to run test
+        thread = threading.Thread(target=run_test_background)
+        thread.daemon = True
+        thread.start()
         
         return jsonify(result), 200
         

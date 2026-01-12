@@ -1346,25 +1346,52 @@
                 const result = await response.json();
                 
                 if (response.ok) {
-                    showActionMessage(`✅ Test Generated Successfully!`, 'success');
+                    showActionMessage(`✅ Test Generated Successfully! Test is running...`, 'success');
                     
-                    // Show success message with Run Test button
+                    // Show success message - test is running automatically
                     statusDiv.innerHTML = `
                         <div class="alert alert-success" style="margin-bottom: 15px;">
                             <div class="alert-icon">✅</div>
                             <div class="alert-content">
-                                <h4>Test Generated Successfully!</h4>
+                                <h4>Test Generated and Running!</h4>
                                 <p>Test file: ${result.test_file || 'N/A'}</p>
+                                <p style="margin-top: 10px; font-size: 0.9em;">⏳ Test is executing in the background. Screenshots will appear when ready (1-2 minutes).</p>
                             </div>
-                        </div>
-                        <div style="text-align: center;">
-                            <button class="btn-primary" onclick="runPlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
-                                ▶️ Run Test (Generate Screenshots)
-                            </button>
                         </div>
                     `;
                     
                     displayPlaywrightResults(result);
+                    
+                    // Poll for test results every 5 seconds
+                    let attempts = 0;
+                    const maxAttempts = 60; // 5 minutes max
+                    const pollInterval = setInterval(async () => {
+                        attempts++;
+                        const resultsResponse = await fetch(`/api/executions/${executionId}/results`);
+                        if (resultsResponse.ok) {
+                            const results = await resultsResponse.json();
+                            const pwValidation = results.playwright_validation || {};
+                            const screenshots = results.playwright_screenshots || [];
+                            
+                            // If test completed (has status) or screenshots available
+                            if (pwValidation.status || screenshots.length > 0 || attempts >= maxAttempts) {
+                                clearInterval(pollInterval);
+                                if (pwValidation.status) {
+                                    statusDiv.innerHTML = `
+                                        <div class="alert ${pwValidation.status === 'passed' ? 'alert-success' : 'alert-error'}" style="margin-bottom: 15px;">
+                                            <div class="alert-icon">${pwValidation.status === 'passed' ? '✅' : '❌'}</div>
+                                            <div class="alert-content">
+                                                <h4>Test Execution Complete!</h4>
+                                                <p>Status: ${pwValidation.status || 'unknown'}</p>
+                                                <p>Screenshots: ${screenshots.length}</p>
+                                            </div>
+                                        </div>
+                                    `;
+                                }
+                                await pollResults(); // Refresh to show screenshots
+                            }
+                        }
+                    }, 5000); // Poll every 5 seconds
                     
                     // Reload main results to update Overview tab with Playwright data
                     await pollResults();
