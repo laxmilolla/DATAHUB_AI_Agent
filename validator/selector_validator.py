@@ -175,8 +175,26 @@ class SelectorValidator:
         
         # Check 2: XPath exists
         if not xpath:
+            # Skip validation for TOTP fields (they don't always have XPaths)
+            if self._is_totp_field(element_name, discovery, action):
+                result['valid'] = True
+                result['warning'] = f"Step {step_num}: '{element_name}' - TOTP field (no XPath, skipping validation)"
+                return result
+            
             registry_info_str = f" (Registry: {registry_path})" if registry_path else ""
             result['error'] = f"Step {step_num}: '{element_name}' missing XPath in discovery{registry_info_str}"
+            return result
+        
+        # Check if element is optional/conditional - skip validation
+        if self._is_optional_element(step_num, element_name, action):
+            result['valid'] = True
+            result['warning'] = f"Step {step_num}: '{element_name}' - Optional/conditional element (skipping validation)"
+            return result
+        
+        # Check if element is optional/conditional - skip validation
+        if self._is_optional_element(step_num, element_name, action):
+            result['valid'] = True
+            result['warning'] = f"Step {step_num}: '{element_name}' - Optional/conditional element (skipping validation)"
             return result
         
         # Check 3: Load registry and verify XPath exists
@@ -249,6 +267,12 @@ class SelectorValidator:
                             continue
                     
                     if not found_alternative:
+                        # Check if this is an optional element - if so, mark as warning instead of error
+                        if self._is_optional_element(step_num, element_name, action):
+                            result['valid'] = True
+                            result['warning'] = f"Step {step_num}: '{element_name}' - Optional element not found (may not be present on page)"
+                            return result
+                        
                         # Build error message with suggestions
                         registry_info = f" (Registry: {registry_path})" if registry_path else ""
                         error_msg = f"Step {step_num}: '{element_name}' - Element not found using XPath: {xpath}{registry_info}"
