@@ -191,10 +191,10 @@ class SelectorValidator:
             result['warning'] = f"Step {step_num}: '{element_name}' - Optional/conditional element (skipping validation)"
             return result
         
-        # Check if element is optional/conditional - skip validation
-        if self._is_optional_element(step_num, element_name, action):
+        # Check if element requires authentication or previous steps - skip validation
+        if self._requires_authentication(step_num, discovery_url, action):
             result['valid'] = True
-            result['warning'] = f"Step {step_num}: '{element_name}' - Optional/conditional element (skipping validation)"
+            result['warning'] = f"Step {step_num}: '{element_name}' - Requires authentication/previous steps (skipping validation)"
             return result
         
         # Check 3: Load registry and verify XPath exists
