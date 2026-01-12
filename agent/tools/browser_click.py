@@ -479,22 +479,36 @@ class BrowserClickTool:
     async def _track_discovery(self, chosen_locator: Locator, original_selector: str,
                               element_name: str, original_element_for_xpath: Optional[Locator],
                               registry_button_element: Optional[Locator],
-                              discovery_url_before_click: str, new_url: str, url_changed: bool) -> None:
+                              discovery_url_before_click: str, new_url: str, url_changed: bool,
+                              element_attrs_pre_extracted: Dict = None) -> None:
         """Track element discovery"""
         original_url = self.discovery_tracker.current_url
         self.discovery_tracker.update_url(discovery_url_before_click)
         
         try:
+            # CRITICAL FIX: Use pre-extracted attributes if available (extracted before navigation)
+            # After navigation, element handles are invalid and we'll find wrong elements
+            if element_attrs_pre_extracted and element_attrs_pre_extracted.get('tag'):
+                element_attrs = element_attrs_pre_extracted
+                logger.info(f"  ✅ Using pre-extracted attributes (before navigation) - tag: {element_attrs.get('tag')}")
+            else:
+                # Fallback: Try to extract normally (only works if no navigation)
+                if url_changed:
+                    logger.warning(f"  ⚠️ URL changed but no pre-extracted attributes - will use fallback XPath generation")
+                    element_attrs = {}
+                else:
+                    # No navigation - safe to extract normally
+                    element_for_xpath = await self._determine_xpath_element(
+                        registry_button_element, original_element_for_xpath, chosen_locator
+                    )
+                    element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
+            
             final_selector = await self.xpath_generator.generate_final_selector(chosen_locator)
             if not final_selector:
                 final_selector = original_selector
             
-            # Determine element for XPath generation (FIX: use element_for_xpath, not original_element_for_xpath)
-            element_for_xpath = await self._determine_xpath_element(
-                registry_button_element, original_element_for_xpath, chosen_locator
-            )
-            
-            element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
+            # Determine element for XPath generation (for clicked_element parameter)
+            element_for_xpath = original_element_for_xpath if original_element_for_xpath else chosen_locator
             
             discovery_method = "tree_climbing" if original_element_for_xpath != chosen_locator else "direct"
             
