@@ -73,7 +73,7 @@
       "last_used": "2026-01-08T16:07:14.217963Z"
     },
     "Login": {
-      "selector": "#header-navbar-login-button",
+      "selector": "text=Login",
       "xpath": "//h2[normalize-space(.)='Smart Card Login']",
       "uniqueness_method": "text_only",
       "type": "unknown",
