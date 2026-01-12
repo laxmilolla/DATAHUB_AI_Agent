@@ -208,15 +208,31 @@ class PlaywrightGeneratorCore:
             
             # PRIORITY 1: Direct lookup by step_number (like element_id for XPaths)
             # This uses the AI's decision directly - most reliable
-            # But only if the action hasn't been used yet
+            # But only if the action hasn't been used yet AND matches the step type
             action_by_step = find_action_by_step_number(step_num, actions_taken)
             if action_by_step:
                 action_idx = actions_taken.index(action_by_step)
                 if action_idx not in used_action_indices:
-                    action = action_by_step
-                    used_action_indices.add(action_idx)
-                    # Update action_index to after this action
-                    action_index = max(action_index, action_idx + 1)
+                    # CRITICAL: Check if action type matches story step intent
+                    # If story says "click" but action is "wait", skip it and use sequential matching
+                    step_lower = step_text.lower()
+                    action_tool = action_by_step.get('tool', '')
+                    is_click_step = any(keyword in step_lower for keyword in ['click', 'press', 'tap', 'select'])
+                    is_fill_step = any(keyword in step_lower for keyword in ['enter', 'fill', 'type', 'input'])
+                    is_wait_step = 'wait' in step_lower
+                    
+                    # Skip if action type doesn't match story step intent
+                    if (is_click_step and action_tool != 'browser_click') or \
+                       (is_fill_step and action_tool != 'browser_fill') or \
+                       (is_wait_step and action_tool != 'browser_evaluate'):
+                        # Action type mismatch - skip and use sequential matching
+                        action_by_step = None
+                    else:
+                        # Action type matches - use it
+                        action = action_by_step
+                        used_action_indices.add(action_idx)
+                        # Update action_index to after this action
+                        action_index = max(action_index, action_idx + 1)
             
             # PRIORITY 2: Sequential matching (match actions in order to story steps)
             # This handles cases where step_number doesn't match story step number
