@@ -176,9 +176,16 @@ class PlaywrightGeneratorCore:
         # Parse story into steps
         story_lines = story.strip().split('\n')
         
+        # Track which actions have been used (to prevent duplicate matching)
+        used_action_indices = set()
+        
+        # Track action index for sequential matching (handles "Step 1 a" type mismatches)
+        action_index = 1 if navigation_generated else 0  # Start after navigation if already generated
+        
         for line in story_lines:
             # Extract step number - handle variations: "Step 1:", "Steps 15:", "Step 1", "Steps 15", etc.
-            step_match = re.match(r'[Ss]teps?\s+(\d+)\s*:?\s*(.+)', line, re.IGNORECASE)
+            # Also handle "Step 1 a:" type sub-steps (they increment step_number but don't match story step numbers)
+            step_match = re.match(r'[Ss]teps?\s+(\d+)\s*[a-z]?\s*:?\s*(.+)', line, re.IGNORECASE)
             if not step_match:
                 continue
             
@@ -187,6 +194,13 @@ class PlaywrightGeneratorCore:
             
             # Skip Step 1 if navigation was already generated
             if step_num == 1 and navigation_generated:
+                # But still handle "Step 1 a:" wait steps
+                if action_index < len(actions_taken):
+                    action = actions_taken[action_index]
+                    if action.get('tool') == 'browser_evaluate' and 'wait' in step_text.lower():
+                        code += generate_wait_step(step_num, step_text, action, indent)
+                        used_action_indices.add(action_index)
+                        action_index += 1
                 continue
             
             # Find corresponding action from actions_taken
@@ -194,15 +208,48 @@ class PlaywrightGeneratorCore:
             
             # PRIORITY 1: Direct lookup by step_number (like element_id for XPaths)
             # This uses the AI's decision directly - most reliable
-            action = find_action_by_step_number(step_num, actions_taken)
+            # But only if the action hasn't been used yet
+            action_by_step = find_action_by_step_number(step_num, actions_taken)
+            if action_by_step:
+                action_idx = actions_taken.index(action_by_step)
+                if action_idx not in used_action_indices:
+                    action = action_by_step
+                    used_action_indices.add(action_idx)
+                    # Update action_index to after this action
+                    action_index = max(action_index, action_idx + 1)
             
-            # PRIORITY 2: For wait steps, match by step text content
+            # PRIORITY 2: Sequential matching (match actions in order to story steps)
+            # This handles cases where step_number doesn't match story step number
+            # (e.g., "Step 1 a" increments step_number but doesn't have a story step number)
+            # CRITICAL: This ensures Continue button (step_number=3) matches Story Step 2
+            if not action and action_index < len(actions_taken):
+                candidate_action = actions_taken[action_index]
+                # Skip if this action was already matched by step_number
+                if action_index not in used_action_indices:
+                    # Use this action for this story step (sequential matching)
+                    action = candidate_action
+                    used_action_indices.add(action_index)
+                    action_index += 1
+            
+            # PRIORITY 3: For wait steps, match by step text content (if not already matched)
             if not action and 'wait' in step_text.lower() and any(char.isdigit() for char in step_text):
                 action = find_wait_action(step_text, actions_taken)
+                if action:
+                    action_idx = actions_taken.index(action)
+                    if action_idx not in used_action_indices:
+                        used_action_indices.add(action_idx)
+                        # Update action_index to after this action
+                        action_index = max(action_index, action_idx + 1)
             
-            # PRIORITY 3: Fallback to content-based matching (for backward compatibility)
+            # PRIORITY 4: Fallback to content-based matching (for backward compatibility)
             if not action:
                 action = find_action_by_content(step_text, step_num, actions_taken)
+                if action:
+                    action_idx = actions_taken.index(action)
+                    if action_idx not in used_action_indices:
+                        used_action_indices.add(action_idx)
+                        # Update action_index to after this action
+                        action_index = max(action_index, action_idx + 1)
             
             # Generate code based on action type
             if not action:
