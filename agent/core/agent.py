@@ -193,17 +193,33 @@ class Agent:
                             logger.info(f"  📍 Set step context BEFORE execution: {predicted_step}")
                         else:
                             # Fallback: use sequential prediction if no match
+                            # Only pick steps AFTER the highest completed step (don't jump backwards)
                             all_step_ids = sorted(self.step_matcher.step_texts.keys(), 
                                                  key=lambda x: (int(re.match(r'(\d+)', x).group(1)), x))
                             completed = self.step_matcher.get_completed_steps()
+                            
+                            # Find highest completed step number
+                            highest_completed = 0
+                            for step_id in completed:
+                                step_num_match = re.match(r'(\d+)', step_id)
+                                if step_num_match:
+                                    step_num = int(step_num_match.group(1))
+                                    highest_completed = max(highest_completed, step_num)
+                            
+                            # Only consider steps AFTER highest completed step
                             for step_id in all_step_ids:
                                 if step_id not in completed:
+                                    step_num_match = re.match(r'(\d+)', step_id)
+                                    if step_num_match:
+                                        step_num = int(step_num_match.group(1))
+                                        # Skip steps that are before or equal to highest completed
+                                        if step_num <= highest_completed:
+                                            continue
                                     predicted_step = step_id
                                     self.context.current_step_identifier = predicted_step
-                                    step_num_match = re.match(r'(\d+)', predicted_step)
                                     if step_num_match:
                                         self.context.current_step_number = int(step_num_match.group(1))
-                                    logger.info(f"  ⚠️  Using sequential prediction: Step {predicted_step}")
+                                    logger.info(f"  ⚠️  Using sequential prediction: Step {predicted_step} (after highest completed: {highest_completed})")
                                     break
                         
                         # Execute tool (now has correct step context)
