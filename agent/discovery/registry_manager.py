@@ -190,17 +190,22 @@ class RegistryManager:
                                 # Update existing entry
                                 # Note: element_id already backfilled above (line 181-184) if needed
                                 
-                                # 🔒 CRITICAL: NEVER overwrite existing XPath if it exists (manual XPath = absolute source of truth)
+                                # 🔒 CRITICAL: NEVER overwrite existing XPath/selector if it exists (manual = absolute source of truth)
                                 existing_xpath = existing_element.get('xpath', '')
+                                existing_selector = existing_element.get('selector', '')
                                 discovery_xpath = element_entry.get('xpath', '')
+                                discovery_selector = element_entry.get('selector', '')
                                 
-                                # If registry already has an XPath, preserve it (manual XPath should never be overwritten)
+                                # If registry already has an XPath, preserve both XPath AND selector (manual = source of truth)
                                 if preserve_manual and existing_xpath:
-                                    # Keep existing XPath, update other fields only
+                                    # Keep existing XPath AND selector, update other fields only
                                     preserved_xpath = existing_xpath
+                                    preserved_selector = existing_selector
                                     existing_element.update(element_entry)
                                     existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
+                                    existing_element['selector'] = preserved_selector  # Restore preserved selector
                                     logger.info(f"    🔒 Preserved existing XPath (manual XPath = source of truth): {preserved_xpath[:80]}...")
+                                    logger.info(f"    🔒 Preserved existing selector (manual selector = source of truth): {preserved_selector[:80] if preserved_selector else 'N/A'}...")
                                 else:
                                     # No existing XPath - update normally (including new XPath from discovery)
                                     existing_element.update(element_entry)
