@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 class LLMHelper:
     """Helper functions for LLM disambiguation"""
     
-    def __init__(self, bedrock_client, story: str = ""):
+    def __init__(self, llm_client, story: str = ""):
         """
         Initialize LLM helper
         Args:
-            bedrock_client: BedrockClient instance
+            llm_client: LLMClient instance (Bedrock, OpenAI, Anthropic, or Ollama)
             story: Story text for context
         """
-        self.bedrock_client = bedrock_client
+        self.llm_client = llm_client
         self.story = story
     
     async def describe_element(self, element: Any) -> str:
@@ -140,7 +140,7 @@ Consider these rules:
 Respond with ONLY the element number (0, 1, 2, etc.) - nothing else.
 """
         
-        response = await self.bedrock_client.call_llm_simple(prompt, max_tokens=10)
+        response = await self.llm_client.call_llm_simple(prompt, max_tokens=10)
         
         # Parse response
         try:

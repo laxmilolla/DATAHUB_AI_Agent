@@ -4,5 +4,6 @@ flask-cors==5.0.0
 python-dotenv==1.0.1
 playwright==1.49.0
 aiohttp==3.11.11
+groq>=0.4.0  # FREE cloud LLM (no local resources)
 
 pyotp==2.9.0
