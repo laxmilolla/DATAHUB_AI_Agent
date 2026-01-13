@@ -787,6 +787,9 @@ def download_registry_json(domain, page):
             mimetype='application/json'
         )
         
+        # Explicitly set Content-Disposition header to ensure correct filename
+        response.headers['Content-Disposition'] = f'attachment; filename="{download_filename}"'
+        
         # Prevent browser caching
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
