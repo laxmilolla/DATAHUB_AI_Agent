@@ -420,7 +420,7 @@
                         <h2 style="margin: 0; font-size: 1.5em;">🌳 Element Tree Viewer & Editor</h2>
                         <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 0.9em;" id="treeSubtitle">Loading...</p>
                     </div>
-                    <button onclick="closeTreeViewer()" style="background: rgba(255,255,255,0.2); border: none; color: white; font-size: 24px; cursor: pointer; padding: 5px 15px; border-radius: 5px;">×</button>
+                    <button onclick="closeTreeViewer()" style="background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.5); color: white; font-size: 16px; font-weight: 600; cursor: pointer; padding: 8px 20px; border-radius: 6px; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.5)'; this.style.borderColor='white';" onmouseout="this.style.background='rgba(255,255,255,0.3)'; this.style.borderColor='rgba(255,255,255,0.5)';">✕ Close</button>
                 </div>
                 
                 <!-- Toolbar -->
@@ -442,6 +442,9 @@
                     </button>
                     <button onclick="downloadRegistryJSON()" style="padding: 8px 16px; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 8px rgba(255,152,0,0.3);">
                         📥 Download JSON
+                    </button>
+                    <button onclick="showBulkDownloadModal()" style="padding: 8px 16px; background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 8px rgba(156,39,176,0.3);">
+                        📦 Download Multiple JSONs
                     </button>
                     <span id="treeStatus" style="margin-left: auto; padding: 8px 16px; background: #fff; border-radius: 5px; font-size: 0.9em;"></span>
                 </div>
@@ -499,6 +502,30 @@
                         <div id="elementProperties" style="color: #666;">
                             <p>Select an element from the tree to view and edit its properties.</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Download Modal -->
+        <div id="bulkDownloadModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10001; overflow: auto;">
+            <div style="background: white; margin: 50px auto; max-width: 800px; border-radius: 12px; box-shadow: 0 10px 50px rgba(0,0,0,0.3);">
+                <div style="background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%); color: white; padding: 20px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0;">📦 Download Multiple JSONs</h2>
+                    <button onclick="closeBulkDownloadModal()" style="background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.5); color: white; font-size: 16px; font-weight: 600; cursor: pointer; padding: 8px 20px; border-radius: 6px;">✕ Close</button>
+                </div>
+                <div style="padding: 30px;">
+                    <p style="margin-bottom: 20px; color: #666;">Select multiple registries to download as JSON files:</p>
+                    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+                        <button onclick="selectAllRegistries()" style="padding: 8px 16px; background: #4caf50; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">✓ Select All</button>
+                        <button onclick="deselectAllRegistries()" style="padding: 8px 16px; background: #757575; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">✗ Deselect All</button>
+                    </div>
+                    <div id="bulkDownloadList" style="max-height: 400px; overflow-y: auto; border: 2px solid #e0e0e0; border-radius: 5px; padding: 15px;">
+                        <p style="text-align: center; color: #999;">Loading registries...</p>
+                    </div>
+                    <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="closeBulkDownloadModal()" style="padding: 10px 20px; background: #757575; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">Cancel</button>
+                        <button onclick="downloadSelectedJSONs()" style="padding: 10px 20px; background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 8px rgba(156,39,176,0.3);">📥 Download Selected</button>
                     </div>
                 </div>
             </div>

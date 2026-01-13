@@ -719,4 +719,95 @@
         statusEl.style.background = colors[type] || '#fff';
         statusEl.style.color = (type === 'info' || type === 'success' || type === 'warning' || type === 'error') ? 'white' : '#333';
     }
+
+    /**
+     * Show bulk download modal
+     */
+    window.showBulkDownloadModal = async function() {
+        document.getElementById('bulkDownloadModal').style.display = 'block';
+        
+        try {
+            const response = await fetch('/api/registry');
+            if (!response.ok) {
+                throw new Error('Failed to load registries');
+            }
+            
+            const data = await response.json();
+            const registries = data.registries || [];
+            
+            const listEl = document.getElementById('bulkDownloadList');
+            if (registries.length === 0) {
+                listEl.innerHTML = '<p style="text-align: center; color: #999;">No registries found.</p>';
+                return;
+            }
+            
+            listEl.innerHTML = registries.map((reg, index) => `
+                <div style="padding: 10px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="reg_${index}" value="${reg.domain}/${reg.page}" style="width: 20px; height: 20px; cursor: pointer;">
+                    <label for="reg_${index}" style="flex: 1; cursor: pointer; font-weight: 500;">
+                        <strong>${reg.domain}</strong> / ${reg.page}
+                    </label>
+                </div>
+            `).join('');
+        } catch (error) {
+            console.error('Error loading registries:', error);
+            document.getElementById('bulkDownloadList').innerHTML = `<p style="color: #f44336;">Error loading registries: ${error.message}</p>`;
+        }
+    };
+
+    /**
+     * Close bulk download modal
+     */
+    window.closeBulkDownloadModal = function() {
+        document.getElementById('bulkDownloadModal').style.display = 'none';
+    };
+
+    /**
+     * Select all registries
+     */
+    window.selectAllRegistries = function() {
+        const checkboxes = document.querySelectorAll('#bulkDownloadList input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = true);
+    };
+
+    /**
+     * Deselect all registries
+     */
+    window.deselectAllRegistries = function() {
+        const checkboxes = document.querySelectorAll('#bulkDownloadList input[type="checkbox"]');
+        checkboxes.forEach(cb => cb.checked = false);
+    };
+
+    /**
+     * Download selected JSONs
+     */
+    window.downloadSelectedJSONs = async function() {
+        const checkboxes = document.querySelectorAll('#bulkDownloadList input[type="checkbox"]:checked');
+        const selected = Array.from(checkboxes).map(cb => cb.value);
+        
+        if (selected.length === 0) {
+            alert('Please select at least one registry to download.');
+            return;
+        }
+        
+        // Download each JSON file individually
+        for (const regPath of selected) {
+            const [domain, page] = regPath.split('/');
+            const downloadUrl = `/api/registry/${encodeURIComponent(domain)}/${encodeURIComponent(page)}/download`;
+            
+            // Create a temporary anchor element to trigger download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = `${page}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Small delay between downloads to avoid browser blocking
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        alert(`✅ Downloaded ${selected.length} JSON file(s) successfully!`);
+        closeBulkDownloadModal();
+    };
 })();
