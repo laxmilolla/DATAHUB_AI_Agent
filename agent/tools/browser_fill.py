@@ -37,6 +37,61 @@ class BrowserFillTool:
         self.parsed_steps = parsed_steps
         self.story = story
     
+    def _validate_registry_selector(self, registry_selector: str, element_name: Optional[str], llm_selector: str) -> bool:
+        """
+        Generic validation: Check if registry selector matches expected input type.
+        Returns False if registry selector conflicts with element name expectations.
+        """
+        if not element_name or not registry_selector:
+            return True  # No validation needed if no element name
+        
+        element_lower = element_name.lower()
+        selector_lower = registry_selector.lower()
+        
+        # Define expected input types for common field names
+        field_type_rules = {
+            'username': {
+                'allowed': ['email', 'text'],
+                'forbidden': ['password']
+            },
+            'email': {
+                'allowed': ['email', 'text'],
+                'forbidden': ['password']
+            },
+            'password': {
+                'allowed': ['password'],
+                'forbidden': ['email', 'text']
+            },
+            'totp': {
+                'allowed': ['text'],
+                'forbidden': ['password', 'email']
+            }
+        }
+        
+        # Check if element name has validation rules
+        if element_lower in field_type_rules:
+            rules = field_type_rules[element_lower]
+            
+            # Check for forbidden types
+            for forbidden_type in rules['forbidden']:
+                if f'type="{forbidden_type}"' in selector_lower or f"type='{forbidden_type}'" in selector_lower:
+                    logger.warning(f"  ⚠️ Registry selector invalid: {element_name} mapped to {forbidden_type} field - rejecting")
+                    return False
+            
+            # If LLM selector is available, prefer it if registry doesn't match expected types
+            if llm_selector and rules['allowed']:
+                llm_has_allowed = any(f'type="{t}"' in llm_selector.lower() or f"type='{t}'" in llm_selector.lower() 
+                                     for t in rules['allowed'])
+                registry_has_allowed = any(f'type="{t}"' in selector_lower or f"type='{t}'" in selector_lower 
+                                          for t in rules['allowed'])
+                
+                # If LLM has correct type but registry doesn't, prefer LLM
+                if llm_has_allowed and not registry_has_allowed:
+                    logger.warning(f"  ⚠️ Registry selector doesn't match expected type for {element_name} - preferring LLM selector")
+                    return False
+        
+        return True  # Validation passed
+    
     async def execute(self, selector: str, text: str) -> str:
         """
         Execute fill operation
@@ -137,20 +192,8 @@ class BrowserFillTool:
         
         using_registry_xpath = False
         if registry_selector:
-            # Validate registry selector matches expected field type
-            selector_valid = True
-            if element_name_for_registry == 'username':
-                # Username should be email or text input, NOT password
-                if 'type="password"' in registry_selector or "type='password'" in registry_selector:
-                    logger.warning(f"  ⚠️ Registry selector invalid: username mapped to password field - rejecting registry selector")
-                    selector_valid = False
-                    registry_selector = None
-            elif element_name_for_registry == 'password':
-                # Password should be password input, NOT email or text
-                if 'type="email"' in registry_selector or "type='email'" in registry_selector:
-                    logger.warning(f"  ⚠️ Registry selector invalid: password mapped to email field - rejecting registry selector")
-                    selector_valid = False
-                    registry_selector = None
+            # Validate registry selector matches expected field type (generic validation)
+            selector_valid = self._validate_registry_selector(registry_selector, element_name_for_registry, selector)
             
             if registry_selector and selector_valid:
                 selector = registry_selector
@@ -159,6 +202,9 @@ class BrowserFillTool:
                     logger.info(f"  📋 Using XPath from registry (MANUAL) for fill operation")
                 else:
                     logger.info(f"  📋 Using selector from registry")
+            elif not selector_valid:
+                logger.warning(f"  ⚠️ Registry selector validation failed - using LLM selector instead")
+                registry_selector = None
         
         # TOTP Detection
         is_totp_step = self.totp_handler.is_totp_step(step_text, text)
