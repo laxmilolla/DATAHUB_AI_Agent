@@ -137,12 +137,28 @@ class BrowserFillTool:
         
         using_registry_xpath = False
         if registry_selector:
-            selector = registry_selector
-            if selector.startswith("xpath="):
-                using_registry_xpath = True
-                logger.info(f"  📋 Using XPath from registry (MANUAL) for fill operation")
-            else:
-                logger.info(f"  📋 Using selector from registry")
+            # Validate registry selector matches expected field type
+            selector_valid = True
+            if element_name_for_registry == 'username':
+                # Username should be email or text input, NOT password
+                if 'type="password"' in registry_selector or "type='password'" in registry_selector:
+                    logger.warning(f"  ⚠️ Registry selector invalid: username mapped to password field - rejecting registry selector")
+                    selector_valid = False
+                    registry_selector = None
+            elif element_name_for_registry == 'password':
+                # Password should be password input, NOT email or text
+                if 'type="email"' in registry_selector or "type='email'" in registry_selector:
+                    logger.warning(f"  ⚠️ Registry selector invalid: password mapped to email field - rejecting registry selector")
+                    selector_valid = False
+                    registry_selector = None
+            
+            if registry_selector and selector_valid:
+                selector = registry_selector
+                if selector.startswith("xpath="):
+                    using_registry_xpath = True
+                    logger.info(f"  📋 Using XPath from registry (MANUAL) for fill operation")
+                else:
+                    logger.info(f"  📋 Using selector from registry")
         
         # TOTP Detection
         is_totp_step = self.totp_handler.is_totp_step(step_text, text)
