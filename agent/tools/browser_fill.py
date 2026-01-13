@@ -214,43 +214,50 @@ class BrowserFillTool:
         if actual_value == text:
             logger.info(f"  ✅ Fill verified: value matches")
             
-            # Track discovery (skip if using registry XPath)
-            if not using_registry_xpath:
+            # FIX: Always track discovery (even when using registry XPath) to ensure completeness
+            try:
+                # FIX: Ensure element_name is correctly extracted from step text
+                element_name = element_name_for_registry
+                if not element_name:
+                    # Fallback: extract from selector or use selector itself
+                    if selector.startswith('input['):
+                        # Extract type from selector (e.g., input[type="email"] -> email)
+                        type_match = re.search(r'type=["\'](\w+)["\']', selector)
+                        if type_match:
+                            element_name = type_match.group(1)
+                    if not element_name:
+                        element_name = selector
+                
+                # Extract element attributes to get tag/type
+                element_attrs = {}
+                element_type = 'input'  # Default for fill operations
                 try:
-                    element_name = element_name_for_registry or selector
-                    
-                    # Extract element attributes to get tag/type
-                    element_attrs = {}
-                    element_type = 'input'  # Default for fill operations
-                    try:
-                        fill_locator = self.page.locator(selector).first
-                        tag_name = await fill_locator.evaluate("el => el.tagName?.toLowerCase() || ''")
-                        if tag_name:
-                            element_attrs['tag'] = tag_name
-                            if tag_name == 'input':
-                                element_type = 'input'
-                            elif tag_name == 'textarea':
-                                element_type = 'textarea'
-                            else:
-                                element_type = tag_name
-                    except Exception as e:
-                        logger.debug(f"  ⚠️ Could not extract element attributes: {e}")
-                    
-                    await self.discovery_tracker.track(
-                        element_name=element_name,
-                        original_query=original_selector,
-                        final_selector=selector,
-                        discovery_method="direct",
-                        metadata={
-                            "element_attrs": element_attrs,
-                            "type": element_type  # Set type so registry saves correct element type
-                        }
-                    )
-                    logger.info(f"  ✅ Discovery tracked: {element_name} (type: {element_type})")
+                    fill_locator = self.page.locator(selector).first
+                    tag_name = await fill_locator.evaluate("el => el.tagName?.toLowerCase() || ''")
+                    if tag_name:
+                        element_attrs['tag'] = tag_name
+                        if tag_name == 'input':
+                            element_type = 'input'
+                        elif tag_name == 'textarea':
+                            element_type = 'textarea'
+                        else:
+                            element_type = tag_name
                 except Exception as e:
-                    logger.warning(f"  ⚠️ Failed to track discovery: {e}")
-            else:
-                logger.info(f"  🔒 Skipped discovery tracking (using registry XPath)")
+                    logger.debug(f"  ⚠️ Could not extract element attributes: {e}")
+                
+                await self.discovery_tracker.track(
+                    element_name=element_name,
+                    original_query=original_selector,
+                    final_selector=selector,
+                    discovery_method="direct" if not using_registry_xpath else "registry",
+                    metadata={
+                        "element_attrs": element_attrs,
+                        "type": element_type  # Set type so registry saves correct element type
+                    }
+                )
+                logger.info(f"  ✅ Discovery tracked: {element_name} (type: {element_type})")
+            except Exception as e:
+                logger.warning(f"  ⚠️ Failed to track discovery: {e}")
             
             return f"✅ Filled {selector} = '{text}' - Verified"
         else:

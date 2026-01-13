@@ -125,15 +125,35 @@ class StepMatcher:
         score = 0
         step_lower = step_text.lower()
         
-        # PRIORITY 1: Tool type match
+        # PRIORITY 1: Tool type match (REQUIRED - reject mismatches)
+        tool_matches = False
         if tool == "browser_navigate" and ("go to" in step_lower or "navigate" in step_lower):
             score += 100
-        elif tool == "browser_click" and ("click" in step_lower or "press" in step_lower):
+            tool_matches = True
+        elif tool == "browser_click" and ("click" in step_lower or "press" in step_lower or "tap" in step_lower):
             score += 100
-        elif tool == "browser_fill" and ("enter" in step_lower or "fill" in step_lower or "type" in step_lower):
+            tool_matches = True
+        elif tool == "browser_fill" and ("enter" in step_lower or "fill" in step_lower or "type" in step_lower or "input" in step_lower):
             score += 100
+            tool_matches = True
         elif tool == "browser_evaluate" and "wait" in step_lower:
             score += 100
+            tool_matches = True
+        elif tool == "browser_verify" and ("verify" in step_lower or "check" in step_lower):
+            score += 100
+            tool_matches = True
+        
+        # FIX: Reject tool type mismatches (screenshot ≠ click, click ≠ verify)
+        if not tool_matches:
+            # Check for explicit mismatches
+            if tool == "browser_screenshot" and ("click" in step_lower or "press" in step_lower):
+                return 0  # Screenshot cannot match click step
+            if tool == "browser_click" and ("verify" in step_lower or "check" in step_lower) and "click" not in step_lower:
+                return 0  # Click cannot match verify step (unless it also says click)
+            if tool == "browser_fill" and ("verify" in step_lower or "check" in step_lower) and "fill" not in step_lower:
+                return 0  # Fill cannot match verify step
+            # If no tool match and no explicit mismatch, return low score
+            return 10  # Very low score for tool mismatch
         
         # PRIORITY 2: Exact text match (very high score)
         action_text = action_content.get("text", "")

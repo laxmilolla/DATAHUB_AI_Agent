@@ -23,13 +23,17 @@ class XPathGenerator:
         # XPathBuilder will be imported when needed to avoid circular dependencies
         # from utils.xpath_builder import XPathBuilder
     
-    async def generate_final_selector(self, element) -> Optional[str]:
+    async def generate_final_selector(self, element, original_query: str = None) -> Optional[str]:
         """
         Generate a simple, stable selector from the element that was clicked
+        Args:
+            element: Playwright element
+            original_query: Original search query (preserved for simple text selectors)
         Priority:
         1. role + aria attributes + text (semantic and stable)
         2. data-testid or stable id (purpose-built for testing)
-        3. Simple text selector (stable, generic)
+        3. Preserve original_query if it's a simple text selector (maintains case/exact match)
+        4. Simple text selector (stable, generic)
         """
         try:
             # Get element properties
@@ -68,7 +72,11 @@ class XPathGenerator:
                 if not re.search(r'-\d+$', props['id']):
                     return f"#{props['id']}"
             
-            # Strategy 5: Simple text selector
+            # Strategy 5: Preserve original_query if it's a simple text selector (FIX: maintain exact match)
+            if original_query and original_query.startswith('text='):
+                return original_query
+            
+            # Strategy 6: Simple text selector
             if props['text']:
                 return f"text={props['text']}"
             

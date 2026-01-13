@@ -466,8 +466,7 @@ class BrowserClickTool:
                             discovery_url_before_click, new_url, url_changed,
                             element_attrs_before_click  # Pass pre-extracted attributes
                         )
-                    else:
-                        logger.info(f"  🔒 Skipped discovery tracking (using registry XPath)")
+                    # FIX: Always track discovery (removed skip logic)
                     
                     # Capture screenshot
                     try:
@@ -496,7 +495,7 @@ class BrowserClickTool:
                               discovery_url_before_click: str, new_url: str, url_changed: bool,
                               element_attrs_pre_extracted: Dict = None) -> None:
         """Track element discovery"""
-        original_url = self.discovery_tracker.current_url
+        # Temporarily set URL to pre-click URL for discovery tracking
         self.discovery_tracker.update_url(discovery_url_before_click)
         
         try:
@@ -517,7 +516,8 @@ class BrowserClickTool:
                     )
                     element_attrs = await self.xpath_generator.extract_element_attributes(element_for_xpath)
             
-            final_selector = await self.xpath_generator.generate_final_selector(chosen_locator)
+            # FIX: Pass original_selector to preserve simple text selectors (e.g., text=Login)
+            final_selector = await self.xpath_generator.generate_final_selector(chosen_locator, original_selector)
             if not final_selector:
                 final_selector = original_selector
             
@@ -554,16 +554,15 @@ class BrowserClickTool:
                 final_selector=final_selector or original_selector,
                 discovery_method=discovery_method,
                 metadata=metadata,
-                # FIX: Use element_for_xpath (the correct button element) instead of original_element_for_xpath
-                clicked_element=element_for_xpath
+                clicked_element=element_for_xpath,
+                discovery_url=discovery_url_before_click  # FIX: Use pre-click URL, not post-navigation URL
             )
             
-            # Restore URL
+            # Restore URL to post-navigation URL
             if url_changed:
                 self.discovery_tracker.update_url(new_url)
                 self.context.current_url = new_url
-            else:
-                self.discovery_tracker.update_url(original_url)
+            # If URL didn't change, discovery_tracker.current_url is already correct
             
             logger.info(f"  ✅ Discovery tracked: {element_name}")
         except Exception as e:

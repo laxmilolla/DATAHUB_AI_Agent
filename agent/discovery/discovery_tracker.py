@@ -42,9 +42,11 @@ class DiscoveryTracker:
     
     async def track(self, element_name: str, original_query: str, final_selector: str,
                    discovery_method: str, metadata: dict, clicked_xpath: str = None,
-                   clicked_element=None) -> Dict:
+                   clicked_element=None, discovery_url: str = None) -> Dict:
         """
         Track a successful discovery for later registry update
+        Args:
+            discovery_url: URL where discovery was made (if None, uses self.current_url)
         Returns: Discovery dict
         """
         # PRIORITY: Use clicked XPath from result string (what AI actually clicked)
@@ -183,7 +185,7 @@ class DiscoveryTracker:
             "uniqueness_method": uniqueness_method,
             "discovery_method": discovery_method,
             "metadata": metadata,
-            "discovery_url": self.current_url,  # Track URL where discovery was made
+            "discovery_url": discovery_url or self.current_url,  # Use provided URL or current URL
             "timestamp": datetime.now().isoformat() + "Z"
         }
         
