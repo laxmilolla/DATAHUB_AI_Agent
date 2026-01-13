@@ -523,6 +523,54 @@ class BrowserClickTool:
             except Exception as e:
                 logger.warning(f"  ⚠️ Could not extract attributes before click: {e}")
         
+        # CRITICAL: Ensure element is ready before clicking
+        try:
+            # Check if element exists and is visible
+            count = await chosen_locator.count()
+            if count == 0:
+                raise Exception(f"Element not found: {selector}")
+            
+            is_visible = await chosen_locator.is_visible()
+            if not is_visible:
+                logger.warning(f"  ⚠️ Element not visible, attempting scroll into view...")
+                try:
+                    await chosen_locator.scroll_into_view_if_needed(timeout=5000)
+                    await self.page.wait_for_timeout(500)  # Wait for scroll to complete
+                    is_visible = await chosen_locator.is_visible()
+                    if not is_visible:
+                        logger.warning(f"  ⚠️ Element still not visible after scroll, will try force click")
+                except Exception as scroll_error:
+                    logger.warning(f"  ⚠️ Scroll failed: {scroll_error}, will try force click")
+            
+            # Check if element is enabled
+            is_enabled = await chosen_locator.is_enabled()
+            if not is_enabled:
+                logger.warning(f"  ⚠️ Element is disabled, will try force click")
+            
+            # Check if element is in viewport
+            try:
+                box = await chosen_locator.bounding_box()
+                if box:
+                    viewport = self.page.viewport_size
+                    in_viewport = (0 <= box['x'] < viewport['width'] and 
+                                 0 <= box['y'] < viewport['height'])
+                    if not in_viewport:
+                        logger.warning(f"  ⚠️ Element not in viewport (x={box['x']:.0f}, y={box['y']:.0f}), will scroll")
+                        await chosen_locator.scroll_into_view_if_needed(timeout=5000)
+            except Exception as e:
+                logger.debug(f"  ⚠️ Could not check viewport: {e}")
+            
+            # Wait for element to be stable (not animating) - shorter timeout
+            try:
+                await chosen_locator.wait_for(state='visible', timeout=3000)
+            except Exception as e:
+                logger.debug(f"  ⚠️ Element stability check timeout (continuing): {e}")
+            
+            logger.info(f"  ✅ Element ready: visible={is_visible}, enabled={is_enabled}, count={count}")
+        except Exception as e:
+            logger.warning(f"  ⚠️ Pre-click validation failed: {e}, will try force click")
+            # Continue anyway - might work with force click
+        
         strategies = [
             {"desc": "direct click", "method": lambda: self.action_executor.click(chosen_locator)},
             {"desc": "force click", "method": lambda: self.action_executor.click(chosen_locator, force=True)},

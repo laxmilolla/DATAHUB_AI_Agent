@@ -178,17 +178,24 @@ class ActionExecutor:
             validation_result["verdict"] = "ERROR"
             return validation_result
     
-    async def click(self, locator: Locator, force: bool = False) -> None:
+    async def click(self, locator: Locator, force: bool = False, timeout: int = 15000) -> None:
         """
         Execute click on locator
         Args:
             locator: Playwright locator
             force: Force click if needed
+            timeout: Timeout in milliseconds (default 15s instead of 30s)
         """
+        try:
+            # Ensure element is in viewport before clicking
+            await locator.scroll_into_view_if_needed(timeout=5000)
+        except Exception as e:
+            logger.debug(f"  ⚠️ Scroll into view failed (continuing): {e}")
+        
         if force:
-            await locator.click(force=True)
+            await locator.click(force=True, timeout=timeout)
         else:
-            await locator.click()
+            await locator.click(timeout=timeout)
     
     async def fill(self, locator: Locator, text: str) -> None:
         """
