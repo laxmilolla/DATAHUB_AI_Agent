@@ -776,8 +776,8 @@ def download_registry_json(domain, page):
         if not registry_file.exists():
             return jsonify({'error': f'Registry file not found: {domain}/{page}'}), 404
         
-        # Use page name from URL for download filename (e.g., "home.json" instead of "home_page.json")
-        download_filename = f'{page}.json'
+        # Use page name from URL with _page suffix for download filename (e.g., "home_page.json")
+        download_filename = f'{page}_page.json'
         
         # Send file with proper headers for download
         response = send_file(
