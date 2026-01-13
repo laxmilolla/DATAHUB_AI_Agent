@@ -264,9 +264,25 @@ class PlaywrightGeneratorCore:
                     logger.info(f"  ℹ️  Step {step_num}: Optional step, element didn't appear")
                     # Will generate optional step code below
             
-            # PRIORITY 1: Direct lookup by step_number (fallback if no step mapping)
-            # This uses the AI's decision directly - most reliable
-            # But only if the action hasn't been used yet AND matches the step type AND content
+            # PRIORITY 1: Direct lookup by step_identifier (NEW - most reliable!)
+            # Match by step_identifier first (content-based matching from AI execution)
+            if not action:
+                # Try to find action with matching step_identifier
+                # Match story step number to step_identifier ("1", "1a", "2", etc.)
+                for act in actions_taken:
+                    act_step_id = act.get('step_identifier')
+                    if act_step_id:
+                        # Match exact step number or sub-step (e.g., step_num=1 matches "1" or "1a")
+                        if act_step_id == str(step_num):
+                            action_idx = actions_taken.index(act)
+                            if action_idx not in used_action_indices:
+                                action = act
+                                used_action_indices.add(action_idx)
+                                action_index = max(action_index, action_idx + 1)
+                                logger.info(f"  ✅ Step {step_num}: Found action via step_identifier={act_step_id}")
+                                break
+            
+            # PRIORITY 1b: Fallback to step_number lookup (backward compatibility)
             if not action:
                 action_by_step = find_action_by_step_number(step_num, actions_taken)
                 if action_by_step:
