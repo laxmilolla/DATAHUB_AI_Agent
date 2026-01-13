@@ -49,7 +49,24 @@ Story:
 from playwright.sync_api import sync_playwright, expect
 import re
 import json
+import os
 from pathlib import Path
+
+# Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
+try:
+    from dotenv import load_dotenv
+    # Load .env from project root (3 levels up from tests/generated/)
+    project_root = Path(__file__).parent.parent.parent
+    env_file = project_root / '.env'
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"✅ Loaded environment variables from {env_file}")
+    else:
+        print(f"⚠️  .env file not found at {env_file}")
+except ImportError:
+    print("⚠️  python-dotenv not installed - environment variables must be set manually")
+except Exception as e:
+    print(f"⚠️  Failed to load .env file: {e}")
 
 # ============================================================================
 # TEST-SPECIFIC VALUES (from story - embedded in test, not in registry)
@@ -214,6 +231,9 @@ def get_xpath_by_id(element_id, page_url=None):
 
 def {test_name}():
     """Auto-generated test from AI discovery - 1:1 mirror of AI execution"""
+    # Track critical failures (non-optional steps that failed)
+    critical_failures = []
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         # Match AI agent viewport to ensure tabs are visible (not hidden in "More" dropdown)
@@ -221,7 +241,14 @@ def {test_name}():
         
         try:
 {test_body}
-            print("✅ Test completed successfully")
+            # Check if there were any critical failures
+            if critical_failures:
+                print(f"\\n❌ Test completed with {{len(critical_failures)}} critical failure(s):")
+                for failure in critical_failures:
+                    print(f"  - {{failure}}")
+                raise Exception(f"Test failed: {{len(critical_failures)}} critical step(s) failed")
+            else:
+                print("✅ Test completed successfully")
             
         except Exception as e:
             print(f"❌ Test failed: {{e}}")
@@ -231,13 +258,19 @@ def {test_name}():
                 print(f'📸 Final screenshot saved: storage/screenshots/pw_test_final_failed.png')
             except:
                 pass
-            # Don't raise - allow test to complete and capture all screenshots
+            raise  # Re-raise to exit with non-zero code
         finally:
             browser.close()
 
 
 if __name__ == '__main__':
-    {test_name}()
+    import sys
+    try:
+        {test_name}()
+        sys.exit(0)  # Success
+    except Exception as e:
+        print(f"\\n❌ Test execution failed: {{e}}")
+        sys.exit(1)  # Failure
 '''
     
     return code

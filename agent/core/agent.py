@@ -56,8 +56,10 @@ class Agent:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_manager = ScreenshotManager(self.screenshots_dir)
         
-        # Element registry
-        self.element_registry = ElementRegistry()
+        # Element registry - use project root path (not relative to api/)
+        project_root = Path(__file__).parent.parent.parent
+        element_maps_dir = project_root / 'element_maps'
+        self.element_registry = ElementRegistry(str(element_maps_dir))
         
         # Element locator (needs page, will be set after browser starts)
         self.element_locator = None

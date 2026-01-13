@@ -221,9 +221,11 @@ def generate_click_step(
         code += f"{ind}    print(f'ℹ️  Step {step_num}: {element_name} not found (optional step): {{e}}')\n"
         code += f"{ind}    # Optional step - continuing without failing test\n"
     else:
-        code += f"{ind}    print(f'❌ Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}')\n"
-        # Don't raise - continue to next step to capture more screenshots
-        code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
+        # Critical steps: track failure and raise exception
+        code += f"{ind}    error_msg = f'Step {step_num}: Failed to click {element_name} (element_id: {{element_id}}): {{e}}'\n"
+        code += f"{ind}    print(f'❌ {{error_msg}}')\n"
+        code += f"{ind}    critical_failures.append(error_msg)\n"
+        code += f"{ind}    raise Exception(error_msg)  # Fail fast on critical errors\n"
     code += f"{ind}\n"
     
     return code
@@ -428,6 +430,7 @@ def generate_fill_step(
     
     if is_totp_step:
         code += f"{ind}# TOTP step - generate code dynamically\n"
+        code += f"{ind}# Note: .env file is already loaded at test start (TOTP_SECRET_KEY)\n"
         code += f"{ind}import sys\n"
         code += f"{ind}from pathlib import Path\n"
         code += f"{ind}# Add project root to path for utils import\n"
@@ -435,8 +438,8 @@ def generate_fill_step(
         code += f"{ind}if str(project_root) not in sys.path:\n"
         code += f"{ind}    sys.path.insert(0, str(project_root))\n"
         code += f"{ind}from utils.otp_helper import generate_otp\n"
-        code += f"{ind}import os\n"
         code += f"{ind}try:\n"
+        code += f"{ind}    # TOTP_SECRET_KEY is loaded from .env file at test start\n"
         code += f"{ind}    totp_code = generate_otp()  # Uses TOTP_SECRET_KEY from environment\n"
         code += f"{ind}    print(f'🔐 Step {step_num}: Generated TOTP code: {{totp_code[:2]}}****')\n"
         code += f"{ind}except Exception as e:\n"
@@ -507,12 +510,14 @@ def generate_fill_step(
     code += f"{ind}        print(f'📸 Screenshot saved: storage/screenshots/pw_step{step_num}_{sanitize_filename(field_name)}_failed.png')\n"
     code += f"{ind}    except:\n"
     code += f"{ind}        pass  # Screenshot capture failed, continue anyway\n"
+    # Fill steps are always critical (not optional) - track failure and raise
     if use_registry_lookup:
-        code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (element_id: {{element_id}}): {{e}}')\n"
+        code += f"{ind}    error_msg = f'Step {step_num}: Failed to fill {field_name} (element_id: {{element_id}}): {{e}}'\n"
     else:
-        code += f"{ind}    print(f'❌ Step {step_num}: Failed to fill {field_name} (selector: {{selector}}): {{e}}')\n"
-    # Don't raise - continue to next step to capture more screenshots
-    code += f"{ind}    # Continuing to next step despite failure (to capture screenshots)\n"
+        code += f"{ind}    error_msg = f'Step {step_num}: Failed to fill {field_name} (selector: {{selector}}): {{e}}'\n"
+    code += f"{ind}    print(f'❌ {{error_msg}}')\n"
+    code += f"{ind}    critical_failures.append(error_msg)\n"
+    code += f"{ind}    raise Exception(error_msg)  # Fail fast on critical errors\n"
     code += f"{ind}\n"
     
     return code
