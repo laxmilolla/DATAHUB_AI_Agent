@@ -303,8 +303,14 @@ class Agent:
                             }
                         })
                     
-                    messages.append(response['output']['message'])
-                    messages.append({"role": "user", "content": tool_results})
+                    # Add assistant message (tool calls) - only if it has content
+                    assistant_msg = response.get('output', {}).get('message', {})
+                    if assistant_msg and assistant_msg.get('content'):
+                        messages.append(assistant_msg)
+                    
+                    # Add tool results as user message
+                    if tool_results:
+                        messages.append({"role": "user", "content": tool_results})
                 
                 elif stop_reason == 'end_turn':
                     final_text = response['response_text']

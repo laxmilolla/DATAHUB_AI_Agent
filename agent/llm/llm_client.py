@@ -255,37 +255,86 @@ class GroqClient(LLMClient):
             raise ImportError("groq package required. Install with: pip install groq")
     
     async def converse(self, messages: List[Dict], tools: List[Dict], system_prompt: str) -> Dict[str, Any]:
-        # Convert messages format
-        groq_messages = [{"role": "system", "content": system_prompt}]
+        import asyncio
+        import json
+        
+        # Convert messages format (Groq uses standard OpenAI format)
+        groq_messages = []
+        # Add system prompt as first message (Groq doesn't have separate system parameter)
+        if system_prompt:
+            groq_messages.append({"role": "system", "content": system_prompt})
+        
         for msg in messages:
             role = msg.get('role', 'user')
             content = msg.get('content', [])
+            
+            # Handle different content formats
             if isinstance(content, list):
-                text_content = next((c.get('text', '') for c in content if 'text' in c), '')
+                # Extract text from content blocks
+                text_parts = []
+                
+                for c in content:
+                    if isinstance(c, dict):
+                        # Handle Bedrock tool result format - convert to text
+                        if 'toolResult' in c:
+                            tool_result = c['toolResult']
+                            result_content = tool_result.get('content', [])
+                            # Extract text from result content
+                            result_text = ''
+                            if isinstance(result_content, list):
+                                for rc in result_content:
+                                    if isinstance(rc, dict) and 'text' in rc:
+                                        result_text = rc['text']
+                                    elif isinstance(rc, str):
+                                        result_text = rc
+                            elif isinstance(result_content, str):
+                                result_text = result_content
+                            if result_text:
+                                text_parts.append(result_text)
+                        elif 'text' in c:
+                            text_parts.append(c['text'])
+                        elif 'tool_use' in c or 'toolUse' in c:
+                            # Tool use blocks - Groq handles these automatically, skip
+                            continue
+                    elif isinstance(c, str):
+                        text_parts.append(c)
+                
+                text_content = ' '.join(text_parts).strip()
             else:
-                text_content = str(content)
-            groq_messages.append({"role": role, "content": text_content})
+                text_content = str(content).strip() if content else ''
+            
+            # Groq requires non-empty content - skip empty messages
+            if text_content:
+                groq_messages.append({"role": role, "content": text_content})
         
-        # Convert tools format
+        # Convert tools format for Groq (OpenAI-compatible format)
         groq_tools = []
         for tool in tools:
             tool_spec = tool.get('toolSpec', {})
+            input_schema = tool_spec.get('inputSchema', {}).get('json', {})
             groq_tools.append({
                 "type": "function",
                 "function": {
                     "name": tool_spec.get('name', ''),
                     "description": tool_spec.get('description', ''),
-                    "parameters": tool_spec.get('inputSchema', {}).get('json', {})
+                    "parameters": input_schema  # Groq expects the full schema object
                 }
             })
         
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=groq_messages,
-            tools=groq_tools if groq_tools else None,
-            max_tokens=4096,
-            temperature=0.0
-        )
+        # Groq client is synchronous, so run in executor
+        def _call_groq():
+            return self.client.chat.completions.create(
+                model=self.model,
+                messages=groq_messages,
+                tools=groq_tools if groq_tools else None,
+                tool_choice="auto",  # Let model decide when to use tools
+                max_tokens=4096,
+                temperature=0.0
+            )
+        
+        # Run synchronous Groq call in executor
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, _call_groq)
         
         message = response.choices[0].message
         stop_reason = response.choices[0].finish_reason
@@ -293,12 +342,26 @@ class GroqClient(LLMClient):
         tool_uses = []
         if message.tool_calls:
             for tool_call in message.tool_calls:
-                import json
-                tool_uses.append({
-                    "toolUseId": tool_call.id,
-                    "name": tool_call.function.name,
-                    "input": json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                })
+                try:
+                    # Parse arguments (Groq returns as string or dict)
+                    if isinstance(tool_call.function.arguments, str):
+                        args = json.loads(tool_call.function.arguments)
+                    else:
+                        args = tool_call.function.arguments or {}
+                    
+                    tool_uses.append({
+                        "toolUseId": tool_call.id,
+                        "name": tool_call.function.name,
+                        "input": args
+                    })
+                except Exception as e:
+                    logger.warning(f"  ⚠️ Failed to parse Groq tool call arguments: {e}")
+                    # Fallback: try to extract what we can
+                    tool_uses.append({
+                        "toolUseId": tool_call.id,
+                        "name": tool_call.function.name,
+                        "input": {}
+                    })
         
         return {
             "stop_reason": "tool_use" if tool_uses else "end_turn",
@@ -308,13 +371,17 @@ class GroqClient(LLMClient):
         }
     
     async def call_llm_simple(self, prompt: str, max_tokens: int = 100) -> str:
+        import asyncio
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=0.0
-            )
+            def _call_groq():
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                    temperature=0.0
+                )
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, _call_groq)
             return response.choices[0].message.content or ""
         except Exception as e:
             logger.error(f"Groq LLM call failed: {e}")
