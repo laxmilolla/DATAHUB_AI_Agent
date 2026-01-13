@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ElementLocator:
     """Find elements using multiple strategies"""
     
-    def __init__(self, page: Page, element_registry, parsed_steps: dict, current_step_number: int):
+    def __init__(self, page: Page, element_registry, parsed_steps: dict, current_step_number: int, context=None):
         """
         Initialize element locator
         Args:
@@ -21,11 +21,13 @@ class ElementLocator:
             element_registry: ElementRegistry instance
             parsed_steps: Parsed story steps metadata
             current_step_number: Current step number
+            context: ExecutionContext instance (optional, for step_identifier access)
         """
         self.page = page
         self.element_registry = element_registry
         self.parsed_steps = parsed_steps
         self.current_step_number = current_step_number
+        self.context = context  # FIX: Store context for step_identifier access
     
     def check_registry(self, element_description: str, domain: str, page_name: str) -> Optional[str]:
         """
@@ -41,7 +43,10 @@ class ElementLocator:
             
             # Get current step metadata
             # Try step_identifier first, then fall back to step_number as string
-            step_identifier = getattr(self.context, 'current_step_identifier', None) or str(self.current_step_number)
+            if self.context:
+                step_identifier = getattr(self.context, 'current_step_identifier', None) or str(self.current_step_number)
+            else:
+                step_identifier = str(self.current_step_number)
             step_metadata = self.parsed_steps.get(step_identifier, {})
             logger.info(f"  📖 Step {self.current_step_number} metadata: {step_metadata}")
             

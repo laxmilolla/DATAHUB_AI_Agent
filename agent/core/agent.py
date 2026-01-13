@@ -121,7 +121,7 @@ class Agent:
             
             # Initialize element locator
             self.element_locator = ElementLocator(
-                page, self.element_registry, parsed_steps, self.context.current_step_number
+                page, self.element_registry, parsed_steps, self.context.current_step_number, self.context
             )
             
             # Initialize tool handlers
@@ -198,27 +198,35 @@ class Agent:
                                     self.step_matcher.completed_step_identifiers.add(step_identifier)
                                     break
                         
+                        # FIX: Ensure step_identifier is always set (fallback to iteration number if no match)
+                        if not step_identifier:
+                            # Last resort: use iteration number as step identifier
+                            step_identifier = str(iteration)
+                            logger.warning(f"  ⚠️  No step match found, using iteration as step_identifier: {step_identifier}")
+                        
                         # Update context with matched step identifier
-                        if step_identifier:
-                            self.context.current_step_identifier = step_identifier
-                            # Extract step number for backward compatibility
-                            step_num_match = re.match(r'(\d+)', step_identifier)
-                            if step_num_match:
-                                self.context.current_step_number = int(step_num_match.group(1))
-                            
-                            # CRITICAL FIX: Update last discovery's step_identifier if discovery was tracked
-                            # Discoveries are tracked during tool execution (before step_identifier is known),
-                            # so we need to update it after we determine the correct step_identifier
-                            if self.discovery_tracker and tool_name in ['browser_click', 'browser_fill']:
-                                self.discovery_tracker.update_last_discovery_step_identifier(
-                                    step_identifier, self.context.current_step_number
-                                )
+                        self.context.current_step_identifier = step_identifier
+                        # Extract step number for backward compatibility
+                        step_num_match = re.match(r'(\d+)', step_identifier)
+                        if step_num_match:
+                            self.context.current_step_number = int(step_num_match.group(1))
+                        else:
+                            # If step_identifier doesn't start with number, use iteration
+                            self.context.current_step_number = iteration
+                        
+                        # CRITICAL FIX: Update last discovery's step_identifier if discovery was tracked
+                        # Discoveries are tracked during tool execution (before step_identifier is known),
+                        # so we need to update it after we determine the correct step_identifier
+                        if self.discovery_tracker and tool_name in ['browser_click', 'browser_fill']:
+                            self.discovery_tracker.update_last_discovery_step_identifier(
+                                step_identifier, self.context.current_step_number
+                            )
                         
                         # Add to actions
                         self.context.add_action({
                             "iteration": iteration,
                             "step_number": self.context.current_step_number,  # Keep for backward compatibility
-                            "step_identifier": step_identifier,  # NEW: Story step identifier ("1", "1a", "2", etc.)
+                            "step_identifier": step_identifier,  # Always set (never None)
                             "tool": tool_name,
                             "input": tool_input,
                             "result": result_text
