@@ -77,6 +77,7 @@ class ExecutionContext:
         return {
             "execution_id": self.execution_id,
             "story": self.story,
+            "parsed_steps": self.parsed_steps,  # FIX: Include parsed_steps for TOTP detection
             "actions_taken": self.actions_taken,
             "screenshots": self.screenshots,
             "discoveries": getattr(self, 'discoveries', []),  # Include discoveries if set
