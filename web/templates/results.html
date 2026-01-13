@@ -1134,8 +1134,12 @@
                                     👁️ View Code
                                 </a>
                                 <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
+                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; margin-right: 10px;">
                                     📥 Download .py File
+                                </button>
+                                <button onclick="downloadPlaywrightTestTS('${executionId}')" 
+                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
+                                    📘 Download .spec.ts File
                                 </button>
                             </div>
                             ` : ''}
@@ -1594,8 +1598,12 @@
                                 👁️ View Code
                             </a>
                             <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
+                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; margin-right: 10px;">
                                 📥 Download .py File
+                            </button>
+                            <button onclick="downloadPlaywrightTestTS('${executionId}')" 
+                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
+                                📘 Download .spec.ts File
                             </button>
                         </div>
                         ` : ''}
@@ -1697,30 +1705,91 @@
                         console.log('📝 Using test_name:', filename);
                     }
                     
-                    // Use direct URL approach instead of blob - Chrome respects download attribute better
-                    const downloadUrl = `/api/executions/${execId}/download-test`;
-                    console.log('🔗 Creating direct download link to:', downloadUrl);
+                    // Use zip download that includes .py, .env, and all required JSON registry files
+                    const zipFilename = filename.replace('.py', '_complete.zip');
+                    const downloadUrl = `/api/executions/${execId}/download-test-zip`;
+                    console.log('🔗 Creating zip download link to:', downloadUrl);
                     
-                    // Create a link to the actual endpoint (not blob URL)
-                    // This way Chrome will use the Content-Disposition header from the server
+                    // Create a link to the zip endpoint
                     const linkElement = document.createElement('a');
                     linkElement.style.display = 'none';
                     linkElement.href = downloadUrl;
-                    linkElement.download = filename; // Set filename as fallback
-                    linkElement.setAttribute('download', filename); // Also set as attribute
-                    linkElement.setAttribute('target', '_blank'); // Open in new tab if download fails
+                    linkElement.download = zipFilename;
+                    linkElement.setAttribute('download', zipFilename);
+                    linkElement.setAttribute('target', '_blank');
                     document.body.appendChild(linkElement);
                     
-                    console.log('🖱️ Clicking direct download link...');
+                    console.log('🖱️ Clicking zip download link...');
                     console.log('📋 Link element:', {
                         href: linkElement.href,
-                        download: linkElement.download,
-                        hasAttribute: linkElement.hasAttribute('download')
+                        download: linkElement.download
                     });
+                    
+                    linkElement.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(linkElement);
+                    }, 1000);
+                    
+                    showActionMessage(`📥 Download started: ${zipFilename}`, 'success');
+                })
+                .catch(error => {
+                    console.error('❌ Download error:', error);
+                    showActionMessage('❌ Download failed: ' + error.message, 'error');
+                });
+        }
+        
+        function downloadPlaywrightTestTS(execId) {
+            console.log('🔵 downloadPlaywrightTestTS called with execId:', execId);
+            showActionMessage('⏳ Starting TypeScript download...', 'info');
+            
+            // First, get the filename from metadata API
+            fetch(`/api/executions/${execId}/generated-test`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch metadata: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(metadata => {
+                    let filename = 'test.py';
+                    if (metadata.filename) {
+                        const pathParts = metadata.filename.split('/');
+                        filename = pathParts[pathParts.length - 1];
+                    } else if (metadata.test_name) {
+                        filename = `${metadata.test_name}.py`;
+                    }
+                    
+                    // Use TypeScript zip download
+                    const testName = filename.replace('.py', '');
+                    const zipFilename = `${testName}_typescript_complete.zip`;
+                    const downloadUrl = `/api/executions/${execId}/download-test-ts-zip`;
+                    
+                    const linkElement = document.createElement('a');
+                    linkElement.style.display = 'none';
+                    linkElement.href = downloadUrl;
+                    linkElement.download = zipFilename;
+                    linkElement.setAttribute('download', zipFilename);
+                    linkElement.setAttribute('target', '_blank');
+                    document.body.appendChild(linkElement);
+                    
+                    linkElement.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(linkElement);
+                    }, 1000);
+                    
+                    showActionMessage(`📥 TypeScript download started: ${zipFilename}`, 'success');
+                })
+                .catch(error => {
+                    console.error('❌ TypeScript download error:', error);
+                    showActionMessage('❌ TypeScript download failed: ' + error.message, 'error');
+                });
+        }
                     
                     // Trigger download
                     linkElement.click();
-                    console.log('✅ Download triggered');
+                    console.log('✅ Zip download triggered');
                     
                     // Cleanup
                     setTimeout(() => {
@@ -1728,7 +1797,7 @@
                         console.log('🧹 Cleaned up link element');
                     }, 1000);
                     
-                    showActionMessage(`📥 Download started: ${filename}`, 'success');
+                    showActionMessage(`📥 Download started: ${zipFilename} (contains .py, .env, and all JSON registry files)`, 'success');
                     console.log('✅ Download process completed');
                 })
                 .catch(error => {

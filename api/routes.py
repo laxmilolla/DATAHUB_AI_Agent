@@ -519,10 +519,16 @@ def approve_discoveries(execution_id):
 def generate_and_validate(exec_id):
     """Generate Playwright test and validate it"""
     try:
-        # Force reload to ensure latest code
+        # Force reload to ensure latest code (reload all generator modules)
         import importlib
-        if 'generator.playwright_generator' in sys.modules:
-            importlib.reload(sys.modules['generator.playwright_generator'])
+        modules_to_reload = [
+            'generator.playwright_generator',
+            'generator.pw_codegen.step_generators',
+            'generator.pw_core.generator',
+        ]
+        for module_name in modules_to_reload:
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
         from generator.playwright_generator import PlaywrightGenerator
         from validator.test_runner import TestRunner
         from validator.comparator import Comparator
@@ -758,6 +764,317 @@ def download_generated_test(exec_id):
         
     except Exception as e:
         print(f"Error downloading generated test: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/executions/<exec_id>/download-env', methods=['GET'])
+def download_env_file(exec_id):
+    """Download .env file with TOTP_SECRET_KEY for local test execution"""
+    try:
+        from flask import send_file
+        from io import BytesIO
+        import os
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        env_file_path = project_root / '.env'
+        
+        if not env_file_path.exists():
+            return jsonify({'error': '.env file not found on server'}), 404
+        
+        # Read the .env file
+        with open(env_file_path, 'r') as f:
+            env_content = f.read()
+        
+        # Create a BytesIO object with the .env content
+        env_bytes = BytesIO(env_content.encode('utf-8'))
+        
+        # Send file with proper headers for download
+        response = send_file(
+            env_bytes,
+            as_attachment=True,
+            download_name='.env',
+            mimetype='text/plain'
+        )
+        
+        # Explicitly set Content-Disposition header
+        response.headers['Content-Disposition'] = 'attachment; filename=".env"'
+        
+        # Prevent browser caching
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error downloading .env file: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/executions/<exec_id>/download-test-zip', methods=['GET'])
+def download_test_with_env_zip(exec_id):
+    """Download test file, .env file, and all required registry JSON files bundled as a zip file"""
+    try:
+        from flask import send_file
+        from io import BytesIO
+        import zipfile
+        import os
+        import re
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+        
+        if not metadata_file.exists():
+            return jsonify({'error': 'No generated test found for this execution'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get the test file path
+        test_file = Path(metadata['filename'])
+        if not test_file.exists():
+            return jsonify({'error': 'Generated test file not found'}), 404
+        
+        # Read test file to extract REGISTRY_PATHS
+        with open(test_file, 'r') as f:
+            test_content = f.read()
+        
+        # Extract REGISTRY_PATHS from test file using regex
+        registry_paths = []
+        # Match: REGISTRY_PATHS = [\n    'path1',\n    'path2',\n]
+        match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", test_content, re.DOTALL)
+        if match:
+            paths_str = match.group(1)
+            # Extract all quoted strings
+            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+            registry_paths = [p.strip() for p in path_matches if p.strip()]
+        
+        # Get .env file
+        env_file_path = project_root / '.env'
+        if not env_file_path.exists():
+            return jsonify({'error': '.env file not found on server'}), 404
+        
+        # Read .env content to verify it exists and has content
+        with open(env_file_path, 'r') as f:
+            env_content = f.read()
+        print(f"✅ Read .env file: {len(env_content)} bytes")
+        
+        # Create zip file in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add test file
+            zip_file.write(test_file, test_file.name)
+            print(f"✅ Added test file to zip: {test_file.name}")
+            
+            # Add .env file - explicitly use arcname parameter
+            # Note: Files starting with '.' may be hidden in some file browsers but will be in the zip
+            zip_file.write(str(env_file_path), '.env')
+            print(f"✅ Added .env file to zip: .env ({len(env_content)} bytes)")
+            
+            # Verify .env was added by checking zip contents
+            if '.env' not in zip_file.namelist():
+                print(f"⚠️  WARNING: .env not found in zip file list!")
+            else:
+                print(f"✅ Verified: .env is in zip file list")
+            
+            # Add all registry JSON files with proper directory structure
+            # The test expects paths like 'element_maps/domain/page_page.json'
+            # So we preserve that structure in the zip
+            element_maps_dir = project_root / 'element_maps'
+            for registry_path in registry_paths:
+                # registry_path is like 'element_maps/domain/page_page.json'
+                full_registry_path = project_root / registry_path
+                
+                if full_registry_path.exists():
+                    # Preserve the full path structure as the test expects it
+                    # e.g., 'element_maps/domain/page_page.json' stays as 'element_maps/domain/page_page.json'
+                    zip_path = registry_path
+                    
+                    zip_file.write(full_registry_path, zip_path)
+                    print(f"✅ Added registry file to zip: {zip_path}")
+                else:
+                    print(f"⚠️  Registry file not found: {full_registry_path}")
+        
+        # Verify zip contents
+        zip_buffer.seek(0)
+        with zipfile.ZipFile(zip_buffer, 'r') as verify_zip:
+            file_list = verify_zip.namelist()
+            print(f"📦 Zip contains {len(file_list)} files:")
+            for name in file_list:
+                print(f"   - {name}")
+        
+        zip_buffer.seek(0)
+        
+        # Extract test filename for zip name
+        test_filename = test_file.name.replace('.py', '')
+        zip_filename = f'{test_filename}_complete.zip'
+        
+        # Send zip file
+        response = send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+        
+        # Set headers
+        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error creating zip file: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/executions/<exec_id>/download-test-ts-zip', methods=['GET'])
+def download_test_ts_zip(exec_id):
+    """Download TypeScript test file (.spec.ts), .env file, package.json, README, and all required registry JSON files bundled as a zip file"""
+    try:
+        from flask import send_file
+        from io import BytesIO
+        import zipfile
+        import os
+        import re
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+        
+        if not metadata_file.exists():
+            return jsonify({'error': 'No generated test found for this execution'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get the Python test file path
+        python_test_file = Path(metadata['filename'])
+        if not python_test_file.exists():
+            return jsonify({'error': 'Generated Python test file not found'}), 404
+        
+        # Read Python test file
+        with open(python_test_file, 'r') as f:
+            python_code = f.read()
+        
+        # Convert Python to TypeScript
+        from generator.js_converter.py_to_ts_converter import convert_python_to_spec_ts
+        ts_code = convert_python_to_spec_ts(python_code)
+        
+        # Extract REGISTRY_PATHS from Python test file
+        registry_paths = []
+        match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", python_code, re.DOTALL)
+        if match:
+            paths_str = match.group(1)
+            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+            registry_paths = [p.strip() for p in path_matches if p.strip()]
+        
+        # Get .env file
+        env_file_path = project_root / '.env'
+        if not env_file_path.exists():
+            return jsonify({'error': '.env file not found on server'}), 404
+        
+        with open(env_file_path, 'r') as f:
+            env_content = f.read()
+        
+        # Create package.json content
+        package_json_content = '''{
+  "name": "playwright-test",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.0.0",
+    "otplib": "^12.0.0"
+  }
+}'''
+        
+        # Create README content
+        test_name = python_test_file.stem
+        readme_content = f'''# Playwright TypeScript Test Setup
+
+## Prerequisites
+- Node.js (v16 or higher)
+- npm
+
+## Setup Instructions
+
+1. Extract all files
+2. Run: `npm install`
+3. Run: `npx playwright install chromium`
+4. Ensure `.env` file has `TOTP_SECRET_KEY`
+5. Run: `npx playwright test {test_name}.spec.ts`
+
+## Files Included
+- `{test_name}.spec.ts` - Main test file
+- `.env` - Environment variables
+- `package.json` - Dependencies
+- JSON registry files - Element XPath mappings
+
+## Notes
+- Screenshots saved to `storage/screenshots/`
+- Test uses same XPaths and logic as Python version
+'''
+        
+        # Create zip file in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add TypeScript test file
+            ts_filename = f'{test_name}.spec.ts'
+            zip_file.writestr(ts_filename, ts_code)
+            print(f"✅ Added TypeScript test file to zip: {ts_filename}")
+            
+            # Add .env file
+            zip_file.write(str(env_file_path), '.env')
+            print(f"✅ Added .env file to zip")
+            
+            # Add package.json
+            zip_file.writestr('package.json', package_json_content)
+            print(f"✅ Added package.json to zip")
+            
+            # Add README.md
+            zip_file.writestr('README.md', readme_content)
+            print(f"✅ Added README.md to zip")
+            
+            # Add all registry JSON files
+            for registry_path in registry_paths:
+                full_registry_path = project_root / registry_path
+                if full_registry_path.exists():
+                    zip_path = registry_path
+                    zip_file.write(full_registry_path, zip_path)
+                    print(f"✅ Added registry file to zip: {zip_path}")
+                else:
+                    print(f"⚠️  Registry file not found: {full_registry_path}")
+        
+        zip_buffer.seek(0)
+        
+        # Create zip filename
+        zip_filename = f'{test_name}_typescript_complete.zip'
+        
+        # Send zip file
+        response = send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+        
+        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Error creating TypeScript zip file: {e}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
