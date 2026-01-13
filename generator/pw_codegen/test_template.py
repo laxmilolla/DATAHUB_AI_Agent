@@ -60,13 +60,13 @@ try:
     from dotenv import load_dotenv
     if env_file.exists():
         load_dotenv(env_file)
-        print(f"✅ Loaded environment variables from {env_file}")
+        print(f"✅ Loaded environment variables from {{env_file}}")
     else:
-        print(f"⚠️  .env file not found at {env_file}")
+        print(f"⚠️  .env file not found at {{env_file}}")
 except ImportError:
     print("⚠️  python-dotenv not installed - environment variables must be set manually")
 except Exception as e:
-    print(f"⚠️  Failed to load .env file: {e}")
+    print(f"⚠️  Failed to load .env file: {{e}}")
 
 # ============================================================================
 # TEST-SPECIFIC VALUES (from story - embedded in test, not in registry)
