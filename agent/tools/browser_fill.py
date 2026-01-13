@@ -46,8 +46,9 @@ class BrowserFillTool:
         logger.info(f"Fill: {selector} = {text}")
         
         # Get current step metadata
-        step_num = self.context.current_step_number
-        step_metadata = self.parsed_steps.get(step_num, {})
+        # Try step_identifier first, then fall back to step_number as string
+        step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+        step_metadata = self.parsed_steps.get(step_identifier, {})
         step_text = step_metadata.get('text', '')
         
         # 🔒 CRITICAL: Check element registry FIRST

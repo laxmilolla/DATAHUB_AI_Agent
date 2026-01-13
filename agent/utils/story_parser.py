@@ -12,10 +12,11 @@ logger = logging.getLogger(__name__)
 class StoryParser:
     """Parse story into steps with metadata"""
     
-    def parse(self, story: str) -> Dict[int, Dict]:
+    def parse(self, story: str) -> Dict[str, Dict]:
         """
         Parse story and extract metadata for each step
-        Returns: {step_number: {metadata}}
+        Returns: {step_identifier: {metadata}}
+        Step identifiers: "1", "1a", "2", "3", etc.
         """
         logger.info("📖 Parsing story metadata...")
         parsed_steps = {}
@@ -27,18 +28,30 @@ class StoryParser:
             if not line or not line.startswith('Step'):
                 continue
             
-            # Extract step number: "Step 4:" or "4."
-            step_match = re.match(r'Step\s+(\d+)[\.:)]?\s*(.+)', line, re.IGNORECASE)
+            # Extract step number and sub-step: "Step 4:" or "Step 1 a:" or "4."
+            # Match: "Step 1 a:" → step_num=1, sub_step='a', text='Wait 3 seconds'
+            step_match = re.match(r'Step\s+(\d+)\s*([a-z])?\s*[\.:)]?\s*(.+)', line, re.IGNORECASE)
             if not step_match:
                 continue
             
             step_num = int(step_match.group(1))
-            step_text = step_match.group(2).lower()
+            sub_step = step_match.group(2)  # 'a', 'b', etc. or None
+            step_text = step_match.group(3).strip().lower()
+            
+            # Create unique identifier: "1", "1a", "2", "2b", etc.
+            if sub_step:
+                step_identifier = f"{step_num}{sub_step.lower()}"
+            else:
+                step_identifier = str(step_num)
             
             # Extract metadata from step text
             metadata = self._extract_step_metadata(step_text)
-            parsed_steps[step_num] = metadata
-            logger.info(f"  Step {step_num}: {metadata}")
+            metadata["step_identifier"] = step_identifier  # Store identifier in metadata
+            metadata["step_number"] = step_num  # Store parent step number
+            metadata["is_substep"] = sub_step is not None
+            
+            parsed_steps[step_identifier] = metadata
+            logger.info(f"  Step {step_identifier}: {metadata}")
         
         logger.info(f"✅ Parsed {len(parsed_steps)} steps with metadata")
         return parsed_steps

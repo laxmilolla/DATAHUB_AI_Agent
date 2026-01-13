@@ -187,10 +187,21 @@ class DiscoveryTracker:
             "timestamp": datetime.now().isoformat() + "Z"
         }
         
-        # FIX #2: Add step_number to discovery if execution_context is available
+        # FIX #2: Add step_number and step_identifier to discovery if execution_context is available
         if self.execution_context:
+            # Use step_identifier if available (matches story step), otherwise fall back to step_number
+            step_identifier = getattr(self.execution_context, 'current_step_identifier', None)
             step_num = self.execution_context.current_step_number
+            
+            if step_identifier:
+                discovery["step_identifier"] = step_identifier
+                # Extract step number from identifier for backward compatibility
+                step_num_match = re.match(r'(\d+)', step_identifier)
+                if step_num_match:
+                    step_num = int(step_num_match.group(1))
+            
             discovery["step_number"] = step_num
+            logger.info(f"     Step Identifier: {step_identifier or step_num}")
             logger.info(f"     Step Number: {step_num}")
         else:
             logger.warning(f"  ⚠️  No execution_context available - step_number not set for discovery: {element_name}")

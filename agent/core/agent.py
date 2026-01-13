@@ -2,6 +2,7 @@
 Agent - Main orchestrator for QA automation
 Wires all components together and executes stories
 """
+import re
 import logging
 import time
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Dict, Any
 from agent.utils.story_parser import StoryParser
 from agent.utils.totp_handler import TOTPHandler
 from agent.utils.llm_helper import LLMHelper
+from agent.utils.step_matcher import StepMatcher
 from agent.browser.playwright_manager import PlaywrightManager
 from agent.browser.screenshot_manager import ScreenshotManager
 from agent.browser.element_locator import ElementLocator
@@ -95,6 +97,9 @@ class Agent:
             self.context.set_story(story)
             self.context.set_parsed_steps(parsed_steps)
             
+            # Initialize step matcher for content-based matching
+            self.step_matcher = StepMatcher(parsed_steps, story)
+            
             # Initialize LLM helper with story
             self.llm_helper = LLMHelper(self.bedrock_client, story)
             
@@ -173,10 +178,37 @@ class Agent:
                         # Execute tool
                         result_text = await self._execute_tool(tool_name, tool_input)
                         
+                        # Match action to story step by content
+                        step_identifier = self.step_matcher.match_action_to_step(
+                            tool_name, tool_input, result_text
+                        )
+                        
+                        # If no match found, use sequential fallback (next unmatched step)
+                        if not step_identifier:
+                            # Find next unmatched step identifier
+                            all_step_ids = sorted(self.step_matcher.step_texts.keys(), 
+                                                 key=lambda x: (int(re.match(r'(\d+)', x).group(1)), x))
+                            completed = self.step_matcher.get_completed_steps()
+                            for step_id in all_step_ids:
+                                if step_id not in completed:
+                                    step_identifier = step_id
+                                    logger.info(f"  ⚠️  Using sequential fallback: Step {step_identifier}")
+                                    self.step_matcher.completed_step_identifiers.add(step_identifier)
+                                    break
+                        
+                        # Update context with matched step identifier
+                        if step_identifier:
+                            self.context.current_step_identifier = step_identifier
+                            # Extract step number for backward compatibility
+                            step_num_match = re.match(r'(\d+)', step_identifier)
+                            if step_num_match:
+                                self.context.current_step_number = int(step_num_match.group(1))
+                        
                         # Add to actions
                         self.context.add_action({
                             "iteration": iteration,
-                            "step_number": self.context.current_step_number,  # Store which story step this action belongs to (like element_id for XPaths)
+                            "step_number": self.context.current_step_number,  # Keep for backward compatibility
+                            "step_identifier": step_identifier,  # NEW: Story step identifier ("1", "1a", "2", etc.)
                             "tool": tool_name,
                             "input": tool_input,
                             "result": result_text

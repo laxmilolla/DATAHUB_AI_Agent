@@ -2,6 +2,7 @@
 Prompt Builder - Build prompts for LLM
 Extracted from bedrock_playwright_agent.py lines 3223-3282
 """
+import re
 import logging
 from typing import Dict
 
@@ -28,8 +29,17 @@ class PromptBuilder:
         Returns: Formatted story with action hints
         """
         enhanced_story = []
-        for i, line in enumerate(story.strip().split('\n'), 1):
-            metadata = parsed_steps.get(i, {})
+        for line in story.strip().split('\n'):
+            # Extract step identifier from line: "Step 1:" → "1", "Step 1 a:" → "1a"
+            step_identifier = None
+            if line.strip().startswith('Step'):
+                step_match = re.match(r'Step\s+(\d+)\s*([a-z])?\s*[\.:)]?\s*', line, re.IGNORECASE)
+                if step_match:
+                    step_num = step_match.group(1)
+                    sub_step = step_match.group(2)
+                    step_identifier = f"{step_num}{sub_step.lower()}" if sub_step else step_num
+            
+            metadata = parsed_steps.get(step_identifier, {}) if step_identifier else {}
             action_hint = self._detect_action_type(line, metadata)
             enhanced_story.append(line + action_hint)
         

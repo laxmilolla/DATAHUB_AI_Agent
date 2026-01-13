@@ -20,7 +20,8 @@ class ExecutionContext:
         """
         self.execution_id = execution_id
         self.current_step_number = 0
-        self.parsed_steps: Dict[int, Dict] = {}
+        self.current_step_identifier = None  # Track current step identifier ("1", "1a", "2", etc.)
+        self.parsed_steps: Dict[str, Dict] = {}  # Changed to string keys for identifiers like "1", "1a"
         self.story: str = ""
         self.actions_taken: List[Dict] = []
         self.screenshots: List[str] = []
@@ -37,7 +38,10 @@ class ExecutionContext:
     
     def get_current_step_metadata(self) -> Dict:
         """Get metadata for current step"""
-        return self.parsed_steps.get(self.current_step_number, {})
+        # Try step_identifier first, then fall back to step_number as string
+        if self.current_step_identifier:
+            return self.parsed_steps.get(self.current_step_identifier, {})
+        return self.parsed_steps.get(str(self.current_step_number), {})
     
     def add_action(self, action: Dict) -> None:
         """Add action to results"""
@@ -51,8 +55,8 @@ class ExecutionContext:
         """Set story for context"""
         self.story = story
     
-    def set_parsed_steps(self, parsed_steps: Dict[int, Dict]) -> None:
-        """Set parsed steps"""
+    def set_parsed_steps(self, parsed_steps: Dict[str, Dict]) -> None:
+        """Set parsed steps (now uses string identifiers like '1', '1a', '2')"""
         self.parsed_steps = parsed_steps
     
     def mark_completed(self, summary: str = None) -> None:

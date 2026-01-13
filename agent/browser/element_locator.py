@@ -40,7 +40,9 @@ class ElementLocator:
                 return None
             
             # Get current step metadata
-            step_metadata = self.parsed_steps.get(self.current_step_number, {})
+            # Try step_identifier first, then fall back to step_number as string
+            step_identifier = getattr(self.context, 'current_step_identifier', None) or str(self.current_step_number)
+            step_metadata = self.parsed_steps.get(step_identifier, {})
             logger.info(f"  📖 Step {self.current_step_number} metadata: {step_metadata}")
             
             # Try exact match first
