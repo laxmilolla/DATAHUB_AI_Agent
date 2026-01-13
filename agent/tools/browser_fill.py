@@ -96,19 +96,44 @@ class BrowserFillTool:
             logger.warning(f"  ⚠️ Failed to parse URL: {e}")
             domain, page_name = None, None
         
-        # Try registry lookup
+        # Extract page hints from step text (e.g., "authenticator" page)
+        page_hints = []
+        if step_text:
+            step_lower = step_text.lower()
+            if 'authenticator' in step_lower:
+                page_hints.append('authenticator')
+            # Add more page hints as needed
+        
+        # Try registry lookup with URL-based page_name first, then page hints
         registry_selector = None
+        page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
+        
         if element_name_for_registry:
-            registry_selector = self.element_locator.check_registry(element_name_for_registry, domain, page_name)
-            if not registry_selector:
-                registry_selector = self.element_locator.check_registry(element_name_for_registry.capitalize(), domain, page_name)
-            if not registry_selector:
-                registry_selector = self.element_locator.check_registry(f"{element_name_for_registry} input", domain, page_name)
-            if not registry_selector:
-                registry_selector = self.element_locator.check_registry(element_name_for_registry.upper(), domain, page_name)
+            for try_page_name in page_names_to_try:
+                if not try_page_name:
+                    continue
+                logger.info(f"  🔍 Trying registry lookup with page_name='{try_page_name}'")
+                registry_selector = self.element_locator.check_registry(element_name_for_registry, domain, try_page_name)
+                if registry_selector:
+                    logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
+                    break
+                registry_selector = self.element_locator.check_registry(element_name_for_registry.capitalize(), domain, try_page_name)
+                if registry_selector:
+                    break
+                registry_selector = self.element_locator.check_registry(f"{element_name_for_registry} input", domain, try_page_name)
+                if registry_selector:
+                    break
+                registry_selector = self.element_locator.check_registry(element_name_for_registry.upper(), domain, try_page_name)
+                if registry_selector:
+                    break
         
         if not registry_selector:
-            registry_selector = self.element_locator.check_registry(selector, domain, page_name)
+            for try_page_name in page_names_to_try:
+                if not try_page_name:
+                    continue
+                registry_selector = self.element_locator.check_registry(selector, domain, try_page_name)
+                if registry_selector:
+                    break
         
         using_registry_xpath = False
         if registry_selector:

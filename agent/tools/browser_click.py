@@ -114,7 +114,28 @@ class BrowserClickTool:
     async def _resolve_selector(self, selector: str, element_description: str) -> Tuple[str, bool, Optional[Locator]]:
         """Check registry and resolve selector"""
         domain, page_name = self._get_domain_and_page()
-        registry_selector = self.element_locator.check_registry(element_description, domain, page_name)
+        
+        # Extract page hints from step text (e.g., "authenticator" page)
+        step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+        step_metadata = self.parsed_steps.get(step_identifier, {})
+        step_text = step_metadata.get('text', '').lower() if step_metadata else ''
+        
+        page_hints = []
+        if 'authenticator' in step_text:
+            page_hints.append('authenticator')
+        
+        # Try registry lookup with URL-based page_name first, then page hints
+        page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
+        registry_selector = None
+        
+        for try_page_name in page_names_to_try:
+            if not try_page_name:
+                continue
+            logger.info(f"  🔍 Trying registry lookup with page_name='{try_page_name}'")
+            registry_selector = self.element_locator.check_registry(element_description, domain, try_page_name)
+            if registry_selector:
+                logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
+                break
         
         using_registry_xpath = False
         registry_button_element = None
