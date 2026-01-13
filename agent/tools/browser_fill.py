@@ -91,7 +91,7 @@ class BrowserFillTool:
             else:
                 page_name = 'home'
             
-            logger.debug(f"  🌐 URL parsing: domain={domain}, page_name={page_name} (from {current_url})")
+            logger.info(f"  🌐 URL parsing: domain={domain}, page_name={page_name} (from {current_url})")
         except Exception as e:
             logger.warning(f"  ⚠️ Failed to parse URL: {e}")
             domain, page_name = None, None

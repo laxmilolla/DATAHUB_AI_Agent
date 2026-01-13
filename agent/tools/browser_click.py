@@ -153,7 +153,7 @@ class BrowserClickTool:
             else:
                 page_name = 'home'
             
-            logger.debug(f"  🌐 URL parsing: domain={domain}, page_name={page_name} (from {current_url})")
+            logger.info(f"  🌐 URL parsing: domain={domain}, page_name={page_name} (from {current_url})")
             return domain, page_name
         except Exception as e:
             logger.warning(f"  ⚠️ Failed to parse URL: {e}")
@@ -546,6 +546,18 @@ class BrowserClickTool:
                 url_changed = new_url != initial_url
                 
                 if url_changed:
+                    # CRITICAL: Wait for page to load after navigation
+                    logger.info(f"  ⏳ URL changed from {initial_url} to {new_url} - waiting for page to load...")
+                    try:
+                        # Wait for DOM content to load first
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=30000)
+                        # Then wait for network to be idle (ensures all resources loaded)
+                        await self.page.wait_for_load_state("networkidle", timeout=30000)
+                        await self.page.wait_for_timeout(1000)  # Additional wait for page to settle
+                        logger.info(f"  ✅ Page fully loaded after navigation")
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Page load wait failed (continuing anyway): {e}")
+                    
                     self.discovery_tracker.update_url(new_url)
                     self.context.current_url = new_url
                     # Clear open menu if URL changed (navigation closes menus)
