@@ -203,6 +203,14 @@ class Agent:
                             step_num_match = re.match(r'(\d+)', step_identifier)
                             if step_num_match:
                                 self.context.current_step_number = int(step_num_match.group(1))
+                            
+                            # CRITICAL FIX: Update last discovery's step_identifier if discovery was tracked
+                            # Discoveries are tracked during tool execution (before step_identifier is known),
+                            # so we need to update it after we determine the correct step_identifier
+                            if self.discovery_tracker and tool_name in ['browser_click', 'browser_fill']:
+                                self.discovery_tracker.update_last_discovery_step_identifier(
+                                    step_identifier, self.context.current_step_number
+                                )
                         
                         # Add to actions
                         self.context.add_action({

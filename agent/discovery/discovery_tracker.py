@@ -272,6 +272,18 @@ class DiscoveryTracker:
         """Get all tracked discoveries"""
         return self.discoveries
     
+    def update_last_discovery_step_identifier(self, step_identifier: str, step_number: int) -> None:
+        """
+        Update the last discovery's step_identifier and step_number.
+        This is called after step_identifier is determined in agent.py,
+        since discoveries are tracked before step_identifier is known.
+        """
+        if self.discoveries:
+            last_discovery = self.discoveries[-1]
+            last_discovery["step_identifier"] = step_identifier
+            last_discovery["step_number"] = step_number
+            logger.info(f"  ✅ Updated last discovery '{last_discovery.get('name', 'unknown')}' with step_identifier={step_identifier}, step_number={step_number}")
+    
     def clear(self) -> None:
         """Clear all discoveries"""
         self.discoveries = []
