@@ -549,12 +549,16 @@ class BrowserClickTool:
                     # CRITICAL: Wait for page to load after navigation
                     logger.info(f"  ⏳ URL changed from {initial_url} to {new_url} - waiting for page to load...")
                     try:
-                        # Wait for DOM content to load first
-                        await self.page.wait_for_load_state("domcontentloaded", timeout=30000)
-                        # Then wait for network to be idle (ensures all resources loaded)
-                        await self.page.wait_for_load_state("networkidle", timeout=30000)
-                        await self.page.wait_for_timeout(1000)  # Additional wait for page to settle
-                        logger.info(f"  ✅ Page fully loaded after navigation")
+                        # Wait for DOM content to load (sufficient for most cases)
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                        # Only wait for networkidle if needed (with shorter timeout to avoid hanging)
+                        try:
+                            await self.page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:
+                            # networkidle can fail on pages with continuous activity - that's OK
+                            logger.debug(f"  ⏭️ networkidle not reached (continuing anyway)")
+                        await self.page.wait_for_timeout(500)  # Brief wait for page to settle
+                        logger.info(f"  ✅ Page loaded after navigation")
                     except Exception as e:
                         logger.warning(f"  ⚠️ Page load wait failed (continuing anyway): {e}")
                     
