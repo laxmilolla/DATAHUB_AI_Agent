@@ -53,11 +53,11 @@ import os
 from pathlib import Path
 
 # Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
+# Load .env from project root (3 levels up from tests/generated/)
+project_root = Path(__file__).parent.parent.parent
+env_file = project_root / '.env'
 try:
     from dotenv import load_dotenv
-    # Load .env from project root (3 levels up from tests/generated/)
-    project_root = Path(__file__).parent.parent.parent
-    env_file = project_root / '.env'
     if env_file.exists():
         load_dotenv(env_file)
         print(f"✅ Loaded environment variables from {env_file}")
