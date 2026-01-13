@@ -75,18 +75,25 @@ class BrowserFillTool:
             
             logger.info(f"  🔍 Extracted element name from step text: '{element_name_for_registry}'")
         
-        # Get domain and page for registry check  
+        # Get domain and page for registry check (using proper URL parsing)
         try:
+            from urllib.parse import urlparse
             current_url = self.page.url
-            domain = current_url.replace('https://', '').replace('http://', '').split('/')[0].split('#')[0]
-            url_path = current_url.split('/')[-1].split('#')[0]
-            if url_path == 'explore':
-                page_name = 'explore'
-            elif not url_path or url_path == '':
-                page_name = 'home'
+            parsed = urlparse(current_url)
+            domain = parsed.netloc or parsed.path.split('/')[0] if parsed.path else None
+            
+            # Extract page name from path (properly handles query params, fragments)
+            path_parts = [p for p in parsed.path.split('/') if p]
+            if path_parts:
+                page_name = path_parts[-1].replace('.html', '').replace('.php', '')
+                if not page_name:
+                    page_name = path_parts[0] if path_parts else 'home'
             else:
-                page_name = url_path
-        except:
+                page_name = 'home'
+            
+            logger.debug(f"  🌐 URL parsing: domain={domain}, page_name={page_name} (from {current_url})")
+        except Exception as e:
+            logger.warning(f"  ⚠️ Failed to parse URL: {e}")
             domain, page_name = None, None
         
         # Try registry lookup
