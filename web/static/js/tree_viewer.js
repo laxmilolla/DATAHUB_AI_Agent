@@ -798,7 +798,8 @@
             // Create a temporary anchor element to trigger download
             const link = document.createElement('a');
             link.href = downloadUrl;
-            link.download = `${page}.json`;
+            // Use page name from URL with _page suffix for filename (e.g., "home_page.json")
+            link.download = `${page}_page.json`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
