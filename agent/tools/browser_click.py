@@ -659,6 +659,30 @@ class BrowserClickTool:
                     except Exception as e:
                         logger.warning(f"  ⚠️ Page load wait failed (continuing anyway): {e}")
                     
+                    # SPECIAL HANDLING: After TOTP submission, wait for redirect back to hub page
+                    step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+                    step_metadata = self.parsed_steps.get(step_identifier, {})
+                    step_text = step_metadata.get('text', '').lower()
+                    
+                    # Check if this was a TOTP submit step
+                    is_totp_submit = ('totp' in step_text or 'authenticator' in step_text) and 'submit' in step_text
+                    is_on_authenticator_page = 'secure.login.gov' in new_url or 'authenticator' in new_url
+                    
+                    if is_totp_submit and is_on_authenticator_page:
+                        logger.info(f"  🔄 TOTP submit detected - waiting for redirect back to hub page...")
+                        try:
+                            # Wait for navigation to hub domain (up to 15 seconds)
+                            await self.page.wait_for_function(
+                                "() => window.location.href.includes('hub-stage.datacommons.cancer.gov') || window.location.href.includes('datacommons.cancer.gov')",
+                                timeout=15000
+                            )
+                            final_url = self.page.url
+                            logger.info(f"  ✅ Redirected back to hub page: {final_url}")
+                            new_url = final_url  # Update URL for tracking
+                        except Exception as e:
+                            logger.warning(f"  ⚠️ Did not redirect to hub page within timeout: {e}")
+                            logger.info(f"  ℹ️ Current URL: {self.page.url}")
+                    
                     self.discovery_tracker.update_url(new_url)
                     self.context.current_url = new_url
                     # Clear open menu if URL changed (navigation closes menus)
