@@ -31,6 +31,7 @@ class ExecutionContext:
         self.duration: Optional[float] = None
         self.error: Optional[str] = None
         self.summary: Optional[str] = None
+        self.open_dropdown_menu: Optional[str] = None  # Track open dropdown menu portal selector
     
     def increment_step(self) -> None:
         """Increment current step number"""

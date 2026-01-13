@@ -42,16 +42,47 @@ class BrowserClickTool:
         step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
         step_metadata = self.parsed_steps.get(step_identifier, {})
         step_text = step_metadata.get('text', '')
+        step_type = step_metadata.get('type', '')
         
-        # Check registry and resolve selector
-        selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
-            selector, element_description or selector
-        )
+        # Initialize variables
+        chosen_locator = None
+        original_element_for_xpath = None
+        using_registry_xpath = False
+        registry_button_element = None
         
-        # Find and choose element
-        chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
-            selector, original_selector, using_registry_xpath
-        )
+        # Check if this is a dropdown option click - if so, search within open menu portal
+        is_dropdown_option = await self._is_dropdown_option_click(selector, element_description, step_text)
+        
+        if is_dropdown_option and self.context.open_dropdown_menu:
+            # Search within the open menu portal
+            logger.info(f"  🔍 Searching for dropdown option '{element_description or selector}' within open menu portal")
+            menu_selector = self.context.open_dropdown_menu
+            option_locator = await self._find_option_in_menu(menu_selector, element_description or selector)
+            if option_locator:
+                chosen_locator = option_locator
+                original_element_for_xpath = option_locator
+                using_registry_xpath = False
+                # Clear the open menu after selecting option
+                self.context.open_dropdown_menu = None
+            else:
+                logger.warning(f"  ⚠️ Option not found in menu portal, falling back to normal search")
+                # Fall through to normal search
+                selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
+                    selector, element_description or selector
+                )
+                chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
+                    selector, original_selector, using_registry_xpath
+                )
+        else:
+            # Normal flow: Check registry and resolve selector
+            selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
+                selector, element_description or selector
+            )
+            
+            # Find and choose element
+            chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
+                selector, original_selector, using_registry_xpath
+            )
         
         if not chosen_locator:
             return f"❌ Click FAILED: {selector} - Element not found"
@@ -445,6 +476,28 @@ class BrowserClickTool:
                 await strategy["method"]()
                 await self.page.wait_for_timeout(1000)
                 
+                # Check if this was a dropdown click - wait for menu portal to open
+                # Only check if we don't already have an open menu (to avoid overwriting)
+                if not self.context.open_dropdown_menu:
+                    step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+                    step_metadata = self.parsed_steps.get(step_identifier, {})
+                    step_type = step_metadata.get('type', '')
+                    step_text = step_metadata.get('text', '').lower()
+                    
+                    # Check if this was a dropdown button click (not an option selection)
+                    is_dropdown_button = (
+                        step_type == 'select' and 
+                        ('dropdown' in step_text or 'open' in step_text or 'click' in step_text) and
+                        'pick' not in step_text and 'select' not in step_text and 'choose' not in step_text
+                    )
+                    
+                    if is_dropdown_button:
+                        # This was a dropdown button click - wait for menu portal
+                        menu_portal = await self._wait_for_dropdown_menu_portal()
+                        if menu_portal:
+                            self.context.open_dropdown_menu = menu_portal
+                            logger.info(f"  ✅ Dropdown menu portal opened: {menu_portal}")
+                
                 # Verify click
                 new_html = await self.page.content()
                 new_url = self.page.url
@@ -454,6 +507,9 @@ class BrowserClickTool:
                 if url_changed:
                     self.discovery_tracker.update_url(new_url)
                     self.context.current_url = new_url
+                    # Clear open menu if URL changed (navigation closes menus)
+                    if self.context.open_dropdown_menu:
+                        self.context.open_dropdown_menu = None
                 
                 if url_changed or dom_changed:
                     logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
@@ -660,3 +716,110 @@ class BrowserClickTool:
                 break
         
         return None
+    
+    async def _is_dropdown_option_click(self, selector: str, element_description: str, step_text: str) -> bool:
+        """
+        Check if this click is for a dropdown option (not the dropdown button itself)
+        Returns True if we're clicking an option from an opened dropdown menu
+        """
+        # If there's an open dropdown menu, and this doesn't look like a dropdown button click
+        if not self.context.open_dropdown_menu:
+            return False
+        
+        # Check if step text suggests this is selecting an option (not opening dropdown)
+        step_lower = step_text.lower()
+        option_keywords = ['pick', 'select', 'choose', 'from the', 'from opened menu']
+        is_option_step = any(kw in step_lower for kw in option_keywords)
+        
+        # Check if element description doesn't match known dropdown button names
+        desc_lower = (element_description or selector).lower()
+        dropdown_button_names = ['datacommons', 'study', 'dropdown']
+        is_dropdown_button = any(name in desc_lower for name in dropdown_button_names)
+        
+        return is_option_step and not is_dropdown_button
+    
+    async def _find_option_in_menu(self, menu_selector: str, option_text: str) -> Optional[Locator]:
+        """
+        Find an option within an opened dropdown menu portal
+        Args:
+            menu_selector: Selector for the menu portal (e.g., '[role="listbox"]')
+            option_text: Text of the option to find (e.g., "GC", "NewTestSpn_laxmi")
+        Returns:
+            Locator for the option, or None if not found
+        """
+        try:
+            # Wait for menu portal to be visible
+            menu_locator = self.page.locator(menu_selector).first
+            await menu_locator.wait_for(state='visible', timeout=5000)
+            
+            # Try multiple strategies to find the option
+            option_selectors = [
+                f'{menu_selector} li[role="option"]:has-text("{option_text}")',
+                f'{menu_selector} div[role="option"]:has-text("{option_text}")',
+                f'{menu_selector} li:has-text("{option_text}")',
+                f'{menu_selector} div:has-text("{option_text}")',
+                f'{menu_selector} [role="option"]:has-text("{option_text}")',
+            ]
+            
+            for opt_selector in option_selectors:
+                try:
+                    option_locator = self.page.locator(opt_selector).first
+                    if await option_locator.count() > 0 and await option_locator.is_visible():
+                        logger.info(f"  ✅ Found option '{option_text}' in menu using: {opt_selector}")
+                        return option_locator
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Selector failed: {opt_selector} - {e}")
+                    continue
+            
+            # Fallback: Search all options and match by text
+            try:
+                all_options = await menu_locator.locator('[role="option"]').all()
+                for option in all_options:
+                    option_text_content = await option.text_content()
+                    if option_text_content and option_text.strip().lower() in option_text_content.strip().lower():
+                        if await option.is_visible():
+                            logger.info(f"  ✅ Found option '{option_text}' by text matching")
+                            return option
+            except Exception as e:
+                logger.debug(f"  ⚠️ Fallback search failed: {e}")
+            
+            logger.warning(f"  ⚠️ Option '{option_text}' not found in menu portal")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"  ⚠️ Error finding option in menu: {e}")
+            return None
+    
+    async def _wait_for_dropdown_menu_portal(self, timeout: int = 5000) -> Optional[str]:
+        """
+        Wait for Material-UI Select dropdown menu portal to appear after clicking dropdown button
+        Returns:
+            Selector for the menu portal, or None if not found
+        """
+        try:
+            # Material-UI Select menus appear in portals with role="listbox"
+            menu_selectors = [
+                '[role="listbox"]',
+                '[role="menu"]',
+                '.MuiMenu-root',
+                '.MuiPopover-root [role="listbox"]',
+                '[class*="MuiMenu"]',
+            ]
+            
+            for selector in menu_selectors:
+                try:
+                    menu_locator = self.page.locator(selector).first
+                    await menu_locator.wait_for(state='visible', timeout=timeout)
+                    if await menu_locator.is_visible():
+                        logger.info(f"  ✅ Dropdown menu portal appeared: {selector}")
+                        return selector
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Menu selector '{selector}' not found: {e}")
+                    continue
+            
+            logger.warning(f"  ⚠️ Dropdown menu portal not found after {timeout}ms")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"  ⚠️ Error waiting for dropdown menu: {e}")
+            return None
