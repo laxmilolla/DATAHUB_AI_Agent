@@ -178,24 +178,37 @@ class ActionExecutor:
             validation_result["verdict"] = "ERROR"
             return validation_result
     
-    async def click(self, locator: Locator, force: bool = False, timeout: int = 15000) -> None:
+    async def click(self, locator: Locator, force: bool = False, timeout: int = 10000) -> None:
         """
         Execute click on locator
         Args:
             locator: Playwright locator
             force: Force click if needed
-            timeout: Timeout in milliseconds (default 15s instead of 30s)
+            timeout: Timeout in milliseconds (default 10s)
         """
         try:
             # Ensure element is in viewport before clicking
-            await locator.scroll_into_view_if_needed(timeout=5000)
+            await locator.scroll_into_view_if_needed(timeout=3000)
         except Exception as e:
             logger.debug(f"  ⚠️ Scroll into view failed (continuing): {e}")
         
-        if force:
-            await locator.click(force=True, timeout=timeout)
-        else:
-            await locator.click(timeout=timeout)
+        # Use JavaScript click as fallback if normal click times out
+        try:
+            if force:
+                await locator.click(force=True, timeout=timeout)
+            else:
+                await locator.click(timeout=timeout)
+        except Exception as e:
+            if "timeout" in str(e).lower() or "Timeout" in str(e):
+                logger.warning(f"  ⚠️ Click timeout, trying JavaScript click as fallback...")
+                try:
+                    await locator.evaluate("el => el.click()")
+                    logger.info(f"  ✅ JavaScript click succeeded")
+                except Exception as js_error:
+                    logger.error(f"  ❌ JavaScript click also failed: {js_error}")
+                    raise e  # Re-raise original timeout error
+            else:
+                raise
     
     async def fill(self, locator: Locator, text: str) -> None:
         """
