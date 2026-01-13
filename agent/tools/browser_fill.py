@@ -37,16 +37,16 @@ class BrowserFillTool:
         self.parsed_steps = parsed_steps
         self.story = story
     
-    def _validate_registry_selector(self, registry_selector: str, element_name: Optional[str], llm_selector: str) -> bool:
+    def _validate_registry_selector(self, registry_element: Optional[dict], element_name: Optional[str], llm_selector: str = None) -> bool:
         """
-        Generic validation: Check if registry selector matches expected input type.
-        Returns False if registry selector conflicts with element name expectations.
+        Generic validation: Check if registry element matches expected input type.
+        Uses unique_attributes for direct type access (no string parsing needed).
+        Returns False if registry element conflicts with element name expectations.
         """
-        if not element_name or not registry_selector:
-            return True  # No validation needed if no element name
+        if not element_name or not registry_element:
+            return True  # No validation needed if no element name or registry element
         
         element_lower = element_name.lower()
-        selector_lower = registry_selector.lower()
         
         # Define expected input types for common field names
         field_type_rules = {
@@ -72,23 +72,38 @@ class BrowserFillTool:
         if element_lower in field_type_rules:
             rules = field_type_rules[element_lower]
             
-            # Check for forbidden types
-            for forbidden_type in rules['forbidden']:
-                if f'type="{forbidden_type}"' in selector_lower or f"type='{forbidden_type}'" in selector_lower:
-                    logger.warning(f"  ⚠️ Registry selector invalid: {element_name} mapped to {forbidden_type} field - rejecting")
-                    return False
+            # ✅ NEW: Use unique_attributes for direct type access (no parsing!)
+            unique_attrs = registry_element.get('unique_attributes', {})
+            registry_type = unique_attrs.get('type')
             
-            # If LLM selector is available, prefer it if registry doesn't match expected types
-            if llm_selector and rules['allowed']:
-                llm_has_allowed = any(f'type="{t}"' in llm_selector.lower() or f"type='{t}'" in llm_selector.lower() 
-                                     for t in rules['allowed'])
-                registry_has_allowed = any(f'type="{t}"' in selector_lower or f"type='{t}'" in selector_lower 
-                                          for t in rules['allowed'])
+            # Fallback: Parse selector if unique_attributes not available (backward compatibility)
+            if not registry_type:
+                selector = registry_element.get('selector', '')
+                selector_lower = selector.lower()
+                # Extract type from selector (legacy support)
+                import re
+                type_match = re.search(r"type=['\"]([^'\"]+)['\"]", selector_lower)
+                if type_match:
+                    registry_type = type_match.group(1)
+            
+            # Check for forbidden types
+            if registry_type:
+                for forbidden_type in rules['forbidden']:
+                    if registry_type == forbidden_type:
+                        logger.warning(f"  ⚠️ Registry element invalid: {element_name} mapped to {forbidden_type} field - rejecting")
+                        return False
                 
-                # If LLM has correct type but registry doesn't, prefer LLM
-                if llm_has_allowed and not registry_has_allowed:
-                    logger.warning(f"  ⚠️ Registry selector doesn't match expected type for {element_name} - preferring LLM selector")
-                    return False
+                # If LLM selector is available, prefer it if registry doesn't match expected types
+                if llm_selector and rules['allowed']:
+                    llm_selector_lower = llm_selector.lower()
+                    llm_has_allowed = any(f'type="{t}"' in llm_selector_lower or f"type='{t}'" in llm_selector_lower 
+                                         for t in rules['allowed'])
+                    registry_has_allowed = registry_type in rules['allowed']
+                    
+                    # If LLM has correct type but registry doesn't, prefer LLM
+                    if llm_has_allowed and not registry_has_allowed:
+                        logger.warning(f"  ⚠️ Registry element doesn't match expected type for {element_name} - preferring LLM selector")
+                        return False
         
         return True  # Validation passed
     
@@ -161,6 +176,7 @@ class BrowserFillTool:
         
         # Try registry lookup with URL-based page_name first, then page hints
         registry_selector = None
+        registry_element = None
         page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
         
         if element_name_for_registry:
@@ -170,16 +186,21 @@ class BrowserFillTool:
                 logger.info(f"  🔍 Trying registry lookup with page_name='{try_page_name}'")
                 registry_selector = self.element_locator.check_registry(element_name_for_registry, domain, try_page_name)
                 if registry_selector:
+                    # Get the full element dict for validation
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry)
                     logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
                     break
                 registry_selector = self.element_locator.check_registry(element_name_for_registry.capitalize(), domain, try_page_name)
                 if registry_selector:
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry.capitalize())
                     break
                 registry_selector = self.element_locator.check_registry(f"{element_name_for_registry} input", domain, try_page_name)
                 if registry_selector:
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, f"{element_name_for_registry} input")
                     break
                 registry_selector = self.element_locator.check_registry(element_name_for_registry.upper(), domain, try_page_name)
                 if registry_selector:
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry.upper())
                     break
         
         if not registry_selector:
@@ -188,12 +209,13 @@ class BrowserFillTool:
                     continue
                 registry_selector = self.element_locator.check_registry(selector, domain, try_page_name)
                 if registry_selector:
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, selector)
                     break
         
         using_registry_xpath = False
         if registry_selector:
-            # Validate registry selector matches expected field type (generic validation)
-            selector_valid = self._validate_registry_selector(registry_selector, element_name_for_registry, selector)
+            # ✅ NEW: Validate using unique_attributes (no string parsing!)
+            selector_valid = self._validate_registry_selector(registry_element, element_name_for_registry, selector)
             
             if registry_selector and selector_valid:
                 selector = registry_selector

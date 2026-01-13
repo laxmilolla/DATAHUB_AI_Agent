@@ -61,22 +61,50 @@ class BrowserClickTool:
             # Search within the open menu portal
             logger.info(f"  🔍 Searching for dropdown option '{element_description or selector}' within open menu portal")
             menu_selector = self.context.open_dropdown_menu
-            option_locator = await self._find_option_in_menu(menu_selector, element_description or selector)
-            if option_locator:
-                chosen_locator = option_locator
-                original_element_for_xpath = option_locator
-                using_registry_xpath = False
-                # Clear the open menu after selecting option
-                self.context.open_dropdown_menu = None
-            else:
-                logger.warning(f"  ⚠️ Option not found in menu portal, falling back to normal search")
-                # Fall through to normal search
-                selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
-                    selector, element_description or selector
-                )
-                chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
-                    selector, original_selector, using_registry_xpath
-                )
+            
+            # ✅ NEW: Try to use unique_attributes from registry to narrow search
+            registry_element = None
+            if element_description:
+                try:
+                    domain, page_name = await self.element_locator.playwright_manager.get_domain_and_page()
+                    if domain and page_name:
+                        registry_element = self.element_locator.element_registry.get_element(domain, page_name, element_description)
+                        if registry_element:
+                            unique_attrs = registry_element.get('unique_attributes', {})
+                            parent_dropdown_id = unique_attrs.get('parent_dropdown_id')
+                            if parent_dropdown_id:
+                                # Use parent dropdown ID to narrow search
+                                logger.info(f"  🎯 Using unique_attributes['parent_dropdown_id']: {parent_dropdown_id}")
+                                # Enhance menu selector with parent dropdown ID
+                                enhanced_menu_selector = f'{menu_selector}[aria-labelledby="{parent_dropdown_id}"]'
+                                option_locator = await self._find_option_in_menu(enhanced_menu_selector, element_description or selector)
+                                if option_locator:
+                                    chosen_locator = option_locator
+                                    original_element_for_xpath = option_locator
+                                    using_registry_xpath = False
+                                    self.context.open_dropdown_menu = None
+                                    logger.info(f"  ✅ Found option using unique_attributes['parent_dropdown_id']")
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Could not use unique_attributes for dropdown option: {e}")
+            
+            # Fallback to normal menu search if unique_attributes didn't help
+            if not chosen_locator:
+                option_locator = await self._find_option_in_menu(menu_selector, element_description or selector)
+                if option_locator:
+                    chosen_locator = option_locator
+                    original_element_for_xpath = option_locator
+                    using_registry_xpath = False
+                    # Clear the open menu after selecting option
+                    self.context.open_dropdown_menu = None
+                else:
+                    logger.warning(f"  ⚠️ Option not found in menu portal, falling back to normal search")
+                    # Fall through to normal search
+                    selector, using_registry_xpath, registry_button_element = await self._resolve_selector(
+                        selector, element_description or selector
+                    )
+                    chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
+                        selector, original_selector, using_registry_xpath
+                    )
         else:
             # Normal flow: Check registry and resolve selector
             selector, using_registry_xpath, registry_button_element = await self._resolve_selector(

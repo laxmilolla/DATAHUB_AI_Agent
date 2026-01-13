@@ -40,6 +40,71 @@ class DiscoveryTracker:
         self.current_url = new_url
         logger.debug(f"  🔄 Updated discovery tracker URL: {new_url}")
     
+    def _extract_unique_attributes(self, metadata: dict, element_name: str, final_selector: str) -> dict:
+        """
+        Extract unique attributes from element metadata for easier matching
+        Returns a dict with id, aria-labelledby, parent relationships, etc.
+        """
+        unique_attrs = {}
+        element_attrs = metadata.get('element_attrs', {})
+        
+        # Extract direct attributes
+        if element_attrs.get('id'):
+            unique_attrs['id'] = element_attrs['id']
+        
+        if element_attrs.get('role'):
+            unique_attrs['role'] = element_attrs['role']
+        
+        if element_attrs.get('data-testid'):
+            unique_attrs['data_testid'] = element_attrs['data-testid']
+        
+        if element_attrs.get('name'):
+            unique_attrs['name'] = element_attrs['name']
+        
+        if element_attrs.get('aria-labelledby'):
+            unique_attrs['aria_labelledby'] = element_attrs['aria-labelledby']
+        
+        # Extract text if available
+        if element_attrs.get('text'):
+            unique_attrs['text'] = element_attrs['text'].strip()
+        
+        # For dropdown options, try to extract parent dropdown ID from selector/xpath
+        if element_attrs.get('role') == 'option' or 'option' in element_name.lower():
+            # Try to extract parent dropdown ID from aria-labelledby or selector
+            if 'aria-labelledby' in final_selector:
+                import re
+                match = re.search(r'aria-labelledby=["\']([^"\']+)["\']', final_selector)
+                if match:
+                    unique_attrs['parent_dropdown_id'] = match.group(1)
+            elif 'aria-labelledby' in str(metadata.get('parent_info', '')):
+                # Try to extract from parent_info if available
+                parent_info = str(metadata.get('parent_info', ''))
+                match = re.search(r'aria-labelledby=["\']([^"\']+)["\']', parent_info)
+                if match:
+                    unique_attrs['parent_dropdown_id'] = match.group(1)
+        
+        # For dropdown buttons, extract hidden input name if available
+        if element_attrs.get('role') == 'button' and ('select' in final_selector.lower() or 'dropdown' in element_name.lower()):
+            # Try to extract name from hidden input or parent
+            if 'name=' in final_selector:
+                import re
+                match = re.search(r'name=["\']([^"\']+)["\']', final_selector)
+                if match:
+                    unique_attrs['hidden_input_name'] = match.group(1)
+        
+        # Extract parent data-testid if available
+        parent_info = metadata.get('parent_info', '')
+        if parent_info and 'data-testid' in str(parent_info):
+            import re
+            match = re.search(r'data-testid=["\']([^"\']+)["\']', str(parent_info))
+            if match:
+                unique_attrs['parent_data_testid'] = match.group(1)
+        
+        if unique_attrs:
+            logger.debug(f"  🔍 Extracted unique_attributes: {list(unique_attrs.keys())}")
+        
+        return unique_attrs
+    
     async def track(self, element_name: str, original_query: str, final_selector: str,
                    discovery_method: str, metadata: dict, clicked_xpath: str = None,
                    clicked_element=None, discovery_url: str = None) -> Dict:
@@ -174,6 +239,9 @@ class DiscoveryTracker:
         except Exception as e:
             logger.debug(f"  ⚠️ Could not lookup element_id: {e}")
         
+        # Extract unique attributes for easier matching
+        unique_attributes = self._extract_unique_attributes(metadata, element_name, final_selector)
+        
         # Store discovery with XPath and element_id
         # CRITICAL: Track the URL where this discovery was made (not where test ended)
         discovery = {
@@ -185,6 +253,7 @@ class DiscoveryTracker:
             "uniqueness_method": uniqueness_method,
             "discovery_method": discovery_method,
             "metadata": metadata,
+            "unique_attributes": unique_attributes if unique_attributes else None,  # Store unique attributes
             "discovery_url": discovery_url or self.current_url,  # Use provided URL or current URL
             "timestamp": datetime.now().isoformat() + "Z"
         }

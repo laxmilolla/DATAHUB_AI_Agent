@@ -130,6 +130,28 @@ class RegistryManager:
                                         logger.info(f"    🎯 Found existing entry by XPath: {key}")
                                         break
                             
+                            # Strategy 1.5: ✅ NEW - Match by unique_attributes (more flexible)
+                            if not existing_key and discovery.get('unique_attributes'):
+                                discovery_attrs = discovery['unique_attributes']
+                                for key, elem_data in element_map.get('elements', {}).items():
+                                    elem_attrs = elem_data.get('unique_attributes', {})
+                                    
+                                    # Match by ID (most reliable unique identifier)
+                                    if discovery_attrs.get('id') and elem_attrs.get('id'):
+                                        if discovery_attrs['id'] == elem_attrs['id']:
+                                            existing_key = key
+                                            existing_element = elem_data
+                                            logger.info(f"    🎯 Found existing entry by unique_attributes['id']: {key} (ID: {discovery_attrs['id']})")
+                                            break
+                                    
+                                    # Match by data-testid (fallback)
+                                    if not existing_key and discovery_attrs.get('data_testid') and elem_attrs.get('data_testid'):
+                                        if discovery_attrs['data_testid'] == elem_attrs['data_testid']:
+                                            existing_key = key
+                                            existing_element = elem_data
+                                            logger.info(f"    🎯 Found existing entry by unique_attributes['data_testid']: {key}")
+                                            break
+                            
                             # Strategy 2: Check by name (fallback)
                             if not existing_key and element_name in element_map.get('elements', {}):
                                 existing_key = element_name
@@ -156,7 +178,8 @@ class RegistryManager:
                                 "discovery_method": discovery['discovery_method'],
                                 "usage_count": 1,
                                 "alternatives": [],
-                                "discovery_url": discovery.get('discovery_url')  # Preserve discovery URL
+                                "discovery_url": discovery.get('discovery_url'),  # Preserve discovery URL
+                                "unique_attributes": discovery.get('unique_attributes')  # Store unique attributes for easier matching
                             }
                             
                             # Assign element_id: Use existing from registry if found, otherwise generate new
@@ -201,11 +224,16 @@ class RegistryManager:
                                     # Keep existing XPath AND selector, update other fields only
                                     preserved_xpath = existing_xpath
                                     preserved_selector = existing_selector
+                                    preserved_unique_attrs = existing_element.get('unique_attributes')  # Preserve unique_attributes if exists
                                     existing_element.update(element_entry)
                                     existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
                                     existing_element['selector'] = preserved_selector  # Restore preserved selector
+                                    if preserved_unique_attrs:
+                                        existing_element['unique_attributes'] = preserved_unique_attrs  # Restore preserved unique_attributes
                                     logger.info(f"    🔒 Preserved existing XPath (manual XPath = source of truth): {preserved_xpath[:80]}...")
                                     logger.info(f"    🔒 Preserved existing selector (manual selector = source of truth): {preserved_selector[:80] if preserved_selector else 'N/A'}...")
+                                    if preserved_unique_attrs:
+                                        logger.info(f"    🔒 Preserved existing unique_attributes: {list(preserved_unique_attrs.keys())}")
                                 else:
                                     # No existing XPath - update normally (including new XPath from discovery)
                                     existing_element.update(element_entry)

@@ -56,6 +56,7 @@ class ElementLocator:
                 selector = element.get('selector')
                 logger.info(f"  ✅ Exact match: {element_description} -> {selector}")
                 self.element_registry.update_usage(domain, page_name, element_description)
+                # Store element for validation (can be accessed via context if needed)
                 return selector
             
             # Load element map for metadata-based matching
