@@ -137,7 +137,7 @@ class Agent:
             )
             self.evaluate_tool = BrowserEvaluateTool(self.playwright_manager)
             self.verify_tool = BrowserVerifyTool(
-                self.playwright_manager, self.discovery_tracker, self.screenshot_manager
+                self.playwright_manager, self.discovery_tracker, self.screenshot_manager, self.element_locator
             )
             
             # Build prompts
@@ -392,6 +392,13 @@ class Agent:
                     tool_input.get('table_selector', 'visible_table'),
                     tool_input['column_name'],
                     tool_input['expected_value']
+                )
+            
+            elif tool_name == "browser_verify_element":
+                return await self.verify_tool.verify_element(
+                    tool_input['element_description'],
+                    tool_input.get('verification_type', 'present'),
+                    tool_input.get('expected_value')
                 )
             
             else:

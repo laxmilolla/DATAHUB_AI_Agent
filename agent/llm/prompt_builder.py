@@ -60,7 +60,11 @@ class PromptBuilder:
         elif 'wait' in line.lower():
             return " [ACTION: Wait/No click]"
         elif 'verify' in line.lower():
-            return " [ACTION: Use browser_verify_table]"
+            # Check if it's table verification or element verification
+            if 'table' in line.lower() or 'column' in line.lower() or 'row' in line.lower():
+                return " [ACTION: Use browser_verify_table]"
+            else:
+                return " [ACTION: Use browser_verify_element]"
         return ""
     
     def get_system_prompt(self) -> str:
@@ -87,6 +91,7 @@ ACTION HINTS:
 - [ACTION: Click tab] → Extract tab name, use browser_click("text=<exact name>")
 - [ACTION: Wait/No click] → Use browser_evaluate to wait (e.g., await new Promise(r => setTimeout(r, 2000)))
 - [ACTION: Use browser_verify_table] → Use browser_verify_table(column_name="<name>", expected_value="<value>")
+- [ACTION: Use browser_verify_element] → Use browser_verify_element(element_description="<element name>", verification_type="present|visible|text|attribute", expected_value="<value if needed>")
 
 ELEMENT SELECTION:
 - Always use text= selectors with the EXACT element name from the step

@@ -106,7 +106,27 @@ class ToolDefinitions:
                         }
                     }
                 }
+            },
+            {
+                "toolSpec": {
+                    "name": "browser_verify_element",
+                    "description": "Verify that an element exists, is visible, has specific text, or has specific attributes. Uses registry lookups with unique_attributes for accurate element matching. Examples: 'verify Login button is present', 'verify username field has text', 'verify name is visible'.",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {
+                                "element_description": {"type": "string", "description": "Element name/description (e.g., 'Login', 'username', 'name', 'Submit button'). Will use registry with unique_attributes for matching."},
+                                "verification_type": {"type": "string", "description": "Type of verification: 'present' (element exists), 'visible' (element is visible), 'text' (element has text matching expected_value), 'attribute' (element has attribute matching expected_value). Default: 'present'"},
+                                "expected_value": {"type": "string", "description": "Expected value for 'text' or 'attribute' verification. For 'attribute', use format 'attr_name=value' or just 'attr_name' to check existence."}
+                            },
+                            "required": ["element_description"]
+                        }
+                    }
+                }
             }
         ]
+
+
+
 
 

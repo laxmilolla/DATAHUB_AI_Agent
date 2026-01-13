@@ -1,0 +1,17 @@
+{
+  "name": "playwright-test-step-https-stage",
+  "version": "1.0.0",
+  "description": "Playwright test for hub-stage.datacommons.cancer.gov",
+  "scripts": {
+    "test": "playwright test test_step_https_stage.spec.ts",
+    "test:headed": "playwright test test_step_https_stage.spec.ts --headed"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.0.0",
+    "otplib": "^12.0.0"
+  },
+  "devDependencies": {}
+}
+
+

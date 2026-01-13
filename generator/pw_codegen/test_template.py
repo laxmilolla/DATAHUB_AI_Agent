@@ -53,16 +53,28 @@ import os
 from pathlib import Path
 
 # Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
-# Load .env from project root (3 levels up from tests/generated/)
-project_root = Path(__file__).parent.parent.parent
-env_file = project_root / '.env'
+# Check multiple locations: same dir, parent, home, or 3 levels up
 try:
     from dotenv import load_dotenv
-    if env_file.exists():
-        load_dotenv(env_file)
-        print(f"✅ Loaded environment variables from {{env_file}}")
-    else:
-        print(f"⚠️  .env file not found at {{env_file}}")
+    test_file_dir = Path(__file__).parent
+    possible_env_locations = [
+        test_file_dir / '.env',  # Same directory as test file
+        test_file_dir.parent / '.env',  # Parent directory
+        Path.home() / '.env',  # Home directory
+        test_file_dir.parent.parent.parent / '.env',  # 3 levels up (original behavior)
+    ]
+    env_file = None
+    for loc in possible_env_locations:
+        if loc.exists():
+            env_file = loc
+            load_dotenv(env_file)
+            print(f"✅ Loaded environment variables from {{env_file}}")
+            break
+    if not env_file:
+        print(f"⚠️  .env file not found. Checked locations:")
+        for loc in possible_env_locations:
+            print(f"   - {{loc}}")
+        print(f"   Please create a .env file with TOTP_SECRET_KEY=your_secret_key")
 except ImportError:
     print("⚠️  python-dotenv not installed - environment variables must be set manually")
 except Exception as e:

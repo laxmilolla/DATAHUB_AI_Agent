@@ -50,14 +50,62 @@ class ElementLocator:
             step_metadata = self.parsed_steps.get(step_identifier, {})
             logger.info(f"  📖 Step {self.current_step_number} metadata: {step_metadata}")
             
-            # Try exact match first
+            # Try exact match first, but validate with unique_attributes and step metadata
             element = self.element_registry.get_element(domain, page_name, element_description)
             if element:
-                selector = element.get('selector')
-                logger.info(f"  ✅ Exact match: {element_description} -> {selector}")
-                self.element_registry.update_usage(domain, page_name, element_description)
-                # Store element for validation (can be accessed via context if needed)
-                return selector
+                # ✅ NEW: Validate exact match using unique_attributes and step metadata
+                unique_attrs = element.get('unique_attributes', {})
+                elem_role = unique_attrs.get('role', '').lower()
+                elem_type_from_attrs = unique_attrs.get('type', '').lower()
+                elem_type = element.get('type', '').lower()
+                
+                # Check if step type matches element type/role
+                step_type = step_metadata.get('type', '').lower()
+                
+                # Special handling for dropdowns: if step type is "select", prefer buttons over options
+                if step_type == 'select':
+                    # If exact match is an option but step wants to open dropdown, look for button instead
+                    if elem_role == 'option' or elem_type == 'option':
+                        logger.info(f"  ⚠️ Exact match is option, but step type is 'select' - searching for dropdown button...")
+                        # Don't return early, continue to find dropdown button
+                    elif elem_role == 'button' or elem_type in ['select', 'div']:
+                        # This is a dropdown button - perfect match!
+                        selector = element.get('selector')
+                        logger.info(f"  ✅ Exact match (dropdown button): {element_description} -> {selector}")
+                        self.element_registry.update_usage(domain, page_name, element_description)
+                        return selector
+                
+                # For other types, validate match
+                if step_type:
+                    # Check if element type matches step type using both type field and unique_attributes
+                    type_matches = (
+                        elem_type == step_type or 
+                        elem_type_from_attrs == step_type or
+                        step_type in elem_type
+                    )
+                    
+                    # Check role match if step type suggests a role
+                    role_matches = True
+                    if step_type == 'button' and elem_role and elem_role != 'button':
+                        role_matches = False
+                    elif step_type == 'select' and elem_role == 'option' and 'dropdown' not in element_description.lower():
+                        # If step says "select" and wants to open dropdown, option is wrong
+                        role_matches = False
+                    
+                    if not type_matches or not role_matches:
+                        logger.info(f"  ⚠️ Exact match found but type/role mismatch - step_type={step_type}, elem_type={elem_type}, elem_role={elem_role}")
+                        # Don't return early, continue to find better match
+                    else:
+                        selector = element.get('selector')
+                        logger.info(f"  ✅ Exact match (validated): {element_description} -> {selector}")
+                        self.element_registry.update_usage(domain, page_name, element_description)
+                        return selector
+                else:
+                    # No step type specified, use exact match
+                    selector = element.get('selector')
+                    logger.info(f"  ✅ Exact match: {element_description} -> {selector}")
+                    self.element_registry.update_usage(domain, page_name, element_description)
+                    return selector
             
             # Load element map for metadata-based matching
             element_map = self.element_registry.load_map(domain, page_name)
@@ -121,15 +169,48 @@ class ElementLocator:
             # Filter by step metadata
             filtered = matches
             
-            # Filter by TYPE if specified in metadata
+            # Filter by TYPE if specified in metadata (using both type field and unique_attributes)
             if "type" in step_metadata:
-                required_type = step_metadata["type"]
+                required_type = step_metadata["type"].lower()
                 temp_filtered = []
                 for name, elem in filtered:
                     elem_type = elem.get("type", "").lower()
-                    if elem_type == required_type or required_type in name.lower():
+                    unique_attrs = elem.get('unique_attributes', {})
+                    elem_role = unique_attrs.get('role', '').lower()
+                    elem_type_from_attrs = unique_attrs.get('type', '').lower()
+                    
+                    # Check type match using both type field and unique_attributes
+                    type_matches = (
+                        elem_type == required_type or 
+                        elem_type_from_attrs == required_type or
+                        required_type in elem_type or
+                        required_type in name.lower()
+                    )
+                    
+                    # Special handling for "select" type: prefer buttons over options
+                    if required_type == 'select':
+                        # If step wants to open dropdown (type="select"), prefer button/select elements over options
+                        if elem_role == 'button' or elem_type in ['select', 'div']:
+                            temp_filtered.insert(0, (name, elem))  # Prioritize buttons
+                            logger.info(f"  ✓ Type match (select - dropdown button): {name}")
+                        elif elem_role == 'option' or elem_type == 'option':
+                            # Options are lower priority for opening dropdowns
+                            temp_filtered.append((name, elem))
+                            logger.info(f"  ✓ Type match (select - option, lower priority): {name}")
+                        elif type_matches:
+                            temp_filtered.append((name, elem))
+                            logger.info(f"  ✓ Type match ({required_type}): {name}")
+                    elif type_matches:
                         temp_filtered.append((name, elem))
                         logger.info(f"  ✓ Type match ({required_type}): {name}")
+                    
+                    # Also check role match for button/select types
+                    if required_type == 'button' and elem_role == 'button':
+                        # Prioritize elements with button role
+                        if (name, elem) not in temp_filtered:
+                            temp_filtered.insert(0, (name, elem))
+                            logger.info(f"  ✓ Role match (button role): {name}")
+                
                 if temp_filtered:
                     filtered = temp_filtered
                     logger.info(f"  Filtered to {len(filtered)} by type={required_type}")
@@ -229,12 +310,33 @@ class ElementLocator:
                     name, elem = item
                     elem_name = extract_element_name(name)
                     elem_depth = elem.get("depth", 0)
+                    unique_attrs = elem.get('unique_attributes', {})
+                    elem_role = unique_attrs.get('role', '').lower()
+                    elem_type = elem.get("type", "").lower()
+                    step_type = step_metadata.get('type', '').lower()
                     
+                    # Base score from name similarity
                     if elem_name == clean_text:
-                        return (0, elem_depth, len(name))
-                    if clean_text in elem_name or elem_name in clean_text:
-                        return (1, elem_depth, len(name))
-                    return (2, elem_depth, len(name))
+                        name_score = 0
+                    elif clean_text in elem_name or elem_name in clean_text:
+                        name_score = 1
+                    else:
+                        name_score = 2
+                    
+                    # Bonus/penalty based on unique_attributes and step type
+                    role_bonus = 0
+                    if step_type == 'select':
+                        # For select steps, prefer buttons over options
+                        if elem_role == 'button' or elem_type in ['select', 'div']:
+                            role_bonus = -1  # Lower score = higher priority
+                        elif elem_role == 'option' or elem_type == 'option':
+                            role_bonus = 1  # Higher score = lower priority
+                    elif step_type == 'button':
+                        # For button steps, prefer elements with button role
+                        if elem_role == 'button':
+                            role_bonus = -1
+                    
+                    return (name_score + role_bonus, elem_depth, len(name))
                 
                 filtered = sorted(filtered, key=match_score)
                 name, elem = filtered[0]
