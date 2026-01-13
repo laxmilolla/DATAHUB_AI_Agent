@@ -284,21 +284,25 @@ class GroqClient(LLMClient):
                             if isinstance(result_content, list):
                                 for rc in result_content:
                                     if isinstance(rc, dict) and 'text' in rc:
-                                        result_text = rc['text']
+                                        result_text = rc.get('text', '')
                                     elif isinstance(rc, str):
                                         result_text = rc
                             elif isinstance(result_content, str):
                                 result_text = result_content
                             if result_text:
-                                text_parts.append(result_text)
+                                text_parts.append(str(result_text))
                         elif 'text' in c:
-                            text_parts.append(c['text'])
+                            text_val = c.get('text')
+                            if text_val is not None:
+                                text_parts.append(str(text_val))
                         elif 'tool_use' in c or 'toolUse' in c:
                             # Tool use blocks - Groq handles these automatically, skip
                             continue
                     elif isinstance(c, str):
                         text_parts.append(c)
                 
+                # Filter out None values and join
+                text_parts = [str(t) for t in text_parts if t is not None]
                 text_content = ' '.join(text_parts).strip()
             else:
                 text_content = str(content).strip() if content else ''
