@@ -41,9 +41,52 @@ class StepMatcher:
                 step_identifier = f"{step_num}{sub_step.lower()}" if sub_step else step_num
                 self.step_texts[step_identifier] = step_text
     
+    def predict_step_from_input(self, tool: str, tool_input: Dict) -> Optional[str]:
+        """
+        Predict step identifier BEFORE tool execution (for tool context)
+        Uses same logic as match_action_to_step but without result text
+        Args:
+            tool: Tool name (browser_click, browser_fill, etc.)
+            tool_input: Tool input dict (contains selector, url, text, etc.)
+        Returns:
+            Predicted step identifier (e.g., "1", "1a", "2") or None if no match
+        """
+        # Get action content without result (prediction)
+        action_content = self._extract_action_content(tool, tool_input, "")
+        
+        # Find best matching story step
+        best_match = None
+        best_score = 0
+        
+        for step_identifier, step_text in self.step_texts.items():
+            # Get step metadata
+            step_metadata = self.parsed_steps.get(step_identifier, {})
+            
+            # Skip if already matched (unless it's optional and can repeat)
+            if step_identifier in self.completed_step_identifiers:
+                # Check if step is optional (can appear multiple times)
+                if not step_metadata.get('is_optional', False):
+                    continue
+            
+            # Calculate match score
+            score = self._calculate_match_score(tool, action_content, step_text, step_metadata)
+            
+            if score > best_score:
+                best_score = score
+                best_match = step_identifier
+        
+        # Use lower threshold for prediction (more lenient)
+        threshold = 40  # Lower threshold for prediction
+        if best_match and best_score >= threshold:
+            logger.info(f"  🔮 Predicted step ({tool}) → Step {best_match} (score: {best_score:.1f})")
+            return best_match
+        else:
+            logger.debug(f"  ⚠️  No prediction for action ({tool}), best score: {best_score:.1f}")
+            return None
+    
     def match_action_to_step(self, tool: str, tool_input: Dict, result: str = "") -> Optional[str]:
         """
-        Match an action to a story step by content
+        Match an action to a story step by content (AFTER execution)
         Args:
             tool: Tool name (browser_click, browser_fill, etc.)
             tool_input: Tool input dict (contains selector, url, text, etc.)

@@ -177,34 +177,77 @@ class Agent:
                         tool_name = tool_use['name']
                         tool_input = tool_use['input']
                         
-                        # Execute tool
-                        result_text = await self._execute_tool(tool_name, tool_input)
+                        # CRITICAL FIX: Predict step BEFORE tool execution (for tool context)
+                        predicted_step = self.step_matcher.predict_step_from_input(tool_name, tool_input)
                         
-                        # Match action to story step by content
-                        step_identifier = self.step_matcher.match_action_to_step(
-                            tool_name, tool_input, result_text
-                        )
-                        
-                        # If no match found, use sequential fallback (next unmatched step)
-                        if not step_identifier:
-                            # Find next unmatched step identifier
+                        # If prediction found, update context BEFORE tool execution
+                        if predicted_step:
+                            self.context.current_step_identifier = predicted_step
+                            # Extract step number for backward compatibility
+                            step_num_match = re.match(r'(\d+)', predicted_step)
+                            if step_num_match:
+                                self.context.current_step_number = int(step_num_match.group(1))
+                            else:
+                                # If step_identifier doesn't start with number, use iteration
+                                self.context.current_step_number = iteration
+                            logger.info(f"  📍 Set step context BEFORE execution: {predicted_step}")
+                        else:
+                            # Fallback: use sequential prediction if no match
                             all_step_ids = sorted(self.step_matcher.step_texts.keys(), 
                                                  key=lambda x: (int(re.match(r'(\d+)', x).group(1)), x))
                             completed = self.step_matcher.get_completed_steps()
                             for step_id in all_step_ids:
                                 if step_id not in completed:
-                                    step_identifier = step_id
-                                    logger.info(f"  ⚠️  Using sequential fallback: Step {step_identifier}")
-                                    self.step_matcher.completed_step_identifiers.add(step_identifier)
+                                    predicted_step = step_id
+                                    self.context.current_step_identifier = predicted_step
+                                    step_num_match = re.match(r'(\d+)', predicted_step)
+                                    if step_num_match:
+                                        self.context.current_step_number = int(step_num_match.group(1))
+                                    logger.info(f"  ⚠️  Using sequential prediction: Step {predicted_step}")
                                     break
                         
-                        # FIX: Ensure step_identifier is always set (fallback to iteration number if no match)
-                        if not step_identifier:
-                            # Last resort: use iteration number as step identifier
-                            step_identifier = str(iteration)
-                            logger.warning(f"  ⚠️  No step match found, using iteration as step_identifier: {step_identifier}")
+                        # Execute tool (now has correct step context)
+                        result_text = await self._execute_tool(tool_name, tool_input)
                         
-                        # Update context with matched step identifier
+                        # VERIFY step match AFTER execution (may differ from prediction)
+                        verified_step = self.step_matcher.match_action_to_step(
+                            tool_name, tool_input, result_text
+                        )
+                        
+                        # If verification differs from prediction, update context
+                        if verified_step and verified_step != predicted_step:
+                            logger.info(f"  🔄 Step verification differs: predicted={predicted_step}, verified={verified_step}")
+                            self.context.current_step_identifier = verified_step
+                            step_num_match = re.match(r'(\d+)', verified_step)
+                            if step_num_match:
+                                self.context.current_step_number = int(step_num_match.group(1))
+                            predicted_step = verified_step  # Use verified step for rest of logic
+                        
+                        # If no verification match, use prediction or fallback
+                        if not verified_step:
+                            if not predicted_step:
+                                # Last resort: use sequential fallback
+                                all_step_ids = sorted(self.step_matcher.step_texts.keys(), 
+                                                     key=lambda x: (int(re.match(r'(\d+)', x).group(1)), x))
+                                completed = self.step_matcher.get_completed_steps()
+                                for step_id in all_step_ids:
+                                    if step_id not in completed:
+                                        verified_step = step_id
+                                        logger.info(f"  ⚠️  Using sequential fallback: Step {verified_step}")
+                                        self.step_matcher.completed_step_identifiers.add(verified_step)
+                                        break
+                            
+                            # Use prediction if verification failed
+                            if not verified_step:
+                                verified_step = predicted_step
+                        
+                        # Final fallback: ensure step_identifier is always set
+                        if not verified_step:
+                            verified_step = str(iteration)
+                            logger.warning(f"  ⚠️  No step match found, using iteration as step_identifier: {verified_step}")
+                        
+                        # Update context with final step identifier
+                        step_identifier = verified_step
                         self.context.current_step_identifier = step_identifier
                         # Extract step number for backward compatibility
                         step_num_match = re.match(r'(\d+)', step_identifier)
