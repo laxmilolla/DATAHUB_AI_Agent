@@ -94,9 +94,16 @@ ACTION HINTS:
 - [ACTION: Use browser_verify_element] → Use browser_verify_element(element_description="<element name>", verification_type="present|visible|text|attribute", expected_value="<value if needed>")
 
 ELEMENT SELECTION:
-- Always use text= selectors with the EXACT element name from the step
+- For INPUT FIELDS (username, password, email, text inputs): Use CSS selectors like input[type="email"], input[type="password"], input[name="username"], etc.
+- For BUTTONS/LINKS/TEXT: Use text= selectors with the EXACT element name from the step
+- For DROPDOWNS: Use text= selector for the dropdown button, then select option
 - System validates and finds the correct element automatically
 - If element not found, system will use discovery methods
+
+INPUT FIELD EXAMPLES:
+- "enter username" → browser_fill("input[type='email']" or "input[name='username']", "value")
+- "enter password" → browser_fill("input[type='password']", "value")
+- "enter email" → browser_fill("input[type='email']", "value")
 
 Take screenshots at key moments (after clicks, before verification)."""
 
