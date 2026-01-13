@@ -1786,26 +1786,6 @@
                     showActionMessage('❌ TypeScript download failed: ' + error.message, 'error');
                 });
         }
-                    
-                    // Trigger download
-                    linkElement.click();
-                    console.log('✅ Zip download triggered');
-                    
-                    // Cleanup
-                    setTimeout(() => {
-                        document.body.removeChild(linkElement);
-                        console.log('🧹 Cleaned up link element');
-                    }, 1000);
-                    
-                    showActionMessage(`📥 Download started: ${zipFilename} (contains .py, .env, and all JSON registry files)`, 'success');
-                    console.log('✅ Download process completed');
-                })
-                .catch(error => {
-                    console.error('❌ Download error:', error);
-                    console.error('Error stack:', error.stack);
-                    showActionMessage('❌ Download failed: ' + error.message, 'error');
-                });
-        }
         
         function viewRawData() {
             if (currentResults) {
