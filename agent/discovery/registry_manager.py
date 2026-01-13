@@ -322,12 +322,14 @@ class RegistryManager:
                 
                 # Find discovery for this story step
                 discovery_for_step = None
+                action_for_step = None  # CRITICAL FIX: Initialize action_for_step
                 
                 # Strategy 1: Find discovery by matching action's step_number to story step
                 # Look for actions with step_number matching story step
                 for action in actions_taken:
                     action_step_num = action.get('step_number')
                     if action_step_num == story_step_num:
+                        action_for_step = action  # CRITICAL FIX: Capture the action
                         action_tool = action.get('tool', '')
                         action_selector = action.get('input', {}).get('selector', '').lower()
                         
