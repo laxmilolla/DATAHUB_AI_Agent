@@ -1220,3 +1220,49 @@ class BrowserClickTool:
             logger.info(f"  🔒 Closed previously open menu: {menu_selector}")
         except Exception as e:
             logger.debug(f"  ⚠️ Could not close menu: {e}")
+    
+    async def _verify_dropdown_selection(self, selected_value: str):
+        """
+        Verify that the selected dropdown value is displayed on screen
+        """
+        try:
+            # Wait for menu to close
+            await self.page.wait_for_timeout(500)
+            
+            # Try to find the selected value in dropdown buttons
+            # Material-UI Select buttons show the selected value
+            dropdown_selectors = [
+                f'div[role="button"]:has-text("{selected_value}")',
+                f'div[id*="select"]:has-text("{selected_value}")',
+                f'div.MuiSelect-select:has-text("{selected_value}")',
+                f'button:has-text("{selected_value}")',
+            ]
+            
+            for selector in dropdown_selectors:
+                try:
+                    locator = self.page.locator(selector).first
+                    count = await locator.count()
+                    if count > 0 and await locator.is_visible():
+                        # Get the text content to verify
+                        text_content = await locator.text_content()
+                        if selected_value.lower() in (text_content or '').lower():
+                            logger.info(f"  ✅ Verified selected value '{selected_value}' is displayed on screen")
+                            return True
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Selector '{selector}' check failed: {e}")
+                    continue
+            
+            # Also check if value appears anywhere on the page (fallback)
+            try:
+                page_text = await self.page.text_content()
+                if selected_value.lower() in (page_text or '').lower():
+                    logger.info(f"  ✅ Verified selected value '{selected_value}' appears on page")
+                    return True
+            except Exception as e:
+                logger.debug(f"  ⚠️ Page text check failed: {e}")
+            
+            logger.warning(f"  ⚠️ Could not verify selected value '{selected_value}' is displayed")
+            return False
+        except Exception as e:
+            logger.debug(f"  ⚠️ Dropdown selection verification failed: {e}")
+            return False
