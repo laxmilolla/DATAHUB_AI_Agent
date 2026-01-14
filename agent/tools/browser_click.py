@@ -1184,8 +1184,28 @@ class BrowserClickTool:
             Selector for the menu portal, or None if not found
         """
         try:
+            # Check if modal is open - if so, prioritize modal-scoped selectors
+            is_modal_open, modal_selector = await self._is_modal_open()
+            
             # Enhanced selectors - Material-UI Select specific + standard
-            menu_selectors = [
+            menu_selectors = []
+            
+            # FIX: If modal is open, add modal-scoped selectors FIRST
+            if is_modal_open and modal_selector:
+                logger.info(f"  🔍 Modal detected - checking menu portal inside modal first: {modal_selector}")
+                # Modal-scoped selectors (try these first when modal is open)
+                modal_scoped_selectors = [
+                    f'{modal_selector} .MuiPopover-root [role="listbox"]',
+                    f'{modal_selector} [class*="MuiSelect-menu"]',
+                    f'{modal_selector} [class*="MuiMenu-root"]',
+                    f'{modal_selector} [class*="MuiPaper-root"][role="listbox"]',
+                    f'{modal_selector} [role="listbox"]',
+                    f'{modal_selector} [role="menu"]',
+                ]
+                menu_selectors.extend(modal_scoped_selectors)
+            
+            # Standard selectors (check in body for portals)
+            standard_selectors = [
                 # Material-UI Select specific (check in body for portals)
                 'body > .MuiPopover-root [role="listbox"]',
                 'body > [class*="MuiSelect-menu"]',
@@ -1206,8 +1226,9 @@ class BrowserClickTool:
                 '[data-testid*="menu"]',
                 '[id*="menu"]',
             ]
+            menu_selectors.extend(standard_selectors)
             
-            logger.info(f"  🔍 Enhanced menu portal detection (timeout: {timeout}ms)...")
+            logger.info(f"  🔍 Enhanced menu portal detection (timeout: {timeout}ms, modal={'open' if is_modal_open else 'closed'})...")
             
             # Try all selectors with shorter timeout each
             per_selector_timeout = min(500, timeout // len(menu_selectors))
