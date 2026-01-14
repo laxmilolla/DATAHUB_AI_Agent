@@ -747,10 +747,14 @@ class BrowserClickTool:
                     if self.context.open_dropdown_menu:
                         self.context.open_dropdown_menu = None
                 
-                # FIX #1: Clear menu portal after option selection (on DOM change, not just URL change)
-                # If this was a dropdown option click, clear the menu portal
+                # FIX #1: After option selection, dropdown closes automatically - verify selected value is displayed
                 if is_dropdown_option and self.context.open_dropdown_menu:
-                    logger.info(f"  🔄 Clearing menu portal after option selection (DOM changed)")
+                    logger.info(f"  🔄 Dropdown menu closes automatically after selection - verifying selected value...")
+                    # Wait for menu to close automatically
+                    await self.page.wait_for_timeout(500)
+                    # Verify selected value is displayed
+                    await self._verify_dropdown_selection(element_description or selector)
+                    # Clear menu portal reference
                     self.context.open_dropdown_menu = None
                 
                 if url_changed or dom_changed:
