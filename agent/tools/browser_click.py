@@ -124,6 +124,9 @@ class BrowserClickTool:
         if not validation_result["exists"]:
             return f"❌ Click FAILED: {selector} - Element not found"
         
+        # IMPROVEMENT #1: Pre-click dropdown detection
+        is_dropdown_button = await self._is_dropdown_button_pre_click(chosen_locator, element_name)
+        
         # Check accordion state
         accordion_result = await self._check_accordion(chosen_locator, element_name)
         if accordion_result:
@@ -133,11 +136,14 @@ class BrowserClickTool:
         await self._handle_totp_submission(step_text, selector)
         
         # Execute click and track discovery
-        return await self._execute_click_with_discovery(
+        result = await self._execute_click_with_discovery(
             chosen_locator, selector, original_selector, element_name,
             original_element_for_xpath, registry_button_element,
-            using_registry_xpath, validation_result
+            using_registry_xpath, validation_result,
+            is_dropdown_button_pre_detected=is_dropdown_button  # Pass pre-detection result
         )
+        
+        return result
     
     async def _resolve_selector(self, selector: str, element_description: str) -> Tuple[str, bool, Optional[Locator]]:
         """Check registry and resolve selector"""
@@ -506,7 +512,8 @@ class BrowserClickTool:
                                            original_element_for_xpath: Optional[Locator],
                                            registry_button_element: Optional[Locator],
                                            using_registry_xpath: bool,
-                                           validation_result: Dict[str, Any]) -> str:
+                                           validation_result: Dict[str, Any],
+                                           is_dropdown_button_pre_detected: bool = False) -> str:
         """Execute click and track discovery"""
         initial_html = await self.page.content()
         initial_url = self.page.url
@@ -582,59 +589,68 @@ class BrowserClickTool:
                 discovery_url_before_click = self.page.url
                 
                 await strategy["method"]()
-                await self.page.wait_for_timeout(1000)
                 
-                # Check if this was a dropdown click - wait for menu portal to open
+                # IMPROVEMENT #1 & #2: Check if this was a dropdown click - use pre-detection OR post-click detection
+                # Initialize dropdown detection variable
+                is_dropdown_button = False
+                
                 # Only check if we don't already have an open menu (to avoid overwriting)
                 if not self.context.open_dropdown_menu:
-                    # IMPROVED: Use tool input to detect dropdown button (more reliable than step metadata)
-                    selector_lower = (selector or '').lower()
-                    element_desc_lower = (element_name or '').lower()  # Use element_name instead of element_description
-                    
-                    # Check if clicked element is a known dropdown button
-                    dropdown_button_names = ['datacommons', 'study', 'dropdown']
-                    is_known_dropdown_button = any(name in selector_lower or name in element_desc_lower 
-                                                   for name in dropdown_button_names)
-                    
-                    # Also check if element has dropdown characteristics
-                    is_dropdown_by_attributes = False
-                    try:
-                        element_role = await chosen_locator.get_attribute('role')
-                        element_aria_expanded = await chosen_locator.get_attribute('aria-expanded')
-                        element_class = await chosen_locator.get_attribute('class') or ''
-                        is_dropdown_by_attributes = (
-                            (element_role == 'button' and element_aria_expanded is not None) or
-                            'MuiSelect' in element_class or
-                            'select' in element_class.lower()
+                    # Use pre-detection result if available, otherwise fall back to post-click detection
+                    if is_dropdown_button_pre_detected:
+                        is_dropdown_button = True
+                        logger.info(f"  ✅ Dropdown detected BEFORE click (pre-detection)")
+                    else:
+                        # Fallback: Post-click detection (original logic)
+                        selector_lower = (selector or '').lower()
+                        element_desc_lower = (element_name or '').lower()
+                        
+                        dropdown_button_names = ['datacommons', 'study', 'dropdown']
+                        is_known_dropdown_button = any(name in selector_lower or name in element_desc_lower 
+                                                       for name in dropdown_button_names)
+                        
+                        is_dropdown_by_attributes = False
+                        try:
+                            element_role = await chosen_locator.get_attribute('role')
+                            element_aria_expanded = await chosen_locator.get_attribute('aria-expanded')
+                            element_class = await chosen_locator.get_attribute('class') or ''
+                            is_dropdown_by_attributes = (
+                                (element_role == 'button' and element_aria_expanded is not None) or
+                                'MuiSelect' in element_class or
+                                'select' in element_class.lower()
+                            )
+                        except Exception as e:
+                            logger.debug(f"  ⚠️ Could not check element attributes for dropdown: {e}")
+                        
+                        step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+                        step_metadata = self.parsed_steps.get(step_identifier, {})
+                        step_type = step_metadata.get('type', '')
+                        step_text = step_metadata.get('text', '').lower()
+                        
+                        is_dropdown_by_metadata = (
+                            step_type == 'select' and 
+                            ('dropdown' in step_text or 'open' in step_text or 'click' in step_text) and
+                            'pick' not in step_text and 'select' not in step_text and 'choose' not in step_text
                         )
-                    except Exception as e:
-                        logger.debug(f"  ⚠️ Could not check element attributes for dropdown: {e}")
-                    
-                    # Also check step metadata as fallback
-                    step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
-                    step_metadata = self.parsed_steps.get(step_identifier, {})
-                    step_type = step_metadata.get('type', '')
-                    step_text = step_metadata.get('text', '').lower()
-                    
-                    is_dropdown_by_metadata = (
-                        step_type == 'select' and 
-                        ('dropdown' in step_text or 'open' in step_text or 'click' in step_text) and
-                        'pick' not in step_text and 'select' not in step_text and 'choose' not in step_text
-                    )
-                    
-                    is_dropdown_button = is_known_dropdown_button or is_dropdown_by_attributes or is_dropdown_by_metadata
-                    
-                    logger.info(f"  🔍 Dropdown detection: known={is_known_dropdown_button}, attributes={is_dropdown_by_attributes}, metadata={is_dropdown_by_metadata}, final={is_dropdown_button}")
+                        
+                        is_dropdown_button = is_known_dropdown_button or is_dropdown_by_attributes or is_dropdown_by_metadata
+                        logger.info(f"  🔍 Post-click dropdown detection: known={is_known_dropdown_button}, attributes={is_dropdown_by_attributes}, metadata={is_dropdown_by_metadata}, final={is_dropdown_button}")
                     
                     if is_dropdown_button:
-                        # This was a dropdown button click - wait for menu portal
+                        # This was a dropdown button click - wait for menu portal immediately (no delay)
                         logger.info(f"  ⏳ Waiting for dropdown menu portal to appear...")
-                        menu_portal = await self._wait_for_dropdown_menu_portal()
+                        menu_portal = await self._wait_for_dropdown_menu_portal(timeout=3000)
                         if menu_portal:
                             self.context.open_dropdown_menu = menu_portal
-                            logger.info(f"  ✅ Dropdown menu portal opened: {menu_portal}")
+                            # IMPROVEMENT #3: Keep menu open
+                            await self._keep_menu_open(menu_portal)
+                            logger.info(f"  ✅ Dropdown menu portal opened and kept open: {menu_portal}")
                         else:
                             logger.warning(f"  ⚠️ Dropdown button clicked but menu portal not detected")
+                
+                # Small delay only if NOT a dropdown (dropdowns need immediate detection)
+                if not is_dropdown_button:
+                    await self.page.wait_for_timeout(1000)
                 
                 # Verify click
                 new_html = await self.page.content()
@@ -968,32 +984,82 @@ class BrowserClickTool:
             logger.warning(f"  ⚠️ Error finding option in menu: {e}")
             return None
     
-    async def _wait_for_dropdown_menu_portal(self, timeout: int = 5000) -> Optional[str]:
+    async def _is_dropdown_button_pre_click(self, locator: Locator, element_name: str) -> bool:
         """
+        IMPROVEMENT #1: Check if element is a dropdown button BEFORE clicking
+        Returns True if element appears to be a dropdown button
+        """
+        try:
+            # Check attributes
+            role = await locator.get_attribute('role')
+            aria_expanded = await locator.get_attribute('aria-expanded')
+            aria_has_popup = await locator.get_attribute('aria-haspopup')
+            class_name = await locator.get_attribute('class') or ''
+            
+            # Material-UI Select indicators
+            is_mui_select = (
+                'MuiSelect' in class_name or
+                'MuiSelect-select' in class_name or
+                (role == 'button' and aria_has_popup == 'listbox')
+            )
+            
+            # Standard dropdown indicators
+            is_standard_dropdown = (
+                (role == 'button' and aria_expanded is not None) or
+                aria_has_popup == 'listbox' or
+                aria_has_popup == 'menu'
+            )
+            
+            # Check if element name/description suggests dropdown
+            element_text = await locator.text_content() or ''
+            element_desc_lower = (element_name or element_text).lower()
+            known_dropdowns = ['study', 'datacommons', 'dropdown', 'select']
+            is_known_dropdown = any(name in element_desc_lower for name in known_dropdowns)
+            
+            result = is_mui_select or is_standard_dropdown or is_known_dropdown
+            logger.info(f"  🔍 Pre-click dropdown detection: mui={is_mui_select}, standard={is_standard_dropdown}, known={is_known_dropdown}, result={result}")
+            return result
+        except Exception as e:
+            logger.debug(f"  ⚠️ Pre-click dropdown detection failed: {e}")
+            return False
+    
+    async def _wait_for_dropdown_menu_portal(self, timeout: int = 3000) -> Optional[str]:
+        """
+        IMPROVEMENT #2: Enhanced menu portal detection - checks document body and better selectors
         Wait for Material-UI Select dropdown menu portal to appear after clicking dropdown button
         Returns:
             Selector for the menu portal, or None if not found
         """
         try:
-            # Material-UI Select menus appear in portals with role="listbox"
+            # Enhanced selectors - Material-UI Select specific + standard
             menu_selectors = [
+                # Material-UI Select specific (check in body for portals)
+                'body > .MuiPopover-root [role="listbox"]',
+                'body > [class*="MuiSelect-menu"]',
+                'body > [class*="MuiMenu-root"]',
+                'body > [class*="MuiPaper-root"][role="listbox"]',
+                '.MuiPopover-root [role="listbox"]',
+                '[class*="MuiSelect-menu"]',
+                '[class*="MuiMenu-root"]',
+                '[class*="MuiPaper-root"][role="listbox"]',
+                
+                # Standard selectors (check in body for portals)
+                'body > [role="listbox"]',
+                'body > [role="menu"]',
                 '[role="listbox"]',
                 '[role="menu"]',
-                '.MuiMenu-root',
-                '.MuiPopover-root [role="listbox"]',
-                '[class*="MuiMenu"]',
-                '[class*="MuiSelect-menu"]',  # More specific Material-UI Select menu
-                '[class*="MuiPaper-root"][role="listbox"]',  # Material-UI Paper with listbox role
-                '[data-testid*="menu"]',  # Test ID selector
-                '[id*="menu"]',  # ID-based selector
+                
+                # Fallback selectors
+                '[data-testid*="menu"]',
+                '[id*="menu"]',
             ]
             
-            # Try all selectors with shorter timeout each (parallel check)
-            per_selector_timeout = min(1000, timeout // len(menu_selectors))
+            logger.info(f"  🔍 Enhanced menu portal detection (timeout: {timeout}ms)...")
+            
+            # Try all selectors with shorter timeout each
+            per_selector_timeout = min(500, timeout // len(menu_selectors))
             if per_selector_timeout < 200:
                 per_selector_timeout = 200  # Minimum 200ms per selector
-            
-            logger.info(f"  🔍 Checking for dropdown menu portal (timeout: {timeout}ms, {per_selector_timeout}ms per selector)...")
             
             for selector in menu_selectors:
                 try:
@@ -1004,7 +1070,7 @@ class BrowserClickTool:
                         # Element exists, wait for visibility
                         await menu_locator.wait_for(state='visible', timeout=per_selector_timeout)
                         if await menu_locator.is_visible():
-                            logger.info(f"  ✅ Dropdown menu portal appeared: {selector}")
+                            logger.info(f"  ✅ Dropdown menu portal found: {selector}")
                             return selector
                         else:
                             logger.debug(f"  ⚠️ Menu selector '{selector}' exists but not visible")
@@ -1020,3 +1086,33 @@ class BrowserClickTool:
         except Exception as e:
             logger.warning(f"  ⚠️ Error waiting for dropdown menu: {e}")
             return None
+    
+    async def _keep_menu_open(self, menu_selector: str):
+        """
+        IMPROVEMENT #3: Prevent menu from auto-closing before option is selected
+        Disables backdrop clicks and escape key closing
+        """
+        try:
+            await self.page.evaluate(f"""
+                () => {{
+                    const menu = document.querySelector('{menu_selector}');
+                    if (menu) {{
+                        // Prevent backdrop clicks from closing
+                        const backdrop = menu.closest('.MuiBackdrop-root');
+                        if (backdrop) {{
+                            backdrop.style.pointerEvents = 'none';
+                            backdrop.setAttribute('data-keep-open', 'true');
+                        }}
+                        // Prevent escape key from closing
+                        menu.setAttribute('data-keep-open', 'true');
+                        // Prevent click-outside from closing
+                        const popover = menu.closest('.MuiPopover-root');
+                        if (popover) {{
+                            popover.setAttribute('data-keep-open', 'true');
+                        }}
+                    }}
+                }}
+            """)
+            logger.info(f"  🔒 Menu kept open: {menu_selector}")
+        except Exception as e:
+            logger.debug(f"  ⚠️ Could not keep menu open: {e}")
