@@ -44,7 +44,7 @@ class StepMatcher:
     def predict_step_from_input(self, tool: str, tool_input: Dict) -> Optional[str]:
         """
         Predict step identifier BEFORE tool execution (for tool context)
-        Uses same logic as match_action_to_step but without result text
+        CRITICAL: MUST follow sequential order - only considers next sequential step(s)
         Args:
             tool: Tool name (browser_click, browser_fill, etc.)
             tool_input: Tool input dict (contains selector, url, text, etc.)
@@ -54,11 +54,23 @@ class StepMatcher:
         # Get action content without result (prediction)
         action_content = self._extract_action_content(tool, tool_input, "")
         
-        # Find best matching story step
+        # CRITICAL: Find highest completed step number to enforce sequential order
+        highest_completed = 0
+        for step_id in self.completed_step_identifiers:
+            step_num_match = re.match(r'(\d+)', step_id)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                highest_completed = max(highest_completed, step_num)
+        
+        # Find best matching story step - ONLY consider steps AFTER highest completed
         best_match = None
         best_score = 0
         
-        for step_identifier, step_text in self.step_texts.items():
+        # Sort steps to process in sequential order
+        sorted_steps = sorted(self.step_texts.items(), 
+                             key=lambda x: (int(re.match(r'(\d+)', x[0]).group(1)), x[0]))
+        
+        for step_identifier, step_text in sorted_steps:
             # Get step metadata
             step_metadata = self.parsed_steps.get(step_identifier, {})
             
@@ -68,8 +80,24 @@ class StepMatcher:
                 if not step_metadata.get('is_optional', False):
                     continue
             
+            # CRITICAL: Only consider steps AFTER highest completed step
+            step_num_match = re.match(r'(\d+)', step_identifier)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                if step_num <= highest_completed:
+                    continue  # Skip steps that are before or equal to highest completed
+            
             # Calculate match score
             score = self._calculate_match_score(tool, action_content, step_text, step_metadata)
+            
+            # CRITICAL: Add sequential priority bonus - next step gets huge boost
+            step_num_match = re.match(r'(\d+)', step_identifier)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                # Next sequential step gets +200 bonus (ensures it wins even with lower content match)
+                if step_num == highest_completed + 1:
+                    score += 200
+                    logger.debug(f"  🎯 Sequential priority bonus (+200) for Step {step_identifier} (next step)")
             
             if score > best_score:
                 best_score = score
@@ -87,6 +115,7 @@ class StepMatcher:
     def match_action_to_step(self, tool: str, tool_input: Dict, result: str = "") -> Optional[str]:
         """
         Match an action to a story step by content (AFTER execution)
+        CRITICAL: MUST follow sequential order - only considers next sequential step(s)
         Args:
             tool: Tool name (browser_click, browser_fill, etc.)
             tool_input: Tool input dict (contains selector, url, text, etc.)
@@ -97,11 +126,23 @@ class StepMatcher:
         # Get action content
         action_content = self._extract_action_content(tool, tool_input, result)
         
-        # Find best matching story step
+        # CRITICAL: Find highest completed step number to enforce sequential order
+        highest_completed = 0
+        for step_id in self.completed_step_identifiers:
+            step_num_match = re.match(r'(\d+)', step_id)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                highest_completed = max(highest_completed, step_num)
+        
+        # Find best matching story step - ONLY consider steps AFTER highest completed
         best_match = None
         best_score = 0
         
-        for step_identifier, step_text in self.step_texts.items():
+        # Sort steps to process in sequential order
+        sorted_steps = sorted(self.step_texts.items(), 
+                             key=lambda x: (int(re.match(r'(\d+)', x[0]).group(1)), x[0]))
+        
+        for step_identifier, step_text in sorted_steps:
             # Get step metadata
             step_metadata = self.parsed_steps.get(step_identifier, {})
             
@@ -111,8 +152,24 @@ class StepMatcher:
                 if not step_metadata.get('is_optional', False):
                     continue
             
+            # CRITICAL: Only consider steps AFTER highest completed step
+            step_num_match = re.match(r'(\d+)', step_identifier)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                if step_num <= highest_completed:
+                    continue  # Skip steps that are before or equal to highest completed
+            
             # Calculate match score
             score = self._calculate_match_score(tool, action_content, step_text, step_metadata)
+            
+            # CRITICAL: Add sequential priority bonus - next step gets huge boost
+            step_num_match = re.match(r'(\d+)', step_identifier)
+            if step_num_match:
+                step_num = int(step_num_match.group(1))
+                # Next sequential step gets +200 bonus (ensures it wins even with lower content match)
+                if step_num == highest_completed + 1:
+                    score += 200
+                    logger.debug(f"  🎯 Sequential priority bonus (+200) for Step {step_identifier} (next step)")
             
             if score > best_score:
                 best_score = score
