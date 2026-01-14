@@ -1088,6 +1088,41 @@ class BrowserClickTool:
             logger.warning(f"  ⚠️ Error finding option in menu: {e}")
             return None
     
+    async def _is_modal_open(self) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a modal/dialog is currently open
+        Returns: (is_open, modal_selector) tuple
+        """
+        try:
+            # Check for Material-UI dialog using data-testid
+            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
+            if await create_dialog.count() > 0:
+                is_visible = await create_dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: create-submission-dialog")
+                    return True, '[data-testid="create-submission-dialog"]'
+            
+            # Check for standard ARIA dialog
+            dialog = self.page.locator('[role="dialog"]').first
+            if await dialog.count() > 0:
+                is_visible = await dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: role=\"dialog\"")
+                    return True, '[role="dialog"]'
+            
+            # Check for Material-UI dialog classes
+            mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
+            if await mui_dialog.count() > 0:
+                is_visible = await mui_dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: MuiDialog-root")
+                    return True, '.MuiDialog-root.MuiModal-root'
+            
+            return False, None
+        except Exception as e:
+            logger.debug(f"  ⚠️ Modal detection failed: {e}")
+            return False, None
+    
     async def _is_dropdown_button_pre_click(self, locator: Locator, element_name: str) -> bool:
         """
         IMPROVEMENT #1: Check if element is a dropdown button BEFORE clicking
