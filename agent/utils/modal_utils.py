@@ -15,33 +15,46 @@ class ModalUtils:
     @staticmethod
     async def is_modal_open(page: Page) -> Tuple[bool, Optional[str]]:
         """
-        Check if a modal/dialog is currently open
+        Check if a modal/dialog is currently open using generic patterns (no hard-coded selectors)
         Args:
             page: Playwright page object
         Returns: (is_open, modal_selector) tuple
         """
         try:
-            # Check for Material-UI dialog using data-testid
-            create_dialog = page.locator('[data-testid="create-submission-dialog"]').first
-            if await create_dialog.count() > 0:
-                is_visible = await create_dialog.is_visible()
-                if is_visible:
-                    logger.info(f"  ✅ Modal detected: create-submission-dialog")
-                    return True, '[data-testid="create-submission-dialog"]'
-            
-            # Check for standard ARIA dialog
+            # Check for standard ARIA dialog (generic pattern)
             dialog = page.locator('[role="dialog"]').first
             if await dialog.count() > 0:
                 is_visible = await dialog.is_visible()
                 if is_visible:
+                    # Try to get a more specific selector if possible
+                    try:
+                        # Check if it has a data-testid (more specific)
+                        data_testid = await dialog.get_attribute('data-testid')
+                        if data_testid:
+                            specific_selector = f'[data-testid="{data_testid}"]'
+                            logger.info(f"  ✅ Modal detected: {specific_selector}")
+                            return True, specific_selector
+                    except Exception:
+                        pass
+                    
                     logger.info(f"  ✅ Modal detected: role=\"dialog\"")
                     return True, '[role="dialog"]'
             
-            # Check for Material-UI dialog classes
+            # Check for Material-UI dialog classes (generic pattern)
             mui_dialog = page.locator('.MuiDialog-root.MuiModal-root').first
             if await mui_dialog.count() > 0:
                 is_visible = await mui_dialog.is_visible()
                 if is_visible:
+                    # Try to get a more specific selector if possible
+                    try:
+                        data_testid = await mui_dialog.get_attribute('data-testid')
+                        if data_testid:
+                            specific_selector = f'[data-testid="{data-testid}"]'
+                            logger.info(f"  ✅ Modal detected: {specific_selector}")
+                            return True, specific_selector
+                    except Exception:
+                        pass
+                    
                     logger.info(f"  ✅ Modal detected: MuiDialog-root")
                     return True, '.MuiDialog-root.MuiModal-root'
             

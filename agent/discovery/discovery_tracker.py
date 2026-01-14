@@ -111,35 +111,7 @@ class DiscoveryTracker:
         Returns: "modal" or "main-page"
         """
         try:
-            # Check if modal is open
-            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
-            if await create_dialog.count() > 0 and await create_dialog.is_visible():
-                # If clicked_element is provided, check if it's inside the modal
-                if clicked_element:
-                    try:
-                        # Check if clicked element is inside the modal
-                        is_inside_modal = await create_dialog.locator('xpath=ancestor-or-self::*').count() > 0
-                        # More reliable: check if modal contains the element
-                        element_handle = await clicked_element.element_handle() if hasattr(clicked_element, 'element_handle') else None
-                        if element_handle:
-                            # Evaluate if element is inside modal
-                            is_inside = await self.page.evaluate("""
-                                (element, modal) => {
-                                    return modal.contains(element);
-                                }
-                            """, element_handle, await create_dialog.element_handle())
-                            if is_inside:
-                                logger.info(f"  🔍 Element context detected: modal")
-                                return "modal"
-                    except Exception as e:
-                        logger.debug(f"  ⚠️ Could not check element position in modal: {e}")
-                
-                # If modal is open and we can't determine element position, assume modal context
-                # (safer to assume modal when modal is open)
-                logger.info(f"  🔍 Modal is open - assuming modal context")
-                return "modal"
-            
-            # Check for standard ARIA dialog
+            # Check for standard ARIA dialog (generic pattern, no hard-coded selectors)
             dialog = self.page.locator('[role="dialog"]').first
             if await dialog.count() > 0 and await dialog.is_visible():
                 if clicked_element:
@@ -159,6 +131,26 @@ class DiscoveryTracker:
                 logger.info(f"  🔍 Dialog is open - assuming modal context")
                 return "modal"
             
+            # Check for Material-UI dialog classes (generic pattern)
+            mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
+            if await mui_dialog.count() > 0 and await mui_dialog.is_visible():
+                if clicked_element:
+                    try:
+                        element_handle = await clicked_element.element_handle() if hasattr(clicked_element, 'element_handle') else None
+                        if element_handle:
+                            is_inside = await self.page.evaluate("""
+                                (element, dialog) => {
+                                    return dialog.contains(element);
+                                }
+                            """, element_handle, await mui_dialog.element_handle())
+                            if is_inside:
+                                logger.info(f"  🔍 Element context detected: modal")
+                                return "modal"
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not check element position in dialog: {e}")
+                logger.info(f"  🔍 Dialog is open - assuming modal context")
+                return "modal"
+            
             return "main-page"
         except Exception as e:
             logger.debug(f"  ⚠️ Context detection failed: {e}")
@@ -166,23 +158,32 @@ class DiscoveryTracker:
     
     async def _get_modal_selector(self) -> Optional[str]:
         """
-        Get the modal selector for scoping XPaths
+        Get the modal selector for scoping XPaths (using generic patterns, no hard-coded selectors)
         Returns: CSS selector for modal or None
         """
         try:
-            # Check for Material-UI dialog using data-testid
-            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
-            if await create_dialog.count() > 0 and await create_dialog.is_visible():
-                return '[data-testid="create-submission-dialog"]'
-            
-            # Check for standard ARIA dialog
+            # Check for standard ARIA dialog (generic pattern)
             dialog = self.page.locator('[role="dialog"]').first
             if await dialog.count() > 0 and await dialog.is_visible():
+                # Try to get a more specific selector if possible
+                try:
+                    data_testid = await dialog.get_attribute('data-testid')
+                    if data_testid:
+                        return f'[data-testid="{data_testid}"]'
+                except Exception:
+                    pass
                 return '[role="dialog"]'
             
-            # Check for Material-UI dialog classes
+            # Check for Material-UI dialog classes (generic pattern)
             mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
             if await mui_dialog.count() > 0 and await mui_dialog.is_visible():
+                # Try to get a more specific selector if possible
+                try:
+                    data_testid = await mui_dialog.get_attribute('data-testid')
+                    if data_testid:
+                        return f'[data-testid="{data_testid}"]'
+                except Exception:
+                    pass
                 return '.MuiDialog-root.MuiModal-root'
             
             return None

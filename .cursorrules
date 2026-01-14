@@ -8,6 +8,25 @@
 - Only make changes when user explicitly requests them
 - If unsure, ask for clarification before proceeding
 
+## ⚠️ CRITICAL RULE #2: NO HARD-CODING
+
+**NEVER hard-code application-specific selectors, IDs, or values in production code.**
+- Use generic patterns and dynamic detection instead
+- Hard-coding is ONLY allowed in test/debug scripts (e.g., `test_*.py`)
+- Production code must detect elements dynamically using:
+  - Generic CSS patterns (`[role="dialog"]`, `.MuiDialog-root`)
+  - ARIA attributes
+  - Dynamic attribute extraction (e.g., `data-testid` if available)
+- If you find hard-coded selectors, refactor to use generic patterns
+- Examples of what NOT to hard-code:
+  - `[data-testid="create-submission-dialog"]` ❌ (application-specific)
+  - `#mui-component-select-studyID` ❌ (if used directly without registry lookup)
+  - `'create-submission-dialog'` ❌ (application-specific string)
+- Examples of what IS allowed:
+  - `[role="dialog"]` ✅ (generic ARIA pattern)
+  - `.MuiDialog-root.MuiModal-root` ✅ (generic Material-UI pattern)
+  - Dynamic extraction: `await dialog.get_attribute('data-testid')` ✅
+
 ## Project Overview
 This is an LLM-powered autonomous test execution system using Bedrock Agent (Claude) + MCP tools + Playwright.
 The agent makes real-time decisions, adapts to page changes, and self-heals.
