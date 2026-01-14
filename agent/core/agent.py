@@ -19,7 +19,7 @@ from agent.browser.action_executor import ActionExecutor
 from agent.discovery.xpath_generator import XPathGenerator
 from agent.discovery.discovery_tracker import DiscoveryTracker
 from agent.discovery.registry_manager import RegistryManager
-from agent.llm.bedrock_client import BedrockClient  # Fallback if create_llm_client fails
+from agent.llm.bedrock_client import BedrockClient
 from agent.llm.prompt_builder import PromptBuilder
 from agent.llm.tool_definitions import ToolDefinitions
 from agent.tools.browser_navigate import BrowserNavigateTool
@@ -69,16 +69,11 @@ class Agent:
         self.discovery_tracker = None  # Needs page, will be set after browser starts
         self.registry_manager = RegistryManager(self.element_registry, self.context.execution_id)
         
-        # LLM components - support multiple providers
-        try:
-            from agent.llm.llm_client import create_llm_client
-            self.llm_client = create_llm_client()
-        except Exception as e:
-            logger.warning(f"Failed to create LLM client, falling back to Bedrock: {e}")
-            self.llm_client = BedrockClient(region)
+        # LLM components
+        self.bedrock_client = BedrockClient(region)
         self.prompt_builder = PromptBuilder(self.story_parser)
         self.tool_definitions = ToolDefinitions()
-        self.llm_helper = None  # Needs llm_client and story, will be set during execution
+        self.llm_helper = None  # Needs bedrock_client and story, will be set during execution
         
         # Action executor (needs page, will be set after browser starts)
         self.action_executor = None
@@ -108,7 +103,7 @@ class Agent:
             self.step_matcher = StepMatcher(parsed_steps, story)
             
             # Initialize LLM helper with story
-            self.llm_helper = LLMHelper(self.llm_client, story)
+            self.llm_helper = LLMHelper(self.bedrock_client, story)
             
             # Start browser
             await self.playwright_manager.start(headless=True)
@@ -164,7 +159,7 @@ class Agent:
                 logger.info(f"{'='*60}")
                 
                 # Call LLM
-                response = await self.llm_client.converse(
+                response = await self.bedrock_client.converse(
                     messages=messages,
                     tools=self.tool_definitions.get_tools(),
                     system_prompt=system_prompt
