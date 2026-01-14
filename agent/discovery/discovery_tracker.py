@@ -105,6 +105,91 @@ class DiscoveryTracker:
         
         return unique_attrs
     
+    async def _detect_element_context(self, clicked_element=None) -> str:
+        """
+        Detect if element is in modal/dialog context or main page
+        Returns: "modal" or "main-page"
+        """
+        try:
+            # Check if modal is open
+            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
+            if await create_dialog.count() > 0 and await create_dialog.is_visible():
+                # If clicked_element is provided, check if it's inside the modal
+                if clicked_element:
+                    try:
+                        # Check if clicked element is inside the modal
+                        is_inside_modal = await create_dialog.locator('xpath=ancestor-or-self::*').count() > 0
+                        # More reliable: check if modal contains the element
+                        element_handle = await clicked_element.element_handle() if hasattr(clicked_element, 'element_handle') else None
+                        if element_handle:
+                            # Evaluate if element is inside modal
+                            is_inside = await self.page.evaluate("""
+                                (element, modal) => {
+                                    return modal.contains(element);
+                                }
+                            """, element_handle, await create_dialog.element_handle())
+                            if is_inside:
+                                logger.info(f"  🔍 Element context detected: modal")
+                                return "modal"
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not check element position in modal: {e}")
+                
+                # If modal is open and we can't determine element position, assume modal context
+                # (safer to assume modal when modal is open)
+                logger.info(f"  🔍 Modal is open - assuming modal context")
+                return "modal"
+            
+            # Check for standard ARIA dialog
+            dialog = self.page.locator('[role="dialog"]').first
+            if await dialog.count() > 0 and await dialog.is_visible():
+                if clicked_element:
+                    try:
+                        element_handle = await clicked_element.element_handle() if hasattr(clicked_element, 'element_handle') else None
+                        if element_handle:
+                            is_inside = await self.page.evaluate("""
+                                (element, dialog) => {
+                                    return dialog.contains(element);
+                                }
+                            """, element_handle, await dialog.element_handle())
+                            if is_inside:
+                                logger.info(f"  🔍 Element context detected: modal")
+                                return "modal"
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not check element position in dialog: {e}")
+                logger.info(f"  🔍 Dialog is open - assuming modal context")
+                return "modal"
+            
+            return "main-page"
+        except Exception as e:
+            logger.debug(f"  ⚠️ Context detection failed: {e}")
+            return "main-page"
+    
+    async def _get_modal_selector(self) -> Optional[str]:
+        """
+        Get the modal selector for scoping XPaths
+        Returns: CSS selector for modal or None
+        """
+        try:
+            # Check for Material-UI dialog using data-testid
+            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
+            if await create_dialog.count() > 0 and await create_dialog.is_visible():
+                return '[data-testid="create-submission-dialog"]'
+            
+            # Check for standard ARIA dialog
+            dialog = self.page.locator('[role="dialog"]').first
+            if await dialog.count() > 0 and await dialog.is_visible():
+                return '[role="dialog"]'
+            
+            # Check for Material-UI dialog classes
+            mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
+            if await mui_dialog.count() > 0 and await mui_dialog.is_visible():
+                return '.MuiDialog-root.MuiModal-root'
+            
+            return None
+        except Exception as e:
+            logger.debug(f"  ⚠️ Modal selector detection failed: {e}")
+            return None
+    
     async def track(self, element_name: str, original_query: str, final_selector: str,
                    discovery_method: str, metadata: dict, clicked_xpath: str = None,
                    clicked_element=None, discovery_url: str = None) -> Dict:
@@ -242,6 +327,38 @@ class DiscoveryTracker:
         # Extract unique attributes for easier matching
         unique_attributes = self._extract_unique_attributes(metadata, element_name, final_selector)
         
+        # Detect if element is in modal context
+        context = await self._detect_element_context(clicked_element)
+        
+        # Update XPath to include modal context if element is in modal
+        modal_scoped_xpath = xpath_to_use
+        if context == "modal" and xpath_to_use:
+            # Get modal selector for scoping
+            modal_selector = await self._get_modal_selector()
+            if modal_selector:
+                # Scope XPath to modal: wrap with modal selector
+                # Convert CSS selector to XPath-compatible format
+                if modal_selector.startswith('[data-testid='):
+                    # [data-testid="create-submission-dialog"] -> //*[@data-testid="create-submission-dialog"]
+                    modal_xpath = modal_selector.replace('[data-testid="', '//*[@data-testid="').replace('"]', '"]')
+                elif modal_selector.startswith('[role='):
+                    # [role="dialog"] -> //*[@role="dialog"]
+                    modal_xpath = modal_selector.replace('[role="', '//*[@role="').replace('"]', '"]')
+                elif modal_selector.startswith('.'):
+                    # .MuiDialog-root -> //*[contains(@class, "MuiDialog-root")]
+                    class_name = modal_selector.replace('.', '').replace('.', ' ')
+                    modal_xpath = f'//*[contains(@class, "{class_name}")]'
+                else:
+                    modal_xpath = modal_selector
+                
+                # Scope the XPath: (modal_xpath)//original_xpath
+                if xpath_to_use.startswith('//'):
+                    modal_scoped_xpath = f"({modal_xpath}){xpath_to_use}"
+                else:
+                    modal_scoped_xpath = f"({modal_xpath})//{xpath_to_use.lstrip('/')}"
+                
+                logger.info(f"  🔍 Scoped XPath to modal context: {modal_scoped_xpath}")
+        
         # Store discovery with XPath and element_id
         # CRITICAL: Track the URL where this discovery was made (not where test ended)
         discovery = {
@@ -249,12 +366,13 @@ class DiscoveryTracker:
             "element_id": element_id,
             "original_query": original_query,
             "final_selector": final_selector,
-            "xpath": xpath_to_use,
+            "xpath": modal_scoped_xpath if context == "modal" else xpath_to_use,  # Use modal-scoped XPath if in modal
             "uniqueness_method": uniqueness_method,
             "discovery_method": discovery_method,
             "metadata": metadata,
             "unique_attributes": unique_attributes if unique_attributes else None,  # Store unique attributes
             "discovery_url": discovery_url or self.current_url,  # Use provided URL or current URL
+            "context": context,  # Store context: "modal" or "main-page"
             "timestamp": datetime.now().isoformat() + "Z"
         }
         

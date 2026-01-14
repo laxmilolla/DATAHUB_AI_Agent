@@ -53,6 +53,10 @@ class BrowserClickTool:
         using_registry_xpath = False
         registry_button_element = None
         
+        # Check if modal/dialog is open
+        is_modal_open, modal_selector = await self._is_modal_open()
+        logger.info(f"  🔍 Modal check: is_modal_open={is_modal_open}, modal_selector={modal_selector}")
+        
         # Check if this is a dropdown option click - if so, search within open menu portal
         is_dropdown_option = await self._is_dropdown_option_click(selector, element_description, step_text)
         logger.info(f"  🔍 Dropdown option check: is_dropdown_option={is_dropdown_option}, open_menu={self.context.open_dropdown_menu}")
@@ -160,20 +164,38 @@ class BrowserClickTool:
         step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
         step_metadata = self.parsed_steps.get(step_identifier, {})
         step_text = step_metadata.get('text', '').lower() if step_metadata else ''
+        step_location = step_metadata.get('location', '').lower() if step_metadata else ''
+        step_parent_hint = step_metadata.get('parent_hint', '').lower() if step_metadata else ''
         
         page_hints = []
         if 'authenticator' in step_text:
             page_hints.append('authenticator')
         
+        # Check if modal is open and step suggests modal context
+        is_modal_open, modal_selector = await self._is_modal_open()
+        
+        # Determine if we should look in modal context
+        should_check_modal = (
+            is_modal_open and (
+                'pop up' in step_text or 'popup' in step_text or 'dialog' in step_text or
+                'modal' in step_text or step_location == 'table' or
+                'submission' in step_parent_hint or 'form' in step_parent_hint
+            )
+        )
+        
         # Try registry lookup with URL-based page_name first, then page hints
+        # If modal context is detected, also try modal-specific page name
         page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
+        if should_check_modal:
+            # Add modal-specific page name for registry lookup
+            modal_page_name = f"{page_name}-modal"
+            page_names_to_try.insert(0, modal_page_name)
+            logger.info(f"  🔍 Modal context detected - will also check page_name='{modal_page_name}'")
+        
         registry_selector = None
         
         # FIX #4: Check if we're looking for a dropdown button (not an option)
-        step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
-        step_metadata = self.parsed_steps.get(step_identifier, {})
         step_type = step_metadata.get('type', '')
-        step_text = step_metadata.get('text', '').lower() if step_metadata else ''
         
         is_looking_for_dropdown_button = (
             step_type == 'select' and 
@@ -217,18 +239,42 @@ class BrowserClickTool:
         
         if registry_selector:
             selector = registry_selector
+            # If modal is open and selector doesn't already scope to modal, scope it
+            if should_check_modal and modal_selector and not selector.startswith(modal_selector):
+                # Scope selector to modal context
+                if selector.startswith("xpath="):
+                    # For XPath, wrap with modal context check
+                    original_xpath = selector.replace("xpath=", "")
+                    scoped_selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
+                    logger.info(f"  🔍 Scoping XPath selector to modal: {scoped_selector}")
+                    selector = scoped_selector
+                else:
+                    # For CSS selectors, prefix with modal selector
+                    scoped_selector = f"{modal_selector} {selector}"
+                    logger.info(f"  🔍 Scoping CSS selector to modal: {scoped_selector}")
+                    selector = scoped_selector
+            
             if selector.startswith("xpath="):
                 using_registry_xpath = True
                 logger.info(f"  📋 Using XPath from registry (MANUAL)")
             else:
                 logger.info(f"  📋 Using selector from registry")
                 try:
-                    registry_matches = await self.page.locator(registry_selector).all()
+                    registry_matches = await self.page.locator(selector).all()
                     if registry_matches:
                         registry_button_element = registry_matches[0]
-                        logger.info(f"  🔍 Found registry button element: {registry_selector}")
+                        logger.info(f"  🔍 Found registry button element: {selector}")
                 except Exception as e:
                     logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
+        elif should_check_modal and modal_selector:
+            # No registry match, but modal is open - scope the original selector to modal
+            if not selector.startswith(modal_selector):
+                if selector.startswith("xpath="):
+                    original_xpath = selector.replace("xpath=", "")
+                    selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
+                else:
+                    selector = f"{modal_selector} {selector}"
+                logger.info(f"  🔍 Scoping selector to modal context: {selector}")
         
         return selector, using_registry_xpath, registry_button_element
     

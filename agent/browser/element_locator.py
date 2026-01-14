@@ -50,9 +50,47 @@ class ElementLocator:
             step_metadata = self.parsed_steps.get(step_identifier, {})
             logger.info(f"  📖 Step {self.current_step_number} metadata: {step_metadata}")
             
+            # Check if step suggests modal context
+            step_location = step_metadata.get('location', '').lower()
+            step_parent_hint = step_metadata.get('parent_hint', '').lower()
+            step_text_lower = step_metadata.get('text', '').lower()
+            
+            should_prefer_modal = (
+                step_location == 'table' or
+                'submission' in step_parent_hint or 'form' in step_parent_hint or
+                'pop up' in step_text_lower or 'popup' in step_text_lower or
+                'dialog' in step_text_lower or 'modal' in step_text_lower
+            )
+            
+            # If modal context is suggested, try modal-specific page name first
+            element = None
+            if should_prefer_modal:
+                modal_page_name = f"{page_name}-modal"
+                element = self.element_registry.get_element(domain, modal_page_name, element_description)
+                if element:
+                    element_context = element.get('context', 'main-page')
+                    if element_context == 'modal':
+                        logger.info(f"  ✅ Found element in modal context (page_name='{modal_page_name}')")
+                        selector = element.get('selector')
+                        logger.info(f"  ✅ Modal context match: {element_description} -> {selector}")
+                        self.element_registry.update_usage(domain, modal_page_name, element_description)
+                        return selector
+            
             # Try exact match first, but validate with unique_attributes and step metadata
-            element = self.element_registry.get_element(domain, page_name, element_description)
+            if not element:
+                element = self.element_registry.get_element(domain, page_name, element_description)
+            
             if element:
+                # Check element context and prefer modal if step suggests modal
+                element_context = element.get('context', 'main-page')
+                if should_prefer_modal and element_context == 'main-page':
+                    # Step suggests modal but element is main-page - might be wrong match
+                    logger.info(f"  ⚠️ Step suggests modal but element is main-page - continuing search...")
+                    # Don't return early, continue to find better match
+                elif not should_prefer_modal and element_context == 'modal':
+                    # Step doesn't suggest modal but element is modal - might be wrong match
+                    logger.info(f"  ⚠️ Step doesn't suggest modal but element is modal - continuing search...")
+                    # Don't return early, continue to find better match
                 # ✅ NEW: Validate exact match using unique_attributes and step metadata
                 unique_attrs = element.get('unique_attributes', {})
                 elem_role = unique_attrs.get('role', '').lower()

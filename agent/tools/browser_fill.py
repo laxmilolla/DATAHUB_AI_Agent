@@ -5,7 +5,7 @@ CRITICAL: Preserves registry checks, TOTP handling, discovery tracking
 """
 import re
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from playwright.async_api import Page
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,41 @@ class BrowserFillTool:
         self.context = execution_context
         self.parsed_steps = parsed_steps
         self.story = story
+    
+    async def _is_modal_open(self) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a modal/dialog is currently open
+        Returns: (is_open, modal_selector) tuple
+        """
+        try:
+            # Check for Material-UI dialog using data-testid
+            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
+            if await create_dialog.count() > 0:
+                is_visible = await create_dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: create-submission-dialog")
+                    return True, '[data-testid="create-submission-dialog"]'
+            
+            # Check for standard ARIA dialog
+            dialog = self.page.locator('[role="dialog"]').first
+            if await dialog.count() > 0:
+                is_visible = await dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: role=\"dialog\"")
+                    return True, '[role="dialog"]'
+            
+            # Check for Material-UI dialog classes
+            mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
+            if await mui_dialog.count() > 0:
+                is_visible = await mui_dialog.is_visible()
+                if is_visible:
+                    logger.info(f"  ✅ Modal detected: MuiDialog-root")
+                    return True, '.MuiDialog-root.MuiModal-root'
+            
+            return False, None
+        except Exception as e:
+            logger.debug(f"  ⚠️ Modal detection failed: {e}")
+            return False, None
     
     def _validate_registry_selector(self, registry_element: Optional[dict], element_name: Optional[str], llm_selector: str = None) -> bool:
         """
@@ -174,10 +209,30 @@ class BrowserFillTool:
                 page_hints.append('authenticator')
             # Add more page hints as needed
         
+        # Check if modal is open and step suggests modal context
+        is_modal_open, modal_selector = await self._is_modal_open()
+        step_location = step_metadata.get('location', '').lower() if step_metadata else ''
+        step_parent_hint = step_metadata.get('parent_hint', '').lower() if step_metadata else ''
+        
+        # Determine if we should look in modal context
+        should_check_modal = (
+            is_modal_open and (
+                'pop up' in step_text.lower() or 'popup' in step_text.lower() or 'dialog' in step_text.lower() or
+                'modal' in step_text.lower() or step_location == 'table' or
+                'submission' in step_parent_hint or 'form' in step_parent_hint
+            )
+        )
+        
         # Try registry lookup with URL-based page_name first, then page hints
+        # If modal context is detected, also try modal-specific page name
         registry_selector = None
         registry_element = None
         page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
+        if should_check_modal:
+            # Add modal-specific page name for registry lookup
+            modal_page_name = f"{page_name}-modal"
+            page_names_to_try.insert(0, modal_page_name)
+            logger.info(f"  🔍 Modal context detected - will also check page_name='{modal_page_name}'")
         
         if element_name_for_registry:
             for try_page_name in page_names_to_try:
@@ -219,6 +274,21 @@ class BrowserFillTool:
             
             if registry_selector and selector_valid:
                 selector = registry_selector
+                # If modal is open and selector doesn't already scope to modal, scope it
+                if should_check_modal and modal_selector and not selector.startswith(modal_selector):
+                    # Scope selector to modal context
+                    if selector.startswith("xpath="):
+                        # For XPath, wrap with modal context check
+                        original_xpath = selector.replace("xpath=", "")
+                        scoped_selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
+                        logger.info(f"  🔍 Scoping XPath selector to modal: {scoped_selector}")
+                        selector = scoped_selector
+                    else:
+                        # For CSS selectors, prefix with modal selector
+                        scoped_selector = f"{modal_selector} {selector}"
+                        logger.info(f"  🔍 Scoping CSS selector to modal: {scoped_selector}")
+                        selector = scoped_selector
+                
                 if selector.startswith("xpath="):
                     using_registry_xpath = True
                     logger.info(f"  📋 Using XPath from registry (MANUAL) for fill operation")
@@ -227,6 +297,15 @@ class BrowserFillTool:
             elif not selector_valid:
                 logger.warning(f"  ⚠️ Registry selector validation failed - using LLM selector instead")
                 registry_selector = None
+        elif should_check_modal and modal_selector:
+            # No registry match, but modal is open - scope the original selector to modal
+            if not selector.startswith(modal_selector):
+                if selector.startswith("xpath="):
+                    original_xpath = selector.replace("xpath=", "")
+                    selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
+                else:
+                    selector = f"{modal_selector} {selector}"
+                logger.info(f"  🔍 Scoping selector to modal context: {selector}")
         
         # TOTP Detection
         is_totp_step = self.totp_handler.is_totp_step(step_text, text)

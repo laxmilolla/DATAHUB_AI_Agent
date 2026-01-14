@@ -179,7 +179,8 @@ class RegistryManager:
                                 "usage_count": 1,
                                 "alternatives": [],
                                 "discovery_url": discovery.get('discovery_url'),  # Preserve discovery URL
-                                "unique_attributes": discovery.get('unique_attributes')  # Store unique attributes for easier matching
+                                "unique_attributes": discovery.get('unique_attributes'),  # Store unique attributes for easier matching
+                                "context": discovery.get('context', 'main-page')  # Store context: "modal" or "main-page"
                             }
                             
                             # Assign element_id: Use existing from registry if found, otherwise generate new
@@ -225,11 +226,18 @@ class RegistryManager:
                                     preserved_xpath = existing_xpath
                                     preserved_selector = existing_selector
                                     preserved_unique_attrs = existing_element.get('unique_attributes')  # Preserve unique_attributes if exists
+                                    preserved_context = existing_element.get('context')  # Preserve context if exists
                                     existing_element.update(element_entry)
                                     existing_element['xpath'] = preserved_xpath  # Restore preserved XPath
                                     existing_element['selector'] = preserved_selector  # Restore preserved selector
                                     if preserved_unique_attrs:
                                         existing_element['unique_attributes'] = preserved_unique_attrs  # Restore preserved unique_attributes
+                                    # Update context: preserve if exists, otherwise use new discovery's context
+                                    if preserved_context:
+                                        existing_element['context'] = preserved_context  # Keep existing context
+                                    elif element_entry.get('context'):
+                                        existing_element['context'] = element_entry['context']  # Add context from new discovery
+                                        logger.info(f"    ✅ Added context field to existing entry: {element_entry['context']}")
                                     logger.info(f"    🔒 Preserved existing XPath (manual XPath = source of truth): {preserved_xpath[:80]}...")
                                     logger.info(f"    🔒 Preserved existing selector (manual selector = source of truth): {preserved_selector[:80] if preserved_selector else 'N/A'}...")
                                     if preserved_unique_attrs:
