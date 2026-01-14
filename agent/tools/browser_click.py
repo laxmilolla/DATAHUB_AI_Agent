@@ -7,6 +7,7 @@ import re
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 from playwright.async_api import Page, Locator
+from agent.utils.modal_utils import ModalUtils
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,12 @@ class BrowserClickTool:
         using_registry_xpath = False
         registry_button_element = None
         
-        # Check if modal/dialog is open
-        is_modal_open, modal_selector = await self._is_modal_open()
+        # Check if modal/dialog is open (use shared utility, cache result to avoid multiple calls)
+        if not hasattr(self.context, '_cached_modal_state') or self.context._cached_modal_state is None:
+            is_modal_open, modal_selector = await ModalUtils.is_modal_open(self.page)
+            self.context._cached_modal_state = (is_modal_open, modal_selector)
+        else:
+            is_modal_open, modal_selector = self.context._cached_modal_state
         logger.info(f"  🔍 Modal check: is_modal_open={is_modal_open}, modal_selector={modal_selector}")
         
         # Check if this is a dropdown option click - if so, search within open menu portal
@@ -243,16 +248,16 @@ class BrowserClickTool:
         if 'authenticator' in step_text:
             page_hints.append('authenticator')
         
-        # Check if modal is open and step suggests modal context
-        is_modal_open, modal_selector = await self._is_modal_open()
+        # Check if modal is open and step suggests modal context (use cached result)
+        if not hasattr(self.context, '_cached_modal_state') or self.context._cached_modal_state is None:
+            is_modal_open, modal_selector = await ModalUtils.is_modal_open(self.page)
+            self.context._cached_modal_state = (is_modal_open, modal_selector)
+        else:
+            is_modal_open, modal_selector = self.context._cached_modal_state
         
-        # Determine if we should look in modal context
-        should_check_modal = (
-            is_modal_open and (
-                'pop up' in step_text or 'popup' in step_text or 'dialog' in step_text or
-                'modal' in step_text or step_location == 'table' or
-                'submission' in step_parent_hint or 'form' in step_parent_hint
-            )
+        # Determine if we should look in modal context (use shared utility)
+        should_check_modal = ModalUtils.should_check_modal(
+            is_modal_open, step_text, step_location, step_parent_hint
         )
         
         # Try registry lookup with URL-based page_name first, then page hints
@@ -313,24 +318,8 @@ class BrowserClickTool:
             selector = registry_selector
             # If modal is open and selector doesn't already scope to modal, scope it
             if should_check_modal and modal_selector and not selector.startswith(modal_selector):
-                # Scope selector to modal context
-                if selector.startswith("xpath="):
-                    # For XPath, wrap with modal context check
-                    original_xpath = selector.replace("xpath=", "")
-                    scoped_selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
-                    logger.info(f"  🔍 Scoping XPath selector to modal: {scoped_selector}")
-                    selector = scoped_selector
-                elif selector.startswith("text="):
-                    # For text= selectors, use >> operator (Playwright chain syntax)
-                    text_content = selector.replace("text=", "")
-                    scoped_selector = f"{modal_selector} >> text={text_content}"
-                    logger.info(f"  🔍 Scoping text= selector to modal: {scoped_selector}")
-                    selector = scoped_selector
-                else:
-                    # For CSS selectors, prefix with modal selector
-                    scoped_selector = f"{modal_selector} {selector}"
-                    logger.info(f"  🔍 Scoping CSS selector to modal: {scoped_selector}")
-                    selector = scoped_selector
+                # Scope selector to modal context (use shared utility)
+                selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
             
             if selector.startswith("xpath="):
                 using_registry_xpath = True
@@ -345,18 +334,9 @@ class BrowserClickTool:
                 except Exception as e:
                     logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
         elif should_check_modal and modal_selector:
-            # No registry match, but modal is open - scope the original selector to modal
+            # No registry match, but modal is open - scope the original selector to modal (use shared utility)
             if not selector.startswith(modal_selector):
-                if selector.startswith("xpath="):
-                    original_xpath = selector.replace("xpath=", "")
-                    selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
-                elif selector.startswith("text="):
-                    # For text= selectors, use >> operator (Playwright chain syntax)
-                    text_content = selector.replace("text=", "")
-                    selector = f"{modal_selector} >> text={text_content}"
-                else:
-                    selector = f"{modal_selector} {selector}"
-                logger.info(f"  🔍 Scoping selector to modal context: {selector}")
+                selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
         
         return selector, using_registry_xpath, registry_button_element
     
@@ -1170,41 +1150,6 @@ class BrowserClickTool:
             logger.warning(f"  ⚠️ Error finding option in menu: {e}")
             return None
     
-    async def _is_modal_open(self) -> Tuple[bool, Optional[str]]:
-        """
-        Check if a modal/dialog is currently open
-        Returns: (is_open, modal_selector) tuple
-        """
-        try:
-            # Check for Material-UI dialog using data-testid
-            create_dialog = self.page.locator('[data-testid="create-submission-dialog"]').first
-            if await create_dialog.count() > 0:
-                is_visible = await create_dialog.is_visible()
-                if is_visible:
-                    logger.info(f"  ✅ Modal detected: create-submission-dialog")
-                    return True, '[data-testid="create-submission-dialog"]'
-            
-            # Check for standard ARIA dialog
-            dialog = self.page.locator('[role="dialog"]').first
-            if await dialog.count() > 0:
-                is_visible = await dialog.is_visible()
-                if is_visible:
-                    logger.info(f"  ✅ Modal detected: role=\"dialog\"")
-                    return True, '[role="dialog"]'
-            
-            # Check for Material-UI dialog classes
-            mui_dialog = self.page.locator('.MuiDialog-root.MuiModal-root').first
-            if await mui_dialog.count() > 0:
-                is_visible = await mui_dialog.is_visible()
-                if is_visible:
-                    logger.info(f"  ✅ Modal detected: MuiDialog-root")
-                    return True, '.MuiDialog-root.MuiModal-root'
-            
-            return False, None
-        except Exception as e:
-            logger.debug(f"  ⚠️ Modal detection failed: {e}")
-            return False, None
-    
     async def _is_dropdown_button_pre_click(self, locator: Locator, element_name: str) -> bool:
         """
         IMPROVEMENT #1: Check if element is a dropdown button BEFORE clicking
@@ -1266,8 +1211,14 @@ class BrowserClickTool:
             Selector for the menu portal, or None if not found
         """
         try:
-            # Check if modal is open - if so, prioritize modal-scoped selectors
-            is_modal_open, modal_selector = await self._is_modal_open()
+            # Check if modal is open - if so, prioritize modal-scoped selectors (use cached result)
+            # Use cached modal state from execute() method
+            if hasattr(self.context, '_cached_modal_state') and self.context._cached_modal_state is not None:
+                is_modal_open, modal_selector = self.context._cached_modal_state
+            else:
+                # Fallback if cache not available
+                is_modal_open, modal_selector = await ModalUtils.is_modal_open(self.page)
+                self.context._cached_modal_state = (is_modal_open, modal_selector)
             
             # Enhanced selectors - Material-UI Select specific + standard
             menu_selectors = []
