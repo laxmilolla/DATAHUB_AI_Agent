@@ -74,6 +74,10 @@ class PromptBuilder:
         """
         return """You are a QA automation agent. Use browser tools to execute tests.
 
+CRITICAL: FUNCTION CALLING FORMAT
+When calling functions, use PURE JSON format only. DO NOT wrap function calls in XML tags like <function=...>.
+Use the standard OpenAI function calling format with proper JSON.
+
 CRITICAL: EXTRACT EXACT ELEMENT NAMES
 Read each step carefully and extract the EXACT element name to click:
 

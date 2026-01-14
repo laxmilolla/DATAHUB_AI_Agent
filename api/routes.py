@@ -813,7 +813,7 @@ def download_env_file(exec_id):
 
 @bp.route('/executions/<exec_id>/download-test-zip', methods=['GET'])
 def download_test_with_env_zip(exec_id):
-    """Download test file, .env file, and all required registry JSON files bundled as a zip file"""
+    """Download test file and all required registry JSON files bundled as a zip file (excludes .env for security)"""
     try:
         from flask import send_file
         from io import BytesIO
@@ -849,16 +849,6 @@ def download_test_with_env_zip(exec_id):
             path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
             registry_paths = [p.strip() for p in path_matches if p.strip()]
         
-        # Get .env file
-        env_file_path = project_root / '.env'
-        if not env_file_path.exists():
-            return jsonify({'error': '.env file not found on server'}), 404
-        
-        # Read .env content to verify it exists and has content
-        with open(env_file_path, 'r') as f:
-            env_content = f.read()
-        print(f"✅ Read .env file: {len(env_content)} bytes")
-        
         # Create zip file in memory
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -866,16 +856,8 @@ def download_test_with_env_zip(exec_id):
             zip_file.write(test_file, test_file.name)
             print(f"✅ Added test file to zip: {test_file.name}")
             
-            # Add .env file - explicitly use arcname parameter
-            # Note: Files starting with '.' may be hidden in some file browsers but will be in the zip
-            zip_file.write(str(env_file_path), '.env')
-            print(f"✅ Added .env file to zip: .env ({len(env_content)} bytes)")
-            
-            # Verify .env was added by checking zip contents
-            if '.env' not in zip_file.namelist():
-                print(f"⚠️  WARNING: .env not found in zip file list!")
-            else:
-                print(f"✅ Verified: .env is in zip file list")
+            # Note: .env file is NOT included for security reasons
+            # Users must create their own .env file with appropriate credentials
             
             # Add all registry JSON files with proper directory structure
             # The test expects paths like 'element_maps/domain/page_page.json'
@@ -934,7 +916,7 @@ def download_test_with_env_zip(exec_id):
 
 @bp.route('/executions/<exec_id>/download-test-ts-zip', methods=['GET'])
 def download_test_ts_zip(exec_id):
-    """Download TypeScript test file (.spec.ts), .env file, package.json, README, and all required registry JSON files bundled as a zip file"""
+    """Download TypeScript test file (.spec.ts), package.json, README, and all required registry JSON files bundled as a zip file (excludes .env for security)"""
     try:
         from flask import send_file
         from io import BytesIO
@@ -972,14 +954,6 @@ def download_test_ts_zip(exec_id):
             path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
             registry_paths = [p.strip() for p in path_matches if p.strip()]
         
-        # Get .env file
-        env_file_path = project_root / '.env'
-        if not env_file_path.exists():
-            return jsonify({'error': '.env file not found on server'}), 404
-        
-        with open(env_file_path, 'r') as f:
-            env_content = f.read()
-        
         # Create package.json content
         package_json_content = '''{
   "name": "playwright-test",
@@ -1005,16 +979,18 @@ def download_test_ts_zip(exec_id):
 ## Setup Instructions
 
 1. Extract all files
-2. Run: `npm install`
-3. Run: `npx playwright install chromium`
-4. Ensure `.env` file has `TOTP_SECRET_KEY`
+2. Create a `.env` file with your environment variables (e.g., `TOTP_SECRET_KEY`)
+3. Run: `npm install`
+4. Run: `npx playwright install chromium`
 5. Run: `npx playwright test {test_name}.spec.ts`
 
 ## Files Included
 - `{test_name}.spec.ts` - Main test file
-- `.env` - Environment variables
 - `package.json` - Dependencies
 - JSON registry files - Element XPath mappings
+
+## Important
+- **`.env` file is NOT included** for security reasons. You must create your own `.env` file with appropriate credentials.
 
 ## Notes
 - Screenshots saved to `storage/screenshots/`
@@ -1029,9 +1005,8 @@ def download_test_ts_zip(exec_id):
             zip_file.writestr(ts_filename, ts_code)
             print(f"✅ Added TypeScript test file to zip: {ts_filename}")
             
-            # Add .env file
-            zip_file.write(str(env_file_path), '.env')
-            print(f"✅ Added .env file to zip")
+            # Note: .env file is NOT included for security reasons
+            # Users must create their own .env file with appropriate credentials
             
             # Add package.json
             zip_file.writestr('package.json', package_json_content)

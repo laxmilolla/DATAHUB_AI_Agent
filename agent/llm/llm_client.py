@@ -327,14 +327,33 @@ class GroqClient(LLMClient):
         
         # Groq client is synchronous, so run in executor
         def _call_groq():
-            return self.client.chat.completions.create(
-                model=self.model,
-                messages=groq_messages,
-                tools=groq_tools if groq_tools else None,
-                tool_choice="auto",  # Let model decide when to use tools
-                max_tokens=4096,
-                temperature=0.0
-            )
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=groq_messages,
+                    tools=groq_tools if groq_tools else None,
+                    tool_choice="auto",  # Let model decide when to use tools
+                    max_tokens=4096,
+                    temperature=0.0
+                )
+            except Exception as e:
+                # Groq-specific: Handle tool_use_failed errors (XML-wrapped function calls)
+                error_str = str(e)
+                if 'tool_use_failed' in error_str or 'failed_generation' in error_str:
+                    logger.warning(f"⚠️ Groq tool use error (likely XML-wrapped function call): {error_str}")
+                    # Try again with explicit instruction in system message
+                    groq_messages_with_hint = groq_messages.copy()
+                    if groq_messages_with_hint and groq_messages_with_hint[0].get('role') == 'system':
+                        groq_messages_with_hint[0]['content'] += "\n\nIMPORTANT: Use pure JSON format for function calls. Do NOT wrap in XML tags."
+                    return self.client.chat.completions.create(
+                        model=self.model,
+                        messages=groq_messages_with_hint,
+                        tools=groq_tools if groq_tools else None,
+                        tool_choice="auto",
+                        max_tokens=4096,
+                        temperature=0.0
+                    )
+                raise
         
         # Run synchronous Groq call in executor
         loop = asyncio.get_event_loop()

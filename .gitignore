@@ -32,6 +32,17 @@ yarn-error.log*
 # Environment
 .env
 .env.local
+.env.*
+*.env
+!env.example
+
+# AWS Credentials
+.aws/
+*.pem
+*-key.pem
+aws-credentials*
+credentials
+config
 
 # Storage
 storage/executions/*.json

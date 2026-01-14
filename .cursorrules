@@ -1,0 +1,170 @@
+# AI Agent QA - Cursor Rules
+
+## ⚠️ CRITICAL RULE #1: NO CODE CHANGES WITHOUT APPROVAL
+
+**NEVER make code changes until explicitly approved by the user.**
+- Propose changes first, explain what will be modified
+- Wait for user approval before using code editing tools
+- Only make changes when user explicitly requests them
+- If unsure, ask for clarification before proceeding
+
+## Project Overview
+This is an LLM-powered autonomous test execution system using Bedrock Agent (Claude) + MCP tools + Playwright.
+The agent makes real-time decisions, adapts to page changes, and self-heals.
+
+**Architecture:** User Story → Bedrock Agent (Claude) → MCP Tools → Playwright → Browser
+
+## Security - CRITICAL
+
+### Never Commit Credentials
+- **NEVER** commit `.env` files or any credential files
+- **NEVER** include `.env` in zip downloads (see `api/routes.py`)
+- `.env` is git-ignored - verify with `git check-ignore .env`
+- AWS credentials, API keys, and secrets must stay in `.env` only
+- PEM keys (`*.pem`, `*-key.pem`) are git-ignored
+
+### Credential Files to Ignore
+- `.env`, `.env.*`, `*.env` (except `env.example`)
+- `.aws/`, `credentials`, `config`
+- `*.pem`, `*-key.pem`
+- `aws-credentials*`
+
+## Code Style & Patterns
+
+### Python
+- Use type hints where appropriate
+- Follow PEP 8 style guide
+- Use f-strings for string formatting
+- Prefer pathlib.Path over os.path
+- Use logging instead of print statements in production code
+
+### File Organization
+- `agent/core/` - Main orchestrator and execution context
+- `agent/llm/` - LLM clients (Bedrock/Claude is primary, other providers available)
+- `agent/browser/` - Playwright browser management
+- `agent/tools/` - Tool handlers (browser_click, browser_fill, browser_navigate, etc.)
+- `agent/discovery/` - Element discovery and XPath generation
+- `api/` - Flask API routes
+- `web/` - Frontend templates and static files
+- `storage/` - Execution results and screenshots
+
+## LLM Provider Configuration
+
+### Primary Provider: AWS Bedrock (Claude)
+- **Default:** AWS Bedrock with Claude Sonnet 4.5
+- **Configuration:** Set `LLM_PROVIDER=bedrock` in `.env`
+- **Credentials:** Use AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`)
+- **No Groq:** We are using AWS Bedrock, not Groq
+
+## Element Registry System
+
+### Key Concepts
+- **Element Registry:** JSON-based versioned storage of UI selectors
+- **XPath Generation:** Unique XPaths for elements (see `agent/discovery/xpath_generator.py`)
+- **Discovery Tracker:** Tracks discovered elements (see `agent/discovery/discovery_tracker.py`)
+- **Registry Manager:** Saves/updates registry files (see `agent/discovery/registry_manager.py`)
+
+### Important Files
+- `agent/tools/browser_click.py` - Has XPath generation fallback when selectors fail
+- `agent/tools/browser_fill.py` - May need XPath generation fallback (currently missing)
+- `element_maps/` - Registry JSON files stored here
+
+## Browser Tools
+
+### Tool Handlers
+- `browser_navigate` - Navigate to URLs
+- `browser_click` - Click elements (with registry checks and XPath fallback)
+- `browser_fill` - Fill forms (with TOTP handling, registry checks)
+- `browser_evaluate` - Execute JavaScript
+- `browser_verify` - Table verification
+
+### Element Location Strategy
+1. Check registry first (if element_id provided)
+2. Try provided selector
+3. Generate XPath if selector fails (browser_click only)
+4. Use discovery tracker for new elements
+
+## Testing & Debugging
+
+### Logs
+- Flask logs: `flask.log` (on server: `~/DATAHUB_AI_Agent/flask.log`)
+- Monitor logs: `tail -f flask.log | grep -E "Step|ERROR|WARNING"`
+- Execution results: `storage/executions/`
+- Screenshots: `storage/screenshots/`
+
+### Common Issues
+- **Infinite loops:** Agent may try to login when already logged in - add state detection
+- **Element not found:** Check if XPath generation fallback exists (browser_fill lacks it)
+- **AWS Bedrock errors:** Check AWS credentials and IAM permissions
+- **Access denied:** Verify AWS credentials are valid and not quarantined
+
+## Deployment
+
+### Server Information
+- EC2 Instance: `ubuntu@13.222.91.163`
+- Project Path: `~/DATAHUB_AI_Agent`
+- SSH Key: `~/Downloads/ai-crdc-hub-key.pem`
+
+### Deployment Steps
+1. Make changes locally
+2. Commit and push to git
+3. SSH to server: `ssh -i ~/Downloads/ai-crdc-hub-key.pem ubuntu@13.222.91.163`
+4. Pull changes: `cd ~/DATAHUB_AI_Agent && git pull`
+5. Restart Flask: `sudo systemctl restart flask` or use deployment script
+
+### Environment Variables
+- Update `.env` on server (never commit)
+- Required vars: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `LLM_PROVIDER=bedrock`
+
+## Git Workflow
+
+### Before Committing
+- Check `git status` for any `.env` or credential files
+- Verify `.gitignore` includes all credential patterns
+- Never commit zip files with `.env` included
+- Use descriptive commit messages
+
+### Common Commands
+- `git check-ignore .env` - Verify .env is ignored
+- `git status` - Check for uncommitted changes
+- `git log --all -S "AKIA"` - Search for AWS keys in history (should return nothing)
+
+## AWS Credentials
+
+### If Credentials Are Compromised
+1. Generate new AWS access keys in IAM console
+2. Update `.env` on server with new credentials
+3. Deactivate old keys in IAM console
+4. Contact AWS Support to remove `AWSCompromisedKeyQuarantineV3` policy
+5. See `AWS_CREDENTIALS_FIX.md` for detailed steps
+
+## Best Practices
+
+### When Making Changes
+1. **Get approval first:** Never make code changes without explicit user approval
+2. **Test locally first:** Verify changes work before deploying
+3. **Check logs:** Monitor Flask logs for errors after changes
+4. **Update documentation:** If adding new features, update relevant docs
+5. **Preserve AWS/Bedrock functionality:** Ensure changes don't break Claude integration
+
+### When Adding New Tools
+- Follow existing tool handler patterns (`agent/tools/`)
+- Include registry checks for element location
+- Add XPath generation fallback for robustness
+- Update tool definitions in `agent/llm/tool_definitions.py`
+
+### When Debugging
+- Check Flask logs first
+- Review execution JSON in `storage/executions/`
+- Check screenshots in `storage/screenshots/`
+- Verify element registry files in `element_maps/`
+
+## Important Notes
+
+- **NO CODE CHANGES WITHOUT APPROVAL** - Always get explicit approval before making changes
+- **Always verify** `.env` is git-ignored before committing
+- **We use AWS Bedrock (Claude)** - Not Groq or other providers
+- **Preserve XPath uniqueness** when updating registry manager
+- **Monitor logs** during test execution to catch issues early
+- **Never commit credentials** - Always check git status before committing
+
