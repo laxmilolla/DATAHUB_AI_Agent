@@ -124,6 +124,12 @@ class BrowserClickTool:
         if not validation_result["exists"]:
             return f"❌ Click FAILED: {selector} - Element not found"
         
+        # FIX #2: Close any open menus before opening a new dropdown
+        if self.context.open_dropdown_menu:
+            logger.info(f"  🔄 Closing previously open menu before opening new dropdown...")
+            await self._close_open_menu(self.context.open_dropdown_menu)
+            self.context.open_dropdown_menu = None
+        
         # IMPROVEMENT #1: Pre-click dropdown detection
         is_dropdown_button = await self._is_dropdown_button_pre_click(chosen_locator, element_name)
         
@@ -162,14 +168,48 @@ class BrowserClickTool:
         page_names_to_try = [page_name] + page_hints if page_hints else [page_name]
         registry_selector = None
         
+        # FIX #4: Check if we're looking for a dropdown button (not an option)
+        step_identifier = self.context.current_step_identifier or str(self.context.current_step_number)
+        step_metadata = self.parsed_steps.get(step_identifier, {})
+        step_type = step_metadata.get('type', '')
+        step_text = step_metadata.get('text', '').lower() if step_metadata else ''
+        
+        is_looking_for_dropdown_button = (
+            step_type == 'select' and 
+            ('dropdown' in step_text or 'open' in step_text or 'click' in step_text) and
+            'pick' not in step_text and 'select' not in step_text and 'choose' not in step_text
+        )
+        
         for try_page_name in page_names_to_try:
             if not try_page_name:
                 continue
             logger.info(f"  🔍 Trying registry lookup with page_name='{try_page_name}'")
             registry_selector = self.element_locator.check_registry(element_description, domain, try_page_name)
             if registry_selector:
-                logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
-                break
+                # FIX #4: If looking for dropdown button, filter out option selectors
+                if is_looking_for_dropdown_button and '[role="option"]' in registry_selector:
+                    logger.warning(f"  ⚠️ Registry returned option selector for dropdown button - skipping: {registry_selector}")
+                    # Try to find button selector instead
+                    # Look for element with same name but button role
+                    button_selector = registry_selector.replace('[role="option"]', '[role="button"]')
+                    button_selector = button_selector.replace('[role="listbox"] [role="option"]', '[role="button"]')
+                    # Try the modified selector
+                    try:
+                        button_matches = await self.page.locator(button_selector).all()
+                        if button_matches and await button_matches[0].is_visible():
+                            registry_selector = button_selector
+                            logger.info(f"  ✅ Found button selector instead: {registry_selector}")
+                        else:
+                            # Fallback: Try to find by ID or other attributes
+                            logger.warning(f"  ⚠️ Could not find button selector, will use discovery")
+                            registry_selector = None
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not check button selector: {e}")
+                        registry_selector = None
+                
+                if registry_selector:
+                    logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
+                    break
         
         using_registry_xpath = False
         registry_button_element = None
@@ -705,8 +745,20 @@ class BrowserClickTool:
                     if self.context.open_dropdown_menu:
                         self.context.open_dropdown_menu = None
                 
+                # FIX #1: Clear menu portal after option selection (on DOM change, not just URL change)
+                # If this was a dropdown option click, clear the menu portal
+                if is_dropdown_option and self.context.open_dropdown_menu:
+                    logger.info(f"  🔄 Clearing menu portal after option selection (DOM changed)")
+                    self.context.open_dropdown_menu = None
+                
                 if url_changed or dom_changed:
                     logger.info(f"  ✅ Click verified: {'URL changed' if url_changed else 'DOM changed'}")
+                    
+                    # FIX #1: Also clear menu portal on DOM change (for cases where option selection doesn't change URL)
+                    if dom_changed and self.context.open_dropdown_menu and not is_dropdown_button:
+                        # DOM changed but not a dropdown button click - likely an option was selected
+                        logger.info(f"  🔄 Clearing menu portal after DOM change (likely option selected)")
+                        self.context.open_dropdown_menu = None
                     
                     # Track discovery
                     if not using_registry_xpath:
@@ -988,26 +1040,32 @@ class BrowserClickTool:
         """
         IMPROVEMENT #1: Check if element is a dropdown button BEFORE clicking
         Returns True if element appears to be a dropdown button
+        FIX #3: Improved detection even when another menu is open
         """
         try:
             # Check attributes
             role = await locator.get_attribute('role')
             aria_expanded = await locator.get_attribute('aria-expanded')
             aria_has_popup = await locator.get_attribute('aria-haspopup')
+            aria_labelledby = await locator.get_attribute('aria-labelledby')
+            id_attr = await locator.get_attribute('id') or ''
             class_name = await locator.get_attribute('class') or ''
             
-            # Material-UI Select indicators
+            # Material-UI Select indicators (more specific checks)
             is_mui_select = (
                 'MuiSelect' in class_name or
                 'MuiSelect-select' in class_name or
-                (role == 'button' and aria_has_popup == 'listbox')
+                'MuiSelect-root' in class_name or
+                (role == 'button' and aria_has_popup == 'listbox') or
+                (id_attr and 'select' in id_attr.lower() and 'mui-component-select' in id_attr)
             )
             
             # Standard dropdown indicators
             is_standard_dropdown = (
                 (role == 'button' and aria_expanded is not None) or
                 aria_has_popup == 'listbox' or
-                aria_has_popup == 'menu'
+                aria_has_popup == 'menu' or
+                (role == 'combobox')
             )
             
             # Check if element name/description suggests dropdown
@@ -1016,8 +1074,16 @@ class BrowserClickTool:
             known_dropdowns = ['study', 'datacommons', 'dropdown', 'select']
             is_known_dropdown = any(name in element_desc_lower for name in known_dropdowns)
             
-            result = is_mui_select or is_standard_dropdown or is_known_dropdown
-            logger.info(f"  🔍 Pre-click dropdown detection: mui={is_mui_select}, standard={is_standard_dropdown}, known={is_known_dropdown}, result={result}")
+            # FIX #3: Check if this is a Material-UI Select button (even if another menu is open)
+            # Material-UI Select buttons have specific ID patterns: mui-component-select-*
+            is_mui_select_by_id = (
+                id_attr and 
+                'mui-component-select' in id_attr and 
+                role == 'button'
+            )
+            
+            result = is_mui_select or is_standard_dropdown or is_known_dropdown or is_mui_select_by_id
+            logger.info(f"  🔍 Pre-click dropdown detection: mui={is_mui_select}, standard={is_standard_dropdown}, known={is_known_dropdown}, mui_id={is_mui_select_by_id}, result={result}")
             return result
         except Exception as e:
             logger.debug(f"  ⚠️ Pre-click dropdown detection failed: {e}")
@@ -1116,3 +1182,35 @@ class BrowserClickTool:
             logger.info(f"  🔒 Menu kept open: {menu_selector}")
         except Exception as e:
             logger.debug(f"  ⚠️ Could not keep menu open: {e}")
+    
+    async def _close_open_menu(self, menu_selector: str):
+        """
+        FIX #2: Close an open menu before opening a new dropdown
+        """
+        try:
+            await self.page.evaluate(f"""
+                () => {{
+                    const menu = document.querySelector('{menu_selector}');
+                    if (menu) {{
+                        // Find and click backdrop to close menu
+                        const backdrop = menu.closest('.MuiPopover-root')?.querySelector('.MuiBackdrop-root');
+                        if (backdrop) {{
+                            backdrop.click();
+                        }} else {{
+                            // Fallback: Press Escape key
+                            const event = new KeyboardEvent('keydown', {{
+                                key: 'Escape',
+                                code: 'Escape',
+                                keyCode: 27,
+                                bubbles: true
+                            }});
+                            document.dispatchEvent(event);
+                        }}
+                    }}
+                }}
+            """)
+            # Wait a bit for menu to close
+            await self.page.wait_for_timeout(300)
+            logger.info(f"  🔒 Closed previously open menu: {menu_selector}")
+        except Exception as e:
+            logger.debug(f"  ⚠️ Could not close menu: {e}")
