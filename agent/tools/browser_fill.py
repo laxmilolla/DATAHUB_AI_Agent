@@ -162,7 +162,17 @@ class BrowserFillTool:
             step_lower = step_text.lower()
             
             # Extract element name from step text
-            if 'password' in step_lower:
+            # Pattern 1: "Enter X in the Y text box" -> extract Y (field name)
+            # This handles cases like "Enter Timestamp in the Submission name text box"
+            pattern1 = r'(?:enter|fill|type|input)\s+[^"\']+\s+in\s+(?:the\s+)?([^"\']+?)\s+(?:text\s+box|field|input)'
+            match1 = re.search(pattern1, step_lower)
+            if match1:
+                element_name_for_registry = match1.group(1).strip()
+                element_name_for_registry = re.sub(r'\b(the|a|an|text|box|field|input)\b', '', element_name_for_registry).strip()
+                # Capitalize first letter of each word for registry lookup
+                element_name_for_registry = ' '.join(word.capitalize() for word in element_name_for_registry.split())
+                logger.info(f"  🎯 Extracted element name using 'in the X' pattern: '{element_name_for_registry}'")
+            elif 'password' in step_lower:
                 element_name_for_registry = 'password'
             elif 'username' in step_lower or 'email' in step_lower:
                 element_name_for_registry = 'username'
@@ -171,12 +181,15 @@ class BrowserFillTool:
             elif 'code' in step_lower and ('one-time' in step_lower or 'totp' in step_lower):
                 element_name_for_registry = 'totp'
             else:
-                # Try pattern extraction
-                fill_pattern = r'(?:enter|fill|type|input)\s+(?:the\s+)?(?:field\s+)?(?:called\s+)?(\w+)(?:\s+as|\s+with|\s*=|\s*$)'
+                # Pattern 2: "Enter X as Y" or "Enter X" -> extract X or Y
+                fill_pattern = r'(?:enter|fill|type|input)\s+(?:the\s+)?(?:field\s+)?(?:called\s+)?([^"\']+?)(?:\s+as|\s+with|\s+in|\s*=|\s*$)'
                 match = re.search(fill_pattern, step_lower)
                 if match:
                     element_name_for_registry = match.group(1).strip()
+                    # Remove common words but preserve multi-word names
                     element_name_for_registry = re.sub(r'\b(as|with|field|input|the|a|an)\b', '', element_name_for_registry).strip()
+                    # Capitalize first letter of each word for registry lookup
+                    element_name_for_registry = ' '.join(word.capitalize() for word in element_name_for_registry.split())
             
             logger.info(f"  🔍 Extracted element name from step text: '{element_name_for_registry}'")
         

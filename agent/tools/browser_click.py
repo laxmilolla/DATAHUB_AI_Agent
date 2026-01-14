@@ -31,6 +31,35 @@ class BrowserClickTool:
         self.parsed_steps = parsed_steps
         self.story = story
     
+    def _parse_dropdown_selection_pattern(self, step_text: str) -> Optional[Tuple[str, str]]:
+        """
+        Parse "Pick X from Y dropdown" pattern
+        Returns: (dropdown_name, option_value) or None if not a dropdown selection pattern
+        """
+        if not step_text:
+            return None
+        
+        step_lower = step_text.lower()
+        
+        # Pattern: "pick X from Y dropdown" or "select X from Y dropdown" or "choose X from Y dropdown"
+        patterns = [
+            r'pick\s+["\']?([^"\']+)["\']?\s+from\s+(?:the\s+)?([^"\']+?)\s+dropdown',
+            r'select\s+["\']?([^"\']+)["\']?\s+from\s+(?:the\s+)?([^"\']+?)\s+dropdown',
+            r'choose\s+["\']?([^"\']+)["\']?\s+from\s+(?:the\s+)?([^"\']+?)\s+dropdown',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, step_lower)
+            if match:
+                option_value = match.group(1).strip()
+                dropdown_name = match.group(2).strip()
+                # Clean up dropdown name (remove "the", "pop up", etc.)
+                dropdown_name = re.sub(r'\b(the|pop\s+up|popup|form|dialog)\b', '', dropdown_name).strip()
+                logger.info(f"  🎯 Detected dropdown selection pattern: dropdown='{dropdown_name}', option='{option_value}'")
+                return (dropdown_name, option_value)
+        
+        return None
+    
     async def execute(self, selector: str, element_description: str = None) -> str:
         """Execute click operation"""
         original_selector = selector
@@ -43,6 +72,14 @@ class BrowserClickTool:
         step_metadata = self.parsed_steps.get(step_identifier, {})
         step_text = step_metadata.get('text', '')
         step_type = step_metadata.get('type', '')
+        
+        # Check if this is a dropdown selection pattern ("Pick X from Y dropdown")
+        dropdown_selection = self._parse_dropdown_selection_pattern(step_text)
+        if dropdown_selection:
+            dropdown_name, option_value = dropdown_selection
+            # Override element_description to use dropdown name instead of option value
+            element_description = dropdown_name
+            logger.info(f"  🔄 Overriding element_description to dropdown name: '{dropdown_name}' (option: '{option_value}')")
         
         # DEBUG: Log step context at start of execution
         logger.info(f"  📍 browser_click.execute() - step_identifier={step_identifier}, step_text='{step_text[:50]}...', step_type={step_type}")
@@ -121,10 +158,45 @@ class BrowserClickTool:
                 selector, element_description or selector
             )
             
-            # Find and choose element
-            chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
-                selector, original_selector, using_registry_xpath
-            )
+            # If this is a dropdown selection pattern, open dropdown first, then select option
+            if dropdown_selection and dropdown_name and option_value:
+                logger.info(f"  🎯 Handling dropdown selection: opening '{dropdown_name}' dropdown, then selecting '{option_value}'")
+                # First, click the dropdown button to open it
+                dropdown_locator, _ = await self._find_and_choose_element(
+                    selector, original_selector, using_registry_xpath
+                )
+                if dropdown_locator:
+                    # Click dropdown button to open menu
+                    await dropdown_locator.click()
+                    await self.page.wait_for_timeout(500)  # Wait for menu to open
+                    
+                    # Wait for dropdown menu portal to appear
+                    menu_portal = await self._wait_for_dropdown_menu_portal()
+                    if menu_portal:
+                        self.context.open_dropdown_menu = menu_portal
+                        logger.info(f"  ✅ Opened dropdown menu: {menu_portal}")
+                        
+                        # Now find and click the option
+                        option_locator = await self._find_option_in_menu(menu_portal, option_value)
+                        if option_locator:
+                            chosen_locator = option_locator
+                            original_element_for_xpath = option_locator
+                            using_registry_xpath = False
+                            logger.info(f"  ✅ Found option '{option_value}' in dropdown menu")
+                        else:
+                            logger.warning(f"  ⚠️ Option '{option_value}' not found in dropdown menu")
+                            return f"❌ Click FAILED: Option '{option_value}' not found in '{dropdown_name}' dropdown"
+                    else:
+                        logger.warning(f"  ⚠️ Dropdown menu did not open after clicking '{dropdown_name}'")
+                        return f"❌ Click FAILED: Dropdown '{dropdown_name}' did not open"
+                else:
+                    logger.warning(f"  ⚠️ Dropdown button '{dropdown_name}' not found")
+                    return f"❌ Click FAILED: Dropdown button '{dropdown_name}' not found"
+            else:
+                # Normal element click (not dropdown selection)
+                chosen_locator, original_element_for_xpath = await self._find_and_choose_element(
+                    selector, original_selector, using_registry_xpath
+                )
         
         if not chosen_locator:
             return f"❌ Click FAILED: {selector} - Element not found"
@@ -248,6 +320,12 @@ class BrowserClickTool:
                     scoped_selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
                     logger.info(f"  🔍 Scoping XPath selector to modal: {scoped_selector}")
                     selector = scoped_selector
+                elif selector.startswith("text="):
+                    # For text= selectors, use >> operator (Playwright chain syntax)
+                    text_content = selector.replace("text=", "")
+                    scoped_selector = f"{modal_selector} >> text={text_content}"
+                    logger.info(f"  🔍 Scoping text= selector to modal: {scoped_selector}")
+                    selector = scoped_selector
                 else:
                     # For CSS selectors, prefix with modal selector
                     scoped_selector = f"{modal_selector} {selector}"
@@ -272,6 +350,10 @@ class BrowserClickTool:
                 if selector.startswith("xpath="):
                     original_xpath = selector.replace("xpath=", "")
                     selector = f"xpath=({modal_selector})//{original_xpath.lstrip('/')}"
+                elif selector.startswith("text="):
+                    # For text= selectors, use >> operator (Playwright chain syntax)
+                    text_content = selector.replace("text=", "")
+                    selector = f"{modal_selector} >> text={text_content}"
                 else:
                     selector = f"{modal_selector} {selector}"
                 logger.info(f"  🔍 Scoping selector to modal context: {selector}")
