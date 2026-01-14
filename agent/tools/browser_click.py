@@ -57,6 +57,12 @@ class BrowserClickTool:
         is_dropdown_option = await self._is_dropdown_option_click(selector, element_description, step_text)
         logger.info(f"  🔍 Dropdown option check: is_dropdown_option={is_dropdown_option}, open_menu={self.context.open_dropdown_menu}")
         
+        # FIX #2: Close any open menus before opening a new dropdown (but NOT if selecting an option)
+        if not is_dropdown_option and self.context.open_dropdown_menu:
+            logger.info(f"  🔄 Closing previously open menu before opening new dropdown...")
+            await self._close_open_menu(self.context.open_dropdown_menu)
+            self.context.open_dropdown_menu = None
+        
         if is_dropdown_option and self.context.open_dropdown_menu:
             # Search within the open menu portal
             logger.info(f"  🔍 Searching for dropdown option '{element_description or selector}' within open menu portal")
@@ -123,12 +129,6 @@ class BrowserClickTool:
         validation_result = await self._validate_element(chosen_locator, selector, element_name)
         if not validation_result["exists"]:
             return f"❌ Click FAILED: {selector} - Element not found"
-        
-        # FIX #2: Close any open menus before opening a new dropdown
-        if self.context.open_dropdown_menu:
-            logger.info(f"  🔄 Closing previously open menu before opening new dropdown...")
-            await self._close_open_menu(self.context.open_dropdown_menu)
-            self.context.open_dropdown_menu = None
         
         # IMPROVEMENT #1: Pre-click dropdown detection
         is_dropdown_button = await self._is_dropdown_button_pre_click(chosen_locator, element_name)
