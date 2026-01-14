@@ -35,7 +35,10 @@ class BedrockClient:
             modelId=self.model_id,
             messages=messages,
             system=[{"text": system_prompt}],
-            toolConfig={"tools": tools},
+            toolConfig={
+                "tools": tools,
+                "toolChoice": {"type": "any"}  # Allow Claude to use tools (prevents text-only responses)
+            },
             inferenceConfig={"maxTokens": 4096, "temperature": 0.0}
         )
         
