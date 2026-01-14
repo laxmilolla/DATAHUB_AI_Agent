@@ -280,12 +280,16 @@ class BrowserClickTool:
             'pick' not in step_text and 'select' not in step_text and 'choose' not in step_text
         )
         
+        registry_element = None
         for try_page_name in page_names_to_try:
             if not try_page_name:
                 continue
             logger.info(f"  🔍 Trying registry lookup with page_name='{try_page_name}'")
             registry_selector = self.element_locator.check_registry(element_description, domain, try_page_name)
             if registry_selector:
+                # Get full element from registry to check for XPath
+                registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_description)
+                
                 # FIX #4: If looking for dropdown button, filter out option selectors
                 if is_looking_for_dropdown_button and '[role="option"]' in registry_selector:
                     logger.warning(f"  ⚠️ Registry returned option selector for dropdown button - skipping: {registry_selector}")
@@ -315,24 +319,47 @@ class BrowserClickTool:
         registry_button_element = None
         
         if registry_selector:
-            selector = registry_selector
-            # If modal is open and selector doesn't already scope to modal, scope it
-            if should_check_modal and modal_selector and not selector.startswith(modal_selector):
-                # Scope selector to modal context (use shared utility)
-                selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
+            # FIX: Prefer XPath if available (especially for modal elements - XPath is already modal-scoped)
+            registry_xpath = registry_element.get('xpath', '') if registry_element else ''
             
-            if selector.startswith("xpath="):
+            if registry_xpath and should_check_modal:
+                # XPath in registry is already modal-scoped, use it directly
+                selector = f"xpath={registry_xpath}"
                 using_registry_xpath = True
-                logger.info(f"  📋 Using XPath from registry (MANUAL)")
+                logger.info(f"  📋 Using XPath from registry (already modal-scoped): {selector[:80]}...")
+            elif registry_xpath and not should_check_modal:
+                # XPath exists but modal not needed - use XPath directly
+                selector = f"xpath={registry_xpath}"
+                using_registry_xpath = True
+                logger.info(f"  📋 Using XPath from registry: {selector[:80]}...")
             else:
-                logger.info(f"  📋 Using selector from registry")
+                # No XPath, use CSS selector and scope if needed
+                selector = registry_selector
+                # If modal is open and selector doesn't already scope to modal, scope it
+                if should_check_modal and modal_selector and not selector.startswith(modal_selector):
+                    # Scope selector to modal context (use shared utility)
+                    selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
+                
+                logger.info(f"  📋 Using CSS selector from registry")
                 try:
                     registry_matches = await self.page.locator(selector).all()
                     if registry_matches:
                         registry_button_element = registry_matches[0]
                         logger.info(f"  🔍 Found registry button element: {selector}")
+                    else:
+                        logger.warning(f"  ⚠️ Scoped selector not found, trying XPath fallback...")
+                        # Fallback: Try XPath if CSS selector failed
+                        if registry_xpath:
+                            selector = f"xpath={registry_xpath}"
+                            using_registry_xpath = True
+                            logger.info(f"  📋 Fallback to XPath from registry: {selector[:80]}...")
                 except Exception as e:
                     logger.debug(f"  ⚠️ Could not locate registry button element: {e}")
+                    # Fallback: Try XPath if CSS selector failed
+                    if registry_xpath:
+                        selector = f"xpath={registry_xpath}"
+                        using_registry_xpath = True
+                        logger.info(f"  📋 Fallback to XPath from registry: {selector[:80]}...")
         elif should_check_modal and modal_selector:
             # No registry match, but modal is open - scope the original selector to modal (use shared utility)
             if not selector.startswith(modal_selector):

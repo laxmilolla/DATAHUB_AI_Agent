@@ -111,8 +111,16 @@ class ModalUtils:
             logger.info(f"  🔍 Scoping text= selector to modal: {scoped_selector}")
             return scoped_selector
         else:
-            # For CSS selectors, prefix with modal selector
-            scoped_selector = f"{modal_selector} {selector}"
-            logger.info(f"  🔍 Scoping CSS selector to modal: {scoped_selector}")
-            return scoped_selector
+            # For CSS selectors, use Playwright chain syntax for ID selectors
+            # ID selectors (#id) need >> operator, not CSS descendant
+            if selector.startswith("#"):
+                # For ID selectors, use Playwright chain syntax
+                scoped_selector = f"{modal_selector} >> {selector}"
+                logger.info(f"  🔍 Scoping ID selector to modal (using chain): {scoped_selector}")
+                return scoped_selector
+            else:
+                # For other CSS selectors, use CSS descendant (space)
+                scoped_selector = f"{modal_selector} {selector}"
+                logger.info(f"  🔍 Scoping CSS selector to modal: {scoped_selector}")
+                return scoped_selector
 

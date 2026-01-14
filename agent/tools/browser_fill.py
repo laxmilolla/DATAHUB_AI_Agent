@@ -252,17 +252,28 @@ class BrowserFillTool:
             selector_valid = self._validate_registry_selector(registry_element, element_name_for_registry, selector)
             
             if registry_selector and selector_valid:
-                selector = registry_selector
-                # If modal is open and selector doesn't already scope to modal, scope it
-                if should_check_modal and modal_selector and not selector.startswith(modal_selector):
-                    # Scope selector to modal context (use shared utility)
-                    selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
+                # FIX: Prefer XPath if available (especially for modal elements - XPath is already modal-scoped)
+                registry_xpath = registry_element.get('xpath', '') if registry_element else ''
                 
-                if selector.startswith("xpath="):
+                if registry_xpath and should_check_modal:
+                    # XPath in registry is already modal-scoped, use it directly
+                    selector = f"xpath={registry_xpath}"
                     using_registry_xpath = True
-                    logger.info(f"  📋 Using XPath from registry (MANUAL) for fill operation")
+                    logger.info(f"  📋 Using XPath from registry (already modal-scoped) for fill operation")
+                elif registry_xpath and not should_check_modal:
+                    # XPath exists but modal not needed - use XPath directly
+                    selector = f"xpath={registry_xpath}"
+                    using_registry_xpath = True
+                    logger.info(f"  📋 Using XPath from registry for fill operation")
                 else:
-                    logger.info(f"  📋 Using selector from registry")
+                    # No XPath, use CSS selector and scope if needed
+                    selector = registry_selector
+                    # If modal is open and selector doesn't already scope to modal, scope it
+                    if should_check_modal and modal_selector and not selector.startswith(modal_selector):
+                        # Scope selector to modal context (use shared utility)
+                        selector = ModalUtils.scope_selector_to_modal(selector, modal_selector)
+                    
+                    logger.info(f"  📋 Using CSS selector from registry for fill operation")
             elif not selector_valid:
                 logger.warning(f"  ⚠️ Registry selector validation failed - using LLM selector instead")
                 registry_selector = None
