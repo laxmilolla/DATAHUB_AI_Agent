@@ -146,7 +146,8 @@ class BrowserClickTool:
             chosen_locator, selector, original_selector, element_name,
             original_element_for_xpath, registry_button_element,
             using_registry_xpath, validation_result,
-            is_dropdown_button_pre_detected=is_dropdown_button  # Pass pre-detection result
+            is_dropdown_button_pre_detected=is_dropdown_button,  # Pass pre-detection result
+            is_dropdown_option=is_dropdown_option  # Pass dropdown option flag
         )
         
         return result
@@ -553,7 +554,8 @@ class BrowserClickTool:
                                            registry_button_element: Optional[Locator],
                                            using_registry_xpath: bool,
                                            validation_result: Dict[str, Any],
-                                           is_dropdown_button_pre_detected: bool = False) -> str:
+                                           is_dropdown_button_pre_detected: bool = False,
+                                           is_dropdown_option: bool = False) -> str:
         """Execute click and track discovery"""
         initial_html = await self.page.content()
         initial_url = self.page.url
