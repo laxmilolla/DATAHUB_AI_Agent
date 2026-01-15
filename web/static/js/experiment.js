@@ -52,7 +52,16 @@ async function startBrowser() {
         });
         
         if (!response.ok) {
-            throw new Error('Failed to start browser');
+            // Try to get detailed error message from response
+            let errorMsg = 'Failed to start browser';
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.message || errorData.error || errorMsg;
+            } catch (e) {
+                // If JSON parsing fails, use status text
+                errorMsg = response.statusText || errorMsg;
+            }
+            throw new Error(errorMsg);
         }
         
         const data = await response.json();
