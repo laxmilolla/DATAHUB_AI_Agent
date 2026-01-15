@@ -149,7 +149,29 @@
         
         <div class="card">
             <h2>Enter Test Instructions</h2>
-            <textarea id="instructions-input" class="instructions-input" placeholder="Example:&#10;Go to https://hub-stage.datacommons.cancer.gov/&#10;Click on Login link&#10;Enter username: test@example.com&#10;Enter password: Test123!&#10;Click Submit"></textarea>
+            
+            <div style="margin-bottom: 15px; padding: 12px; background: #F5F1ED; border-radius: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="manual-preconditions-checkbox" style="width: 18px; height: 18px;">
+                    <span style="color: #6B5B3D;">
+                        <strong>Set up preconditions manually</strong> (Login and TOTP before running instructions)
+                    </span>
+                </label>
+            </div>
+            
+            <div id="precondition-section" style="display: none; margin-bottom: 15px; padding: 15px; background: #E8DDD4; border-radius: 8px;">
+                <p style="margin: 0 0 10px 0; color: #6B5B3D;">
+                    <strong>Step 1:</strong> Click "Start Browser" below. Browser will open where you can manually login and enter TOTP.
+                </p>
+                <button class="btn-primary" id="start-browser-btn" onclick="startBrowser()" style="margin-right: 10px;">
+                    🌐 Start Browser
+                </button>
+                <button class="btn-primary" id="continue-btn" onclick="continueAfterPreconditions()" disabled>
+                    ✅ Ready - Continue with Instructions
+                </button>
+            </div>
+            
+            <textarea id="instructions-input" class="instructions-input" placeholder="Example:&#10;Go to https://hub-stage.datacommons.cancer.gov/data-submissions&#10;Click Create Data Submission button&#10;Select GC from Datacommons dropdown&#10;Select Study from Study dropdown&#10;Enter timestamp in Submission name&#10;Click Create"></textarea>
             <button class="btn-primary" id="execute-btn" onclick="executeInstructions()">
                 ▶ Execute & Generate Test Cases
             </button>
@@ -190,12 +212,109 @@
     
     <script>
         let currentExecutionId = null;
+        let currentSessionId = null;
         let statusPollInterval = null;
+        
+        // Handle manual preconditions checkbox
+        document.getElementById('manual-preconditions-checkbox').addEventListener('change', (e) => {
+            const section = document.getElementById('precondition-section');
+            if (e.target.checked) {
+                section.style.display = 'block';
+            } else {
+                section.style.display = 'none';
+            }
+        });
+        
+        async function startBrowser() {
+            const btn = document.getElementById('start-browser-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Starting...';
+            
+            try {
+                const response = await fetch('/api/instructions/start-browser', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to start browser');
+                }
+                
+                const data = await response.json();
+                currentSessionId = data.session_id;
+                
+                btn.innerHTML = '✅ Browser Started';
+                document.getElementById('continue-btn').disabled = false;
+                
+                alert('Browser started! Please login and enter TOTP manually, then click "Ready - Continue with Instructions"');
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = '🌐 Start Browser';
+            }
+        }
+        
+        async function continueAfterPreconditions() {
+            const instructions = document.getElementById('instructions-input').value.trim();
+            if (!instructions) {
+                alert('Please enter test instructions');
+                return;
+            }
+            
+            if (!currentSessionId) {
+                alert('Please start browser first');
+                return;
+            }
+            
+            const btn = document.getElementById('continue-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Executing...';
+            
+            // Hide precondition section, show status
+            document.getElementById('precondition-section').style.display = 'none';
+            document.getElementById('status-section').classList.add('show');
+            document.getElementById('status-text').textContent = 'Executing instructions...';
+            
+            try {
+                const response = await fetch(`/api/instructions/${currentSessionId}/continue`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({instructions: instructions})
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to start execution');
+                }
+                
+                const data = await response.json();
+                currentExecutionId = data.execution_id;
+                
+                // Start polling
+                startPolling();
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = '✅ Ready - Continue with Instructions';
+            }
+        }
         
         async function executeInstructions() {
             const instructions = document.getElementById('instructions-input').value.trim();
             if (!instructions) {
                 alert('Please enter instructions');
+                return;
+            }
+            
+            const manualPreconditions = document.getElementById('manual-preconditions-checkbox').checked;
+            
+            // If manual preconditions enabled, use that flow instead
+            if (manualPreconditions) {
+                if (!currentSessionId) {
+                    alert('Please start browser and set up preconditions first');
+                    return;
+                }
+                continueAfterPreconditions();
                 return;
             }
             
@@ -213,7 +332,10 @@
                 const response = await fetch('/api/instructions/execute', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({instructions: instructions})
+                    body: JSON.stringify({
+                        instructions: instructions,
+                        manual_preconditions: false
+                    })
                 });
                 
                 if (!response.ok) {
@@ -235,13 +357,19 @@
         
         function startPolling() {
             statusPollInterval = setInterval(async () => {
-                if (!currentExecutionId) return;
+                const idToPoll = currentExecutionId || currentSessionId;
+                if (!idToPoll) return;
                 
                 try {
-                    const response = await fetch(`/api/instructions/${currentExecutionId}/status`);
+                    const response = await fetch(`/api/instructions/${idToPoll}/status`);
                     if (response.ok) {
                         const data = await response.json();
                         updateStatus(data);
+                        
+                        // Update currentExecutionId if we got it from session
+                        if (data.execution_id && !currentExecutionId) {
+                            currentExecutionId = data.execution_id;
+                        }
                         
                         if (data.status === 'completed' || data.status === 'failed') {
                             clearInterval(statusPollInterval);
@@ -251,7 +379,7 @@
                             btn.disabled = false;
                             btn.innerHTML = '▶ Execute & Generate Test Cases';
                             
-                            if (data.status === 'completed' && data.steps.length > 0) {
+                            if (data.status === 'completed' && data.steps && data.steps.length > 0) {
                                 displayXPaths(data.steps);
                                 if (data.excel_file) {
                                     document.getElementById('download-section').classList.add('show');
