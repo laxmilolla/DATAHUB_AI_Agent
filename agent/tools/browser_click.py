@@ -173,10 +173,57 @@ class BrowserClickTool:
                     dropdown_name, dropdown_name
                 )
                 logger.info(f"  🔍 Resolved dropdown button selector: '{dropdown_selector}' (using registry: {dropdown_using_registry_xpath})")
-                # First, click the dropdown button to open it
-                dropdown_locator, _ = await self._find_and_choose_element(
-                    dropdown_selector, dropdown_name, dropdown_using_registry_xpath
-                )
+                
+                # FIX: If XPath fails, try CSS selector from registry as fallback
+                dropdown_locator = None
+                if dropdown_using_registry_xpath and dropdown_selector.startswith("xpath="):
+                    # Try XPath first
+                    dropdown_locator, _ = await self._find_and_choose_element(
+                        dropdown_selector, dropdown_name, dropdown_using_registry_xpath
+                    )
+                    
+                    # If XPath failed, try CSS selector from registry
+                    if not dropdown_locator:
+                        logger.warning(f"  ⚠️ XPath failed for dropdown button, trying CSS selector from registry...")
+                        # Get CSS selector from registry using element_locator
+                        domain, page_name = self._get_domain_and_page()
+                        if domain:
+                            # Build page_names_to_try dynamically (same pattern as _resolve_selector)
+                            page_names_to_try = [page_name]
+                            # Add dynamically discovered modal pages
+                            discovered_modal_pages = self._discover_modal_pages(domain)
+                            for discovered_modal in discovered_modal_pages:
+                                if discovered_modal not in page_names_to_try:
+                                    page_names_to_try.insert(0, discovered_modal)
+                            
+                            # Try to get CSS selector from registry
+                            registry_css_selector = None
+                            for try_page_name in page_names_to_try:
+                                try:
+                                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, dropdown_name)
+                                    if registry_element:
+                                        registry_css_selector = registry_element.get('selector', '')
+                                        if registry_css_selector and not registry_css_selector.startswith('xpath='):
+                                            # Scope to modal if needed
+                                            modal_selector = await ModalUtils.detect_modal(self.page)
+                                            if modal_selector:
+                                                registry_css_selector = ModalUtils.scope_selector_to_modal(registry_css_selector, modal_selector)
+                                            break
+                                except Exception as e:
+                                    logger.debug(f"  ⚠️ Could not get registry element for {try_page_name}: {e}")
+                                    continue
+                            
+                            if registry_css_selector:
+                                logger.info(f"  🔄 Trying CSS selector fallback: '{registry_css_selector}'")
+                                dropdown_locator, _ = await self._find_and_choose_element(
+                                    registry_css_selector, dropdown_name, False
+                                )
+                
+                # If still not found, try original resolution
+                if not dropdown_locator:
+                    dropdown_locator, _ = await self._find_and_choose_element(
+                        dropdown_selector, dropdown_name, dropdown_using_registry_xpath
+                    )
                 if dropdown_locator:
                     # Click dropdown button to open menu
                     await dropdown_locator.click()
