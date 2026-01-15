@@ -113,6 +113,9 @@ def continue_after_preconditions(session_id):
         exec_data['instructions'] = instructions
         exec_data['status'] = 'running'
         
+        # ALSO store execution_id directly in instructions_executions for status endpoint lookup
+        instructions_executions[execution_id] = exec_data
+        
         # Execute instructions using existing browser
         def execute_async():
             try:

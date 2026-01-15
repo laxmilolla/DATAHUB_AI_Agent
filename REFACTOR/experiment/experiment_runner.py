@@ -82,6 +82,14 @@ class ExperimentRunner:
             
             page = self.playwright_manager.get_page()
             
+            # Ensure browser window is visible and bring to front
+            try:
+                await page.bring_to_front()
+                # Navigate to a blank page so user can see the browser
+                await page.goto('about:blank')
+            except Exception as e:
+                logger.warning(f"Could not bring browser to front: {e}")
+            
             # Initialize Agent with existing browser
             self.agent = Agent()
             # Replace agent's playwright_manager with ours (so it uses our browser)
