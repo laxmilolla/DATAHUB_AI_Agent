@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instructions → Test Cases Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ timestamp }}">
+    <style>
+        .instructions-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .instructions-header {
+            background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .instructions-header h1 {
+            margin: 0 0 10px 0;
+        }
+        
+        .instructions-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .instructions-input {
+            width: 100%;
+            min-height: 200px;
+            padding: 12px;
+            border: 2px solid #D4C5B9;
+            border-radius: 8px;
+            font-size: 1em;
+            font-family: inherit;
+            resize: vertical;
+            margin-bottom: 15px;
+        }
+        
+        .instructions-input:focus {
+            outline: none;
+            border-color: #8B6F47;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .btn-primary:disabled {
+            background: #D4C5B9;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-section {
+            background: #FAF8F5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #8B6F47;
+            display: none;
+        }
+        
+        .status-section.show {
+            display: block;
+        }
+        
+        .xpaths-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        .xpaths-table th,
+        .xpaths-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #D4C5B9;
+        }
+        
+        .xpaths-table th {
+            background: #8B6F47;
+            color: white;
+            font-weight: 600;
+        }
+        
+        .xpaths-table tr:hover {
+            background: #F5F1ED;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .download-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #E8DDD4;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .download-section.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions-container">
+        <div class="instructions-header">
+            <h1>📝 Instructions → Test Cases Generator</h1>
+            <p>Enter test instructions. System will execute them and generate Excel file with XPaths and test cases.</p>
+        </div>
+        
+        <div class="card">
+            <h2>Enter Test Instructions</h2>
+            <textarea id="instructions-input" class="instructions-input" placeholder="Example:&#10;Go to https://hub-stage.datacommons.cancer.gov/&#10;Click on Login link&#10;Enter username: test@example.com&#10;Enter password: Test123!&#10;Click Submit"></textarea>
+            <button class="btn-primary" id="execute-btn" onclick="executeInstructions()">
+                ▶ Execute & Generate Test Cases
+            </button>
+        </div>
+        
+        <div class="card">
+            <div class="status-section" id="status-section">
+                <h3>📊 Execution Status</h3>
+                <div id="status-text">Ready</div>
+            </div>
+            
+            <div id="xpaths-section" style="display: none;">
+                <h3>📍 XPaths Used</h3>
+                <table class="xpaths-table" id="xpaths-table">
+                    <thead>
+                        <tr>
+                            <th>Step</th>
+                            <th>Action</th>
+                            <th>URL</th>
+                            <th>XPath</th>
+                            <th>Text Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="xpaths-tbody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="download-section" id="download-section">
+                <h3>📥 Download Test Cases</h3>
+                <p>Excel file with all steps, URLs, XPaths, and actions has been generated.</p>
+                <button class="btn-primary" id="download-btn" onclick="downloadExcel()">
+                    📥 Download Excel File
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentExecutionId = null;
+        let statusPollInterval = null;
+        
+        async function executeInstructions() {
+            const instructions = document.getElementById('instructions-input').value.trim();
+            if (!instructions) {
+                alert('Please enter instructions');
+                return;
+            }
+            
+            const btn = document.getElementById('execute-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Executing...';
+            
+            // Show status section
+            document.getElementById('status-section').classList.add('show');
+            document.getElementById('status-text').textContent = 'Starting execution...';
+            document.getElementById('xpaths-section').style.display = 'none';
+            document.getElementById('download-section').classList.remove('show');
+            
+            try {
+                const response = await fetch('/api/instructions/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({instructions: instructions})
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to start execution');
+                }
+                
+                const data = await response.json();
+                currentExecutionId = data.execution_id;
+                
+                // Start polling for status
+                startPolling();
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = '▶ Execute & Generate Test Cases';
+            }
+        }
+        
+        function startPolling() {
+            statusPollInterval = setInterval(async () => {
+                if (!currentExecutionId) return;
+                
+                try {
+                    const response = await fetch(`/api/instructions/${currentExecutionId}/status`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        updateStatus(data);
+                        
+                        if (data.status === 'completed' || data.status === 'failed') {
+                            clearInterval(statusPollInterval);
+                            statusPollInterval = null;
+                            
+                            const btn = document.getElementById('execute-btn');
+                            btn.disabled = false;
+                            btn.innerHTML = '▶ Execute & Generate Test Cases';
+                            
+                            if (data.status === 'completed' && data.steps.length > 0) {
+                                displayXPaths(data.steps);
+                                if (data.excel_file) {
+                                    document.getElementById('download-section').classList.add('show');
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling status:', error);
+                }
+            }, 2000);
+        }
+        
+        function updateStatus(data) {
+            const statusText = document.getElementById('status-text');
+            if (data.status === 'running') {
+                statusText.textContent = `Executing... (${data.steps.length} steps completed)`;
+            } else if (data.status === 'completed') {
+                statusText.textContent = `✅ Completed! ${data.steps.length} steps executed`;
+            } else if (data.status === 'failed') {
+                statusText.textContent = `❌ Failed: ${data.error || 'Unknown error'}`;
+            }
+        }
+        
+        function displayXPaths(steps) {
+            const tbody = document.getElementById('xpaths-tbody');
+            tbody.innerHTML = '';
+            
+            steps.forEach(step => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${step.step_number}</td>
+                    <td>${step.action}</td>
+                    <td>${step.url || 'N/A'}</td>
+                    <td><code>${step.xpath || step.selector || 'N/A'}</code></td>
+                    <td>${step.text_value || '-'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('xpaths-section').style.display = 'block';
+        }
+        
+        async function downloadExcel() {
+            if (!currentExecutionId) return;
+            
+            try {
+                const response = await fetch(`/api/instructions/${currentExecutionId}/excel`);
+                if (!response.ok) {
+                    throw new Error('Failed to download Excel');
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `test_cases_${currentExecutionId}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+            } catch (error) {
+                alert('Error downloading Excel: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
+
