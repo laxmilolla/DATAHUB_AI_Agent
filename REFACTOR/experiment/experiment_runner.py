@@ -56,12 +56,21 @@ class ExperimentRunner:
                 # Connect to user's Chrome browser via CDP
                 browser = await playwright.chromium.connect_over_cdp(cdp_url)
                 
-                # Use existing page or create new one
-                pages = browser.pages
-                if pages:
-                    page = pages[0]
+                # Get pages from browser contexts (CDP connection requires accessing contexts first)
+                contexts = browser.contexts
+                if contexts and len(contexts) > 0:
+                    context = contexts[0]
+                    pages = context.pages
+                    if pages and len(pages) > 0:
+                        # Use existing page from the browser
+                        page = pages[0]
+                    else:
+                        # Create new page in existing context
+                        page = await context.new_page()
                 else:
-                    page = await browser.new_page()
+                    # No contexts found, create new context and page
+                    context = await browser.new_context()
+                    page = await context.new_page()
                 
                 # Set playwright_manager's browser/page
                 self.playwright_manager.playwright = playwright
