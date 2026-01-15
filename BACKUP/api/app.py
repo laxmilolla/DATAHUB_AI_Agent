@@ -20,14 +20,6 @@ sys.path.insert(0, str(project_root))
 # Import routes
 from api.routes import bp as api_bp
 
-# Import Excel routes
-try:
-    from REFACTOR.api.excel_routes import bp_excel
-    EXCEL_ROUTES_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ Excel routes not available: {e}")
-    EXCEL_ROUTES_AVAILABLE = False
-
 def create_app():
     """Create and configure Flask app"""
     
@@ -50,11 +42,6 @@ def create_app():
     # Register blueprints
     app.register_blueprint(api_bp, url_prefix='/api')
     
-    # Register Excel blueprint if available
-    if EXCEL_ROUTES_AVAILABLE:
-        app.register_blueprint(bp_excel)
-        print("✅ Excel API routes registered")
-    
     # Home route - render UI
     @app.route('/')
     def index():
@@ -76,10 +63,6 @@ def create_app():
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
-    
-    @app.route('/excel-upload')
-    def excel_upload_page():
-        return render_template('excel_upload.html', timestamp=int(time.time()))
     
     return app
 

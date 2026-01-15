@@ -1,0 +1,50 @@
+===================================================================
+CCDI EXPLORE PAGE - COMPLETE ACCORDION STRUCTURE
+===================================================================
+
+📊 LEFT SIDEBAR FILTER ACCORDIONS:
+
+1. STUDY
+   └─ Study Name (nested accordion)
+   └─ dbGaP ACCESSION (nested accordion)
+
+2. DEMOGRAPHICS / UPLOAD PARTICIPANTS SET  
+   └─ Sex At Birth (nested accordion)
+   └─ Race (nested accordion)
+
+3. DIAGNOSIS ⭐
+   └─ Age at Diagnosis (days) (nested accordion)
+   └─ Anatomic Site (nested accordion)  
+   └─ Diagnosis (nested accordion) → **417 CHECKBOXES**
+   └─ Diagnosis Classification System (nested accordion)
+   └─ Diagnosis Basis (nested accordion)
+   └─ Disease Phase (nested accordion)
+
+4. TREATMENT
+   └─ Treatment Type (nested accordion)
+   └─ Treatment Agent (nested accordion)
+   └─ Age at Treatment Start (nested accordion)
+   └─ Age at Treatment End (nested accordion)
+
+5. TREATMENT RESPONSE
+   └─ Response (nested accordion)
+   └─ Response Category (nested accordion)
+   └─ Response System (nested accordion)
+   └─ Age at Response (nested accordion)
+
+6. SURVIVAL
+   └─ Last Known Survival Status (nested accordion)
+   └─ First Event (nested accordion)
+   └─ Cause Of Death (nested accordion)
+   └─ Age at Last Known Survival Status (nested accordion)
+
+7. GENETIC ANALYSIS
+   └─ Gene Symbol (nested accordion)
+   └─ Alteration (nested accordion)
+   └─ Alteration Type (nested accordion)
+   └─ Fusion Partner Gene (nested accordion)
+   └─ Reported Significance (nested accordion)
+   └─ Reported Significance System (nested accordion)
+   └─ Status (nested accordion)
+
+===================================================================

@@ -1,0 +1,86 @@
+================================================================================
+STEP-BY-STEP XPATH AND URL SUMMARY
+================================================================================
+
+Step 1: Go to https://hub-stage.datacommons.cancer.gov/
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: N/A (navigation)
+
+Step 1a: Wait 3 seconds
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: N/A (wait step)
+
+Step 2: If there is a Continue button click on that.
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: //div[@data-testid='system-use-warning-dialog']//button[contains(., 'Continue')]
+
+Step 3: Click on link Login
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: //div[@id="mui-component-select-dataCommons" and @role="button"]
+  NOTE: Wrong element matched (should be Login, got Datacommons)
+
+Step 4: Click On Login.gov button
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: (//a[@id='header-navbar-login-button'])[1]
+
+Step 5: Enter Username as Laxmi_AI_test@yahoo.com
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: //input[@type='email']
+
+Step 6: Enter Password as Testnci123456789!
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: //input[@type='password']
+
+Step 7: Click Submit Button
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: (//*[normalize-space(.)='Submit'])[1]
+
+Step 8: Enter TOTP code
+  URL: N/A
+  XPath: NOT FOUND (element not in registry)
+
+Step 9: Wait 5 seconds
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: N/A (wait step)
+
+Step 10: Click Submit button to submit TOTP code
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: (//*[normalize-space(.)='Submit'])[1]
+
+Step 11: Handle 2FA reminder
+  URL: N/A
+  XPath: NOT FOUND (element not in registry)
+
+Step 12: Click Grant button
+  URL: https://hub-stage.datacommons.cancer.gov/
+  XPath: //input[@name='action']
+
+Step 13: Verify successful login
+  URL: N/A
+  XPath: N/A (verify action not supported)
+
+Step 14: Click "Data Submissions" link
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: //div[@id='navbar-dropdown-data-submissions' and @role='button']
+
+Step 15: Click "Create a Data Submission" button
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: //button[normalize-space(.)='Create a Data Submission']
+
+Step 16: Pick GC from Datacommons dropdown
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: //div[@id="mui-component-select-dataCommons" and @role="button"]
+
+Step 17: Pick NewTestSpn_laxmi from Study dropdown
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: //ul[@role="listbox"]//li[@role="option" and normalize-space(.)="Study"]
+  NOTE: Wrong - should select option "NewTestSpn_laxmi", not "Study"
+
+Step 18: Enter Timestamp in Submission name
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: (//*[@data-testid="create-submission-dialog"])//input[@name='name']
+
+Step 19: Click Create button
+  URL: https://hub-stage.datacommons.cancer.gov/data-submissions
+  XPath: (//*[@data-testid="create-submission-dialog"])//button[@data-testid='create-data-submission-dialog-create-button']
+

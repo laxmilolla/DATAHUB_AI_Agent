@@ -1,0 +1,54 @@
+COMPLETE PARSER ANALYSIS - Why Diagnosis Section Missing
+================================================================
+
+BROWSER SNAPSHOT SHOWS:
+----------------------
+button "Diagnosis" [expanded] [ref=e216]
+  └─ region [ref=e904]
+      └─ button "Diagnosis" [expanded] [active] [ref=e923]
+          └─ region [ref=e980]
+              └─ generic [ref=e993]
+                  └─ checkbox "Checkbox item" [ref=e997]
+
+PARSER CODE (Line 226):
+-----------------------
+const allAccordions = container.querySelectorAll('[role="button"][aria-expanded]');
+
+PROBLEM #1 - ACCORDION SELECTOR:
+--------------------------------
+❌ This selector requires role="button" ATTRIBUTE
+✅ But <button> HTML elements don't need explicit role="button"
+✅ They have implicit role, not the attribute!
+
+TEST:
+<button aria-expanded="true">Text</button>  ← Won't match!
+<div role="button" aria-expanded="true">Text</div>  ← Will match!
+
+FIX: Change to:
+button[aria-expanded], [role="button"][aria-expanded]
+
+PROBLEM #2 - CHECKBOX SELECTOR (Line 275):
+------------------------------------------
+const allCheckboxes = contentDiv.querySelectorAll('input[type="checkbox"]');
+
+BROWSER SHOWS:
+checkbox "Checkbox item" [ref=e997]  ← NOT an <input>!
+
+This is likely:
+<div role="checkbox">...</div>
+OR
+<input role="checkbox"> (without type="checkbox")
+
+FIX: Change to:
+input[type="checkbox"], [role="checkbox"]
+
+VERIFICATION NEEDED:
+-------------------
+1. Do ALL accordions use <button> tags? (probably yes for CCDI)
+2. Do ALL checkboxes use role="checkbox"? (need to verify)
+3. Are there any other custom elements we're missing?
+
+IMPACT:
+-------
+Before: 243 elements (missing Diagnosis accordion + all its children)
+After: ~660+ elements (should capture all 7 top-level accordions + nested + 417 checkboxes)

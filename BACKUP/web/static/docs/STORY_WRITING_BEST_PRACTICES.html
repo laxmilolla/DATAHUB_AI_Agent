@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story Writing Best Practices - Test Automation Generator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        main { padding: 40px; }
+        section { margin-bottom: 40px; }
+        h2 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        h3 { color: #764ba2; font-size: 1.5em; margin: 30px 0 15px 0; }
+        .principle-box {
+            background: #e8eaf6;
+            border-left: 5px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .good-example {
+            background: #e8f5e9;
+            border-left: 5px solid #4CAF50;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .bad-example {
+            background: #ffebee;
+            border-left: 5px solid #f44336;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .good-example::before { content: "✅ GOOD: "; font-weight: bold; color: #4CAF50; }
+        .bad-example::before { content: "❌ BAD: "; font-weight: bold; color: #f44336; }
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        ul { margin: 15px 0 15px 30px; }
+        li { margin: 8px 0; }
+        .checklist { list-style: none; margin-left: 0; }
+        .checklist li::before { content: "☐ "; font-size: 1.2em; margin-right: 10px; }
+        footer {
+            background: #333;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 Story Writing Best Practices</h1>
+            <p>Write effective test stories that work optimally with the AI Agent</p>
+        </header>
+
+        <main>
+            <section>
+                <h2>🎯 Key Principle: Context Over Keywords</h2>
+                <div class="principle-box">
+                    <strong>The AI uses surrounding context to disambiguate elements, not just keywords in the element name.</strong>
+                </div>
+
+                <h3>Pattern Comparison</h3>
+                <div class="good-example">
+                    After More dropdown opens, the data table has tabs like Participants, Studies, Diagnosis. Click on "Treatment" (it will show a count in parentheses)
+                </div>
+                <p><strong>Why this works:</strong></p>
+                <ul>
+                    <li>✅ "data table has tabs" establishes location context</li>
+                    <li>✅ "Treatment" matches actual page text</li>
+                    <li>✅ Visual cue helps verification</li>
+                </ul>
+
+                <div class="bad-example">
+                    Click on the "Treatment tab" in the data table
+                </div>
+                <p><strong>Why this fails:</strong></p>
+                <ul>
+                    <li>❌ "Treatment tab" doesn't match page text</li>
+                    <li>❌ Keyword-based naming causes confusion</li>
+                    <li>❌ Context bleeding from previous steps</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>🏗️ Story Structure Guidelines</h2>
+                
+                <h3>1. One Action Per Step</h3>
+                <div class="good-example">
+                    Step 4: In the left sidebar filter panel, click on "TREATMENT" to expand it<br>
+                    Step 5: Inside the TREATMENT section, click on Treatment Type
+                </div>
+                <div class="bad-example">
+                    Step 4: Click on TREATMENT, then click on Treatment Type
+                </div>
+
+                <h3>2. Separate Steps with Clear Context</h3>
+                <p>Each step should establish WHERE you are before stating WHAT to do.</p>
+
+                <h3>3. Use Location Context, Not Type Keywords</h3>
+                <p><strong>Good Location Phrases:</strong></p>
+                <ul>
+                    <li>"In the left sidebar filter panel"</li>
+                    <li>"In the data table bottom area"</li>
+                    <li>"In the top navigation bar"</li>
+                    <li>"Among the data table tabs"</li>
+                </ul>
+                <p><strong>Avoid Type Keywords in Element Names:</strong></p>
+                <ul>
+                    <li>❌ "TREATMENT filter" → ✅ Use "TREATMENT" with context</li>
+                    <li>❌ "Treatment tab" → ✅ Use "Treatment" with context</li>
+                    <li>❌ "Submit button" → ✅ Use "Submit" with context</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>🧪 Element Naming Patterns</h2>
+                
+                <h3>Filters/Accordions</h3>
+                <div class="good-example">
+                    In the left sidebar filter panel, click on TREATMENT to expand it
+                </div>
+                <div class="bad-example">
+                    Click on TREATMENT filter
+                </div>
+
+                <h3>Tabs</h3>
+                <div class="good-example">
+                    The data table has tabs like Participants, Studies. Click on Treatment
+                </div>
+                <div class="bad-example">
+                    Click on Treatment tab
+                </div>
+
+                <h3>Buttons</h3>
+                <div class="good-example">
+                    Click the More button to reveal additional tabs
+                </div>
+
+                <h3>Checkboxes</h3>
+                <div class="good-example">
+                    Select the Chemotherapy checkbox
+                </div>
+            </section>
+
+            <section>
+                <h2>📊 Testing Checklist</h2>
+                <p>Before running your story, verify:</p>
+                <ul class="checklist">
+                    <li>Each step has clear location context</li>
+                    <li>Element names match actual page text</li>
+                    <li>No type keywords in element names ("filter", "tab", "button")</li>
+                    <li>Steps are numbered and separated by newlines</li>
+                    <li>Wait times are included for dynamic content</li>
+                    <li>Verification statements are specific and clear</li>
+                    <li>Conditional actions are clearly stated</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>📚 Complete Success Story Example</h2>
+                <pre>Step 1: Go to https://clinicalcommons.ccdi.cancer.gov/explore
+Step 2: Wait 5 seconds for page to fully load
+Step 3: If there is a popup with Continue button, dismiss it by clicking Continue
+Step 4: In the left sidebar filter panel, click on TREATMENT to expand it
+Step 5: Inside the TREATMENT filter section, click on Treatment Type to expand the checkboxes
+Step 6: Select the Chemotherapy checkbox
+Step 7: In the data table bottom area, click the More button to reveal additional tabs
+Step 8: After More dropdown opens, the data table has tabs like Participants, Studies, Diagnosis. Click on Treatment (it will show a count in parentheses)
+Step 9: Wait 3 seconds for the Treatment tab data to load
+Step 10: Verify that all rows in the Treatment Type column contain Chemotherapy</pre>
+                <p style="color: #4CAF50; font-weight: bold; font-size: 1.2em;">Result: ✅ All 10 rows verified, test passed</p>
+            </section>
+
+            <section>
+                <h2>💡 Advanced Tips</h2>
+                <ul>
+                    <li><strong>Use Visual Cues:</strong> "Click on Treatment (it will show a count in parentheses)"</li>
+                    <li><strong>Mention Siblings:</strong> "The data table has tabs like Participants, Studies, Diagnosis. Click on Treatment"</li>
+                    <li><strong>Conditional Actions:</strong> "If there is a popup with a Continue button, click it to dismiss the popup"</li>
+                    <li><strong>Include Wait Times:</strong> "Wait 3 seconds for the Treatment tab data to load"</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>🚀 Success Metrics</h2>
+                <p>A well-written story should:</p>
+                <ol>
+                    <li>✅ Pass on first run (no disambiguation errors)</li>
+                    <li>✅ Be readable by humans (clear, logical flow)</li>
+                    <li>✅ Be maintainable (easy to update if UI changes)</li>
+                    <li>✅ Generate robust Playwright code (reliable selectors)</li>
+                    <li>✅ Work across similar pages (reusable patterns)</li>
+                </ol>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 National Cancer Institute & Essential Software Inc.</p>
+            <p style="margin-top: 10px; opacity: 0.8;">Test Automation Generator | AI-Driven Test Generation</p>
+        </footer>
+    </div>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
