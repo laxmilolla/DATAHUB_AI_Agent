@@ -8,28 +8,28 @@
     <style>
         /* Professional Results Page Styling */
         .status-banner {
-            background: white;
+            background: #FAF8F5;
             border-radius: 12px;
             padding: 30px;
             margin-bottom: 30px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            border-left: 5px solid #667eea;
+            border-left: 5px solid #8B6F47;
         }
         
         .status-banner.status-success {
-            border-left-color: #28a745;
+            border-left-color: #8B6F47;
         }
         
         .status-banner.status-warning {
-            border-left-color: #ffc107;
+            border-left-color: #A0826D;
         }
         
         .status-banner.status-error {
-            border-left-color: #dc3545;
+            border-left-color: #3D3D3D;
         }
         
         .status-banner.status-running {
-            border-left-color: #17a2b8;
+            border-left-color: #6B5B3D;
         }
         
         .status-icon {
@@ -38,14 +38,14 @@
         }
         
         .status-content h2 {
-            color: #2c3e50;
+            color: #2C2C2C;
             font-size: 1.8em;
             margin-bottom: 10px;
             font-weight: 600;
         }
         
         .status-meta {
-            color: #6c757d;
+            color: #6B5B3D;
             font-size: 0.95em;
             margin-bottom: 20px;
             display: flex;
@@ -54,7 +54,7 @@
         }
         
         .meta-separator {
-            color: #dee2e6;
+            color: #D4C5B9;
         }
         
         .progress-bar-container {
@@ -64,7 +64,7 @@
         .progress-bar {
             width: 100%;
             height: 12px;
-            background: #e9ecef;
+            background: #D4C5B9;
             border-radius: 6px;
             overflow: hidden;
             margin-bottom: 8px;
@@ -72,13 +72,13 @@
         
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+            background: linear-gradient(90deg, #8B6F47 0%, #6B5B3D 100%);
             transition: width 0.3s ease;
         }
         
         .progress-label {
             text-align: center;
-            color: #495057;
+            color: #6B5B3D;
             font-weight: 600;
             font-size: 0.95em;
         }
@@ -91,48 +91,48 @@
         }
         
         .stat-item {
-            background: #f8f9fa;
+            background: #F5F1ED;
             padding: 20px;
             border-radius: 8px;
             text-align: center;
-            border: 2px solid #e9ecef;
+            border: 2px solid #D4C5B9;
             transition: all 0.3s ease;
         }
         
         .stat-item:hover {
-            border-color: #667eea;
+            border-color: #8B6F47;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            box-shadow: 0 4px 12px rgba(139, 111, 71, 0.15);
         }
         
         .stat-item.stat-success {
-            background: #d4edda;
-            border-color: #28a745;
+            background: #D4C5B9;
+            border-color: #8B6F47;
         }
         
         .stat-item.stat-error {
-            background: #f8d7da;
-            border-color: #dc3545;
+            background: #D4C5B9;
+            border-color: #3D3D3D;
         }
         
         .stat-value {
             font-size: 2em;
             font-weight: 700;
-            color: #2c3e50;
+            color: #2C2C2C;
             margin-bottom: 5px;
         }
         
         .stat-item.stat-success .stat-value {
-            color: #155724;
+            color: #3D3D3D;
         }
         
         .stat-item.stat-error .stat-value {
-            color: #721c24;
+            color: #2C2C2C;
         }
         
         .stat-label {
             font-size: 0.9em;
-            color: #6c757d;
+            color: #6B5B3D;
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -144,11 +144,11 @@
             flex-wrap: wrap;
             margin-top: 25px;
             padding-top: 25px;
-            border-top: 1px solid #e9ecef;
+            border-top: 1px solid #D4C5B9;
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #3D3D3D 0%, #8B6F47 100%);
             color: white;
             padding: 12px 24px;
             border: none;
@@ -161,14 +161,14 @@
         
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 6px 20px rgba(61, 61, 61, 0.4);
         }
         
         .btn-secondary {
-            background: white;
-            color: #667eea;
+            background: #FAF8F5;
+            color: #8B6F47;
             padding: 12px 24px;
-            border: 2px solid #667eea;
+            border: 2px solid #8B6F47;
             border-radius: 8px;
             font-weight: 600;
             cursor: pointer;
@@ -177,17 +177,17 @@
         }
         
         .btn-secondary:hover {
-            background: #667eea;
+            background: #8B6F47;
             color: white;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 12px rgba(139, 111, 71, 0.3);
         }
         
         .live-indicator {
             display: inline-block;
             width: 10px;
             height: 10px;
-            background: #28a745;
+            background: #8B6F47;
             border-radius: 50%;
             margin-left: 10px;
             animation: pulse 2s infinite;
@@ -222,12 +222,12 @@
         }
         
         .tab-button:hover {
-            color: #667eea;
+            color: #8B6F47;
         }
         
         .tab-button.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
+            color: #8B6F47;
+            border-bottom-color: #8B6F47;
         }
         
         .tab-content {
@@ -245,7 +245,7 @@
             flex-wrap: wrap;
             gap: 8px;
             padding: 20px;
-            background: #f8f9fa;
+            background: #F5F1ED;
             border-radius: 8px;
             margin-bottom: 25px;
         }
@@ -266,13 +266,13 @@
         }
         
         .step-indicator.passed {
-            background: #28a745;
-            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+            background: #8B6F47;
+            box-shadow: 0 2px 8px rgba(139, 111, 71, 0.3);
         }
         
         .step-indicator.failed {
-            background: #dc3545;
-            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+            background: #3D3D3D;
+            box-shadow: 0 2px 8px rgba(61, 61, 61, 0.3);
         }
         
         .step-indicator:hover {
@@ -835,7 +835,7 @@
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span style="background: ${borderColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${index + 1}</span>
                                 <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${tool}</strong>
-                                ${passed ? '<span style="color: #28a745; font-size: 1.3em;">✅</span>' : '<span style="color: #dc3545; font-size: 1.3em;">❌</span>'}
+                                ${passed ? '<span style="color: #8B6F47; font-size: 1.3em;">✅</span>' : '<span style="color: #3D3D3D; font-size: 1.3em;">❌</span>'}
                             </div>
                             <span class="iteration-badge" style="background: #e9ecef; color: #6c757d; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Iteration ${iteration}</span>
                         </div>

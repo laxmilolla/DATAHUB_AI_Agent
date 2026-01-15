@@ -5,36 +5,189 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Agent QA - Architecture 2</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ timestamp }}">
+    <style>
+        .file-upload-area {
+            border: 3px dashed #D4C5B9;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            background: #F5F1ED;
+            transition: all 0.3s;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        
+        .file-upload-area:hover {
+            border-color: #8B6F47;
+            background: #E8DDD4;
+        }
+        
+        .file-upload-area.dragover {
+            border-color: #A0826D;
+            background: #D4C5B9;
+        }
+        
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3D3D3D 0%, #8B6F47 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .btn-secondary {
+            background: #6B5B3D;
+            color: white;
+        }
+        
+        .btn:disabled {
+            background: #D4C5B9;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status-message.success {
+            background: #D4C5B9;
+            color: #3D3D3D;
+            border: 1px solid #8B6F47;
+        }
+        
+        .status-message.error {
+            background: #D4C5B9;
+            color: #2C2C2C;
+            border: 1px solid #A0826D;
+        }
+        
+        .status-message.info {
+            background: #E8DDD4;
+            color: #6B5B3D;
+            border: 1px solid #A0826D;
+        }
+        
+        .validation-results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #F5F1ED;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .validation-error {
+            color: #2C2C2C;
+            margin: 5px 0;
+        }
+        
+        .validation-warning {
+            color: #8B6F47;
+            margin: 5px 0;
+        }
+        
+        .file-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: #E8DDD4;
+            border-radius: 8px;
+            display: none;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>AI Agent QA</h1>
             <p class="subtitle">Autonomous test execution powered by Bedrock Agent + MCP</p>
-            <nav style="margin-top: 15px;">
+            <nav style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                 <a href="/parser" style="color: white; text-decoration: none; font-weight: 600; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 6px; display: inline-block; transition: background 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">📚 HTML Parser</a>
+                <a href="/element-maps" style="color: white; text-decoration: none; font-weight: 600; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 6px; display: inline-block; transition: background 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">🗺️ Element Maps</a>
+                <a href="#" onclick="window.open('/static/docs/STORY_WRITING_BEST_PRACTICES.html', '_blank'); return false;" style="color: white; text-decoration: none; font-weight: 600; padding: 8px 16px; background: rgba(255,255,255,0.2); border-radius: 6px; display: inline-block; transition: background 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">📝 Story Writing</a>
             </nav>
         </header>
 
         <main>
-            <!-- Three Quick Access Boxes -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px;">
-                <div class="card" style="text-align: center; padding: 25px; cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/parser'" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <h3 style="color: #667eea; margin-bottom: 10px;">Parser</h3>
-                    <p style="color: #666; font-size: 0.95em;">Parse HTML files and build element registries</p>
+            <!-- Excel Test Generator Section -->
+            <div class="card">
+                <h2>Excel Test Generator</h2>
+                <p style="color: #6B5B3D; margin-bottom: 20px;">
+                    Upload an Excel file with test steps to generate a Playwright test script.
+                    <a href="/api/excel/template" style="color: #8B6F47; text-decoration: underline;">Download template</a> to get started.
+                </p>
+
+                <!-- File Upload Area -->
+                <div class="file-upload-area" id="dropZone">
+                    <div class="upload-icon">📊</div>
+                    <h3>Drop Excel file here or click to browse</h3>
+                    <p style="color: #6B5B3D; margin-top: 10px;">Supported: .xlsx, .xls files</p>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
                 </div>
-                <div class="card" style="text-align: center; padding: 25px; cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/element-maps'" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <h3 style="color: #667eea; margin-bottom: 10px;">Element Maps</h3>
-                    <p style="color: #666; font-size: 0.95em;">View and manage element maps</p>
+
+                <!-- File Info -->
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <strong>Selected file:</strong> <span id="fileName"></span>
                 </div>
-                <div class="card" style="text-align: center; padding: 25px; cursor: pointer; transition: transform 0.2s;" onclick="window.open('/static/docs/STORY_WRITING_BEST_PRACTICES.html', '_blank')" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <h3 style="color: #667eea; margin-bottom: 10px;">Story Writing</h3>
-                    <p style="color: #666; font-size: 0.95em;">Best practices for writing test scenarios</p>
+
+                <!-- Validation Results -->
+                <div class="validation-results" id="validationResults" style="display: none;">
+                    <h4>Validation Results:</h4>
+                    <div id="validationContent"></div>
+                </div>
+
+                <!-- Status Message -->
+                <div class="status-message" id="excelStatusMessage"></div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="uploadBtn" disabled>
+                        <span class="btn-text">Upload & Validate</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> Uploading...
+                        </span>
+                    </button>
+                    <button class="btn btn-primary" id="generateBtn" disabled>
+                        <span class="btn-text">Generate Test</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> Generating...
+                        </span>
+                    </button>
+                    <button class="btn btn-secondary" id="downloadTemplateBtn">
+                        Download Template
+                    </button>
                 </div>
             </div>
 
+            <!-- AI Agent Test Section -->
             <div class="card">
-                <h2>Execute Test Scenario</h2>
+                <h2>AI Agent Test</h2>
 
                 <form id="story-form">
                     <label for="story">Test Scenario:</label>
@@ -67,7 +220,7 @@
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 style="margin: 0;">Recent Executions</h2>
-                    <span id="total-executions" style="color: #667eea; font-size: 0.95em; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="toggleAllExecutions()" title="Click to view all executions"></span>
+                    <span id="total-executions" style="color: #8B6F47; font-size: 0.95em; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="toggleAllExecutions()" title="Click to view all executions"></span>
                 </div>
                 <div id="executions-list">
                     <p class="loading">Loading...</p>
@@ -81,6 +234,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/excel_upload.js') }}"></script>
 </body>
 </html>
 

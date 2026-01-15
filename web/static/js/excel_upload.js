@@ -9,7 +9,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadTemplateBtn = document.getElementById('downloadTemplateBtn');
     const fileInfo = document.getElementById('fileInfo');
     const fileName = document.getElementById('fileName');
-    const statusMessage = document.getElementById('statusMessage');
+    // Support both excel_upload.html and index.html
+    const statusMessage = document.getElementById('excelStatusMessage') || document.getElementById('statusMessage');
     const validationResults = document.getElementById('validationResults');
     const validationContent = document.getElementById('validationContent');
     const resultsSection = document.getElementById('resultsSection');
@@ -178,7 +179,23 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (data.success) {
                 showMessage('Test generated successfully!', 'success');
-                displayResults(data);
+                
+                // If execution_id is provided, redirect to results page (main page integration)
+                if (data.execution_id) {
+                    // Refresh executions list if loadExecutions function exists (on main page)
+                    if (typeof loadExecutions === 'function') {
+                        setTimeout(() => {
+                            loadExecutions();
+                        }, 1000);
+                    }
+                    // Redirect to results page after a short delay
+                    setTimeout(() => {
+                        window.location.href = `/results/${data.execution_id}`;
+                    }, 2000);
+                } else if (resultsSection) {
+                    // Show results section if on excel_upload.html page
+                    displayResults(data);
+                }
             } else {
                 showMessage('Generation failed: ' + (data.error || 'Unknown error'), 'error');
             }
@@ -261,14 +278,18 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Show message
     function showMessage(message, type) {
-        statusMessage.textContent = message;
-        statusMessage.className = 'status-message ' + type;
-        statusMessage.style.display = 'block';
+        if (statusMessage) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status-message ' + type;
+            statusMessage.style.display = 'block';
+        }
     }
     
     // Hide message
     function hideMessage() {
-        statusMessage.style.display = 'none';
+        if (statusMessage) {
+            statusMessage.style.display = 'none';
+        }
     }
     
     // Download test file

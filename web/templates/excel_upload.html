@@ -7,24 +7,24 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ timestamp }}">
     <style>
         .file-upload-area {
-            border: 3px dashed #ccc;
+            border: 3px dashed #D4C5B9;
             border-radius: 12px;
             padding: 40px;
             text-align: center;
-            background: #f9f9f9;
+            background: #F5F1ED;
             transition: all 0.3s;
             cursor: pointer;
             margin: 20px 0;
         }
         
         .file-upload-area:hover {
-            border-color: #667eea;
-            background: #f0f7ff;
+            border-color: #8B6F47;
+            background: #E8DDD4;
         }
         
         .file-upload-area.dragover {
-            border-color: #20c997;
-            background: #e0f7f4;
+            border-color: #A0826D;
+            background: #D4C5B9;
         }
         
         .upload-icon {
@@ -50,7 +50,7 @@
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #20c997 100%);
+            background: linear-gradient(135deg, #3D3D3D 0%, #8B6F47 100%);
             color: white;
         }
         
@@ -78,45 +78,45 @@
         }
         
         .status-message.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: #D4C5B9;
+            color: #3D3D3D;
+            border: 1px solid #8B6F47;
         }
         
         .status-message.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: #D4C5B9;
+            color: #2C2C2C;
+            border: 1px solid #A0826D;
         }
         
         .status-message.info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
+            background: #E8DDD4;
+            color: #6B5B3D;
+            border: 1px solid #A0826D;
         }
         
         .validation-results {
             margin-top: 20px;
             padding: 15px;
-            background: #f8f9fa;
+            background: #F5F1ED;
             border-radius: 8px;
             display: none;
         }
         
         .validation-error {
-            color: #dc3545;
+            color: #2C2C2C;
             margin: 5px 0;
         }
         
         .validation-warning {
-            color: #856404;
+            color: #8B6F47;
             margin: 5px 0;
         }
         
         .file-info {
             margin-top: 15px;
             padding: 15px;
-            background: #e7f3ff;
+            background: #E8DDD4;
             border-radius: 8px;
             display: none;
         }
@@ -149,16 +149,16 @@
         <main>
             <div class="card">
                 <h2>Upload Excel Test Case</h2>
-                <p style="color: #666; margin-bottom: 20px;">
+                <p style="color: #6B5B3D; margin-bottom: 20px;">
                     Upload an Excel file with test steps to generate a Playwright test script.
-                    <a href="/api/excel/template" style="color: #667eea; text-decoration: underline;">Download template</a> to get started.
+                    <a href="/api/excel/template" style="color: #8B6F47; text-decoration: underline;">Download template</a> to get started.
                 </p>
 
                 <!-- File Upload Area -->
                 <div class="file-upload-area" id="dropZone">
                     <div class="upload-icon">📊</div>
                     <h3>Drop Excel file here or click to browse</h3>
-                    <p style="color: #666; margin-top: 10px;">Supported: .xlsx, .xls files</p>
+                    <p style="color: #6B5B3D; margin-top: 10px;">Supported: .xlsx, .xls files</p>
                     <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
                 </div>
 
