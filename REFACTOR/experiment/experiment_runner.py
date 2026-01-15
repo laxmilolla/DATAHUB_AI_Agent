@@ -33,16 +33,43 @@ class ExperimentRunner:
         self.playwright_manager = None
         self.results = None
     
-    async def start_browser(self) -> Dict[str, Any]:
+    async def start_browser(self, cdp_url: Optional[str] = None) -> Dict[str, Any]:
         """
-        Start browser in headful mode
+        Start browser in headful mode or connect to user's browser via CDP
+        
+        Args:
+            cdp_url: Chrome DevTools Protocol URL (e.g., 'http://localhost:9222')
+                    If provided, connects to user's browser instead of starting new one
+        
         Returns:
             Dict with browser info
         """
         try:
-            # Create PlaywrightManager for headful browser
+            # Create PlaywrightManager
             self.playwright_manager = PlaywrightManager()
-            await self.playwright_manager.start(headless=False)  # Headful mode
+            
+            # If CDP URL provided, connect to user's browser
+            if cdp_url:
+                from playwright.async_api import async_playwright
+                playwright = await async_playwright().start()
+                
+                # Connect to user's Chrome browser via CDP
+                browser = await playwright.chromium.connect_over_cdp(cdp_url)
+                
+                # Use existing page or create new one
+                pages = browser.pages
+                if pages:
+                    page = pages[0]
+                else:
+                    page = await browser.new_page()
+                
+                # Set playwright_manager's browser/page
+                self.playwright_manager.playwright = playwright
+                self.playwright_manager.browser = browser
+                self.playwright_manager.page = page
+            else:
+                # Start new browser in headful mode
+                await self.playwright_manager.start(headless=False)  # Headful mode
             
             page = self.playwright_manager.get_page()
             
@@ -89,7 +116,8 @@ class ExperimentRunner:
             return {
                 'success': True,
                 'session_id': self.session_id,
-                'browser_url': page.url
+                'browser_url': page.url,
+                'mode': 'cdp' if cdp_url else 'local'
             }
             
         except Exception as e:

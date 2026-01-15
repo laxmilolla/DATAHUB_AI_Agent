@@ -11,9 +11,16 @@ async function startBrowser() {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Starting...';
         
+        // Check if user wants to use CDP (connect to their browser)
+        const useCDP = document.getElementById('use-cdp-checkbox')?.checked || false;
+        const cdpUrl = useCDP ? 'http://localhost:9222' : null;
+        
         const response = await fetch('/api/experiment/start', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'}
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                cdp_url: cdpUrl
+            })
         });
         
         if (!response.ok) {
@@ -23,10 +30,42 @@ async function startBrowser() {
         const data = await response.json();
         currentSessionId = data.session_id;
         const browserLocation = data.browser_location || 'server';
+        const browserMode = data.browser_mode || 'server';
         const message = data.message || 'Browser started';
+        const cdpInstructions = data.cdp_instructions;
+        
+        // Show CDP instructions if on server
+        const cdpInstructionsDiv = document.getElementById('cdp-instructions');
+        if (cdpInstructions && browserMode === 'server') {
+            // Detect OS and show appropriate command
+            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const isWindows = navigator.platform.toUpperCase().indexOf('WIN') >= 0;
+            const cdpCommand = isMac ? cdpInstructions.command_mac : 
+                              isWindows ? cdpInstructions.command_windows : 
+                              cdpInstructions.command_linux;
+            
+            if (cdpInstructionsDiv) {
+                document.getElementById('cdp-command').textContent = cdpCommand;
+                cdpInstructionsDiv.style.display = 'block';
+            }
+        } else if (cdpInstructionsDiv) {
+            cdpInstructionsDiv.style.display = 'none';
+        }
         
         // Update UI
-        if (browserLocation === 'local') {
+        if (browserMode === 'cdp') {
+            // Connected to user's browser
+            document.getElementById('browser-viewport').innerHTML = `
+                <div class="browser-placeholder">
+                    <div class="icon">✅</div>
+                    <p><strong>Connected to Your Chrome Browser!</strong></p>
+                    <p style="font-size: 0.9em; margin-top: 10px; color: #8B6F47;">
+                        You can see and interact with your Chrome browser directly.<br>
+                        Set up preconditions (login, navigate), then run tests.
+                    </p>
+                </div>
+            `;
+        } else if (browserLocation === 'local') {
             // Local browser - show message that it's visible on screen
             document.getElementById('browser-viewport').innerHTML = `
                 <div class="browser-placeholder">

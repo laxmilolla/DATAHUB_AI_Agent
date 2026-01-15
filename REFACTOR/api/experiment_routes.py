@@ -36,22 +36,39 @@ def start_experiment():
     """
     Start a new experiment browser session
     
-    Note: Browser runs on the SERVER, not locally.
-    - If accessing via localhost: Browser runs on your local machine (visible)
-    - If accessing via server URL: Browser runs on server (not visible, but screenshots shown)
+    Options:
+    1. Local browser (if Flask runs locally): Browser visible on user's screen
+    2. Server browser: Browser runs on server (not visible)
+    3. CDP connection: Connect to user's Chrome browser (if cdp_url provided)
     
-    For true local browser interaction, run Flask locally:
-    python api/app.py
+    Expected JSON (optional):
+    {
+        "cdp_url": "http://localhost:9222"  // Connect to user's Chrome browser
+    }
     
     Returns:
         JSON with session_id and browser_location info
     """
     try:
+        data = request.get_json() or {}
+        cdp_url = data.get('cdp_url', '').strip()
+        
         session_id = f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
         # Detect if running locally
         request_host = request.headers.get('Host', '')
         is_local = 'localhost' in request_host or '127.0.0.1' in request_host or request_host.startswith('localhost')
+        
+        # Determine browser mode
+        if cdp_url:
+            browser_mode = 'cdp'
+            browser_location = 'user_browser'
+        elif is_local:
+            browser_mode = 'local'
+            browser_location = 'local'
+        else:
+            browser_mode = 'server'
+            browser_location = 'server'
         
         # Create experiment runner
         runner = ExperimentRunner(session_id)
@@ -60,7 +77,10 @@ def start_experiment():
         def start_browser_async():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(runner.start_browser())
+            if cdp_url:
+                result = loop.run_until_complete(runner.start_browser(cdp_url=cdp_url))
+            else:
+                result = loop.run_until_complete(runner.start_browser())
             loop.close()
         
         thread = threading.Thread(target=start_browser_async, daemon=True)
@@ -74,16 +94,32 @@ def start_experiment():
             'status': 'running',
             'actions': [],
             'screenshots': [],
-            'is_local': is_local
+            'is_local': is_local,
+            'browser_mode': browser_mode,
+            'cdp_url': cdp_url if cdp_url else None
         }
         
-        browser_location = 'local' if is_local else 'server'
+        # Generate appropriate message
+        if browser_mode == 'cdp':
+            message = '✅ Connected to your Chrome browser! You can interact with it directly.'
+        elif browser_mode == 'local':
+            message = '✅ Browser running locally - you should see it on your screen!'
+        else:
+            message = '⚠️ Browser runs on server (not visible). Screenshots will be shown in real-time. To use your browser, start Chrome with: chrome --remote-debugging-port=9222'
         
         return jsonify({
             'success': True,
             'session_id': session_id,
             'browser_location': browser_location,
-            'message': 'Browser runs on server. Screenshots will be shown in real-time.' if not is_local else 'Browser running locally - you should see it on your screen!'
+            'browser_mode': browser_mode,
+            'message': message,
+            'cdp_instructions': None if browser_mode != 'server' else {
+                'step1': 'Start Chrome with remote debugging:',
+                'command_mac': '/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug',
+                'command_linux': 'google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug',
+                'command_windows': 'chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\\chrome-debug',
+                'step2': 'Then refresh this page and click "Start Browser" again'
+            }
         }), 200
         
     except Exception as e:
