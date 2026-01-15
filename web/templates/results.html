@@ -1263,6 +1263,12 @@
             const selectedTab = document.getElementById(`tab-${tabName}`);
             if (selectedTab) {
                 selectedTab.classList.add('active');
+                
+                // Re-render screenshots tab with latest results if available
+                if (tabName === 'screenshots' && typeof currentResults !== 'undefined') {
+                    console.log('🔄 Re-rendering screenshots tab with currentResults:', currentResults);
+                    selectedTab.innerHTML = renderScreenshotsTab(currentResults);
+                }
             }
             
             // Activate the clicked button
