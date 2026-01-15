@@ -74,20 +74,45 @@ def start_experiment():
         runner = ExperimentRunner(session_id)
         
         # Start browser in background thread
+        browser_result = {'success': False, 'error': 'Unknown error'}
+        
         def start_browser_async():
+            nonlocal browser_result
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            if cdp_url:
-                result = loop.run_until_complete(runner.start_browser(cdp_url=cdp_url))
-            else:
-                result = loop.run_until_complete(runner.start_browser())
-            loop.close()
+            try:
+                if cdp_url:
+                    browser_result = loop.run_until_complete(runner.start_browser(cdp_url=cdp_url))
+                else:
+                    browser_result = loop.run_until_complete(runner.start_browser())
+            except Exception as e:
+                browser_result = {'success': False, 'error': str(e)}
+            finally:
+                loop.close()
         
         thread = threading.Thread(target=start_browser_async, daemon=True)
         thread.start()
         thread.join(timeout=10)  # Wait up to 10 seconds for browser to start
         
-        # Store session
+        # Check if browser started successfully
+        if not browser_result.get('success'):
+            error_msg = browser_result.get('error', 'Unknown error')
+            if 'ECONNREFUSED' in error_msg or 'localhost:9222' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': 'CDP connection failed',
+                    'message': '❌ Cannot connect to Chrome browser. When Flask runs on a server, it cannot connect to localhost:9222 on your machine. Options: 1) Use SSH port forwarding: ssh -L 9222:localhost:9222 user@server, then start Chrome locally, OR 2) Uncheck "Use My Chrome Browser" to use server browser (screenshots only).',
+                    'browser_mode': browser_mode
+                }), 400
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Browser startup failed',
+                    'message': f'❌ Failed to start browser: {error_msg}',
+                    'browser_mode': browser_mode
+                }), 500
+        
+        # Store session only if browser started successfully
         experiment_sessions[session_id] = {
             'runner': runner,
             'started_at': datetime.now().isoformat(),
