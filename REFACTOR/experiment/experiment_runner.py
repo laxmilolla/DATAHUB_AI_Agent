@@ -84,43 +84,17 @@ class ExperimentRunner:
             
             # Initialize Agent with existing browser
             self.agent = Agent()
-            # Replace agent's playwright_manager with ours
+            # Replace agent's playwright_manager with ours (so it uses our browser)
             self.agent.playwright_manager = self.playwright_manager
             
-            # Initialize agent components that need page
-            page = self.playwright_manager.get_page()
-            
-            # Get current URL for discovery tracker
-            current_url = page.url
-            
-            # Initialize components that need page (similar to Agent.__init__)
-            from agent.discovery.xpath_generator import XPathGenerator
-            from agent.browser.action_executor import ActionExecutor
-            from agent.discovery.discovery_tracker import DiscoveryTracker
-            from agent.browser.element_locator import ElementLocator
-            from agent.utils.step_matcher import StepMatcher
-            from agent.tools.browser_navigate import BrowserNavigateTool
-            from agent.tools.browser_click import BrowserClickTool
-            from agent.tools.browser_fill import BrowserFillTool
-            from agent.tools.browser_evaluate import BrowserEvaluateTool
-            from agent.tools.browser_verify import BrowserVerifyTool
-            
-            # Initialize components
-            self.agent.xpath_generator = XPathGenerator(page)
-            self.agent.action_executor = ActionExecutor(page, self.agent.screenshot_manager)
-            self.agent.discovery_tracker = DiscoveryTracker(
-                page, self.agent.xpath_generator, self.agent.element_registry, current_url, self.agent.context
-            )
-            self.agent.element_locator = ElementLocator(
-                page, self.agent.element_registry, {}, 0, self.agent.context
-            )
-            
-            # Initialize tool handlers
-            self.agent.navigate_tool = BrowserNavigateTool(self.playwright_manager, self.agent.context, self.agent.discovery_tracker)
-            self.agent.click_tool = BrowserClickTool(self.agent.element_locator, self.agent.context, self.agent.discovery_tracker, self.agent.element_registry)
-            self.agent.fill_tool = BrowserFillTool(self.agent.element_locator, self.agent.context, self.agent.discovery_tracker, self.agent.element_registry)
-            self.agent.evaluate_tool = BrowserEvaluateTool(page, self.agent.context)
-            self.agent.verify_tool = BrowserVerifyTool(page, self.agent.context)
+            # Monkey-patch playwright_manager.start to skip if browser already exists
+            original_start = self.playwright_manager.start
+            async def start_if_needed(headless=True):
+                """Only start browser if it doesn't already exist"""
+                if self.playwright_manager.browser is None:
+                    await original_start(headless=headless)
+                # Otherwise, browser already exists, do nothing
+            self.playwright_manager.start = start_if_needed
             
             return {
                 'success': True,
