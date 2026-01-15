@@ -273,8 +273,8 @@ def download_excel_template():
         
         project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
         
-        # Generate template
-        template_path = get_template_path("test_case_template.xlsx")
+        # Generate template using project root
+        template_path = get_template_path("test_case_template.xlsx", project_root=project_root)
         generate_excel_template(template_path, include_examples=include_examples)
         
         if not template_path.exists():

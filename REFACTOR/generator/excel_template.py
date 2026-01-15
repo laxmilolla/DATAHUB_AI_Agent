@@ -279,18 +279,23 @@ def _add_instructions(ws):
     ws.column_dimensions['B'].width = 60
 
 
-def get_template_path(template_name: str = "test_case_template.xlsx") -> Path:
+def get_template_path(template_name: str = "test_case_template.xlsx", project_root: Path = None) -> Path:
     """
     Get the default path for template file.
     
     Args:
         template_name: Name of template file
+        project_root: Optional project root path (defaults to current directory)
         
     Returns:
         Path to template file
     """
+    # Use project root if provided, otherwise use current directory
+    if project_root is None:
+        project_root = Path.cwd()
+    
     # Default to storage/excel_files/templates/ directory
-    template_dir = Path("storage") / "excel_files" / "templates"
+    template_dir = project_root / "storage" / "excel_files" / "templates"
     template_dir.mkdir(parents=True, exist_ok=True)
     return template_dir / template_name
 
