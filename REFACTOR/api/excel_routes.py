@@ -231,8 +231,16 @@ def generate_from_excel():
                 # Import TestRunner (from BACKUP when available)
                 try:
                     from validator.test_runner import TestRunner
-                except ImportError:
-                    print("⚠️ TestRunner not available - test will not be executed automatically")
+                except ImportError as e:
+                    print(f"⚠️ TestRunner not available - test will not be executed automatically: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Update execution with error
+                    execution_data['status'] = 'error'
+                    execution_data['error'] = f'TestRunner not available: {str(e)}'
+                    execution_data['completed_at'] = datetime.now().isoformat()
+                    with open(execution_file, 'w') as f:
+                        json.dump(execution_data, f, indent=2)
                     return
                 
                 # TestRunner expects tests in tests/generated/ directory
