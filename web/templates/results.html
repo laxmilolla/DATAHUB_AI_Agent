@@ -460,6 +460,8 @@
             const status = safeString(results.status, 'unknown');
             const story = safeString(results.story, 'No test scenario provided');
             const error = safeGet(results, 'error');
+            const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
+            const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
             
             // Determine overall status
             let overallStatus = 'success';
@@ -545,6 +547,11 @@
                         <!-- Action Buttons -->
                         ${status === 'completed' ? `
                         <div class="status-actions">
+                            ${isExcelExecution ? `
+                            <button class="btn-primary" onclick="updateRegistryFromExcel('${excelId}')" style="background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);">
+                                💾 Update Elements to Registry
+                            </button>
+                            ` : ''}
                             ${discoveries.length > 0 ? `
                             <button class="btn-primary" onclick="approveDiscoveries(this)">
                                 ✅ Approve & Update Registry
@@ -578,8 +585,8 @@
                     </div>
                 </div>
                 
-                <!-- Test Story Card -->
-                ${story ? `
+                <!-- Test Story Card (only for non-Excel executions) -->
+                ${story && !isExcelExecution ? `
                 <div class="card story-card">
                     <h3 style="color: var(--nci-blue); margin-bottom: 15px;">📝 Test Scenario</h3>
                     <div class="story-content">${story.replace(/\n/g, '<br>')}</div>
@@ -613,7 +620,7 @@
                     
                     <!-- Tab 2: Steps -->
                     <div id="tab-steps" class="tab-content">
-                        ${renderStepsTab(results)}
+                        <div id="steps-content">Loading steps...</div>
                     </div>
                     
                     <!-- Tab 3: Discoveries -->
@@ -634,6 +641,22 @@
             `;
             
             container.innerHTML = html;
+            
+            // Load steps tab content asynchronously (for Excel executions)
+            loadStepsTab(results);
+        }
+        
+        async function loadStepsTab(results) {
+            const stepsContent = document.getElementById('steps-content');
+            if (!stepsContent) return;
+            
+            try {
+                const stepsHtml = await renderStepsTab(results);
+                stepsContent.innerHTML = stepsHtml;
+            } catch (error) {
+                console.error('Error loading steps:', error);
+                stepsContent.innerHTML = '<p style="color: #dc3545;">Error loading steps: ' + error.message + '</p>';
+            }
         }
         
         // ===================================
@@ -791,10 +814,117 @@
             return html;
         }
         
-        function renderStepsTab(results) {
-            const actions = safeArray(results.actions_taken);
+        async function renderStepsTab(results) {
+            const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
+            const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
             
-            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎬 Step-by-Step Execution</h3>';
+            let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎬 Test Steps</h3>';
+            
+            // For Excel executions, show Excel steps
+            if (isExcelExecution && excelId) {
+                try {
+                    const stepsResponse = await fetch(`/api/excel/${excelId}/steps`);
+                    if (stepsResponse.ok) {
+                        const stepsData = await stepsResponse.json();
+                        const steps = stepsData.steps || [];
+                        
+                        if (steps.length === 0) {
+                            return html + renderEmptyState('🎬', 'No Steps Available', 'No steps found in Excel file.');
+                        }
+                        
+                        html += '<div style="display: grid; gap: 15px;">';
+                        
+                        steps.forEach((step, index) => {
+                            const stepNum = step.step || (index + 1);
+                            const action = step.action || 'unknown';
+                            const url = step.url || '';
+                            const xpath = step.xpath || '';
+                            const objectType = step.object_type || '';
+                            const textValue = step.text_value || '';
+                            const waitTime = step.wait_time || '';
+                            const functions = step.functions || '';
+                            const isOptional = step.optional || false;
+                            
+                            // Determine action icon and color
+                            let actionIcon = '⚙️';
+                            let actionColor = '#6B5B3D';
+                            if (action === 'navigate') {
+                                actionIcon = '🌐';
+                                actionColor = '#8B6F47';
+                            } else if (action === 'click') {
+                                actionIcon = '👆';
+                                actionColor = '#A0826D';
+                            } else if (action === 'fill') {
+                                actionIcon = '✍️';
+                                actionColor = '#6B5B3D';
+                            } else if (action === 'wait') {
+                                actionIcon = '⏱️';
+                                actionColor = '#D4C5B9';
+                            } else if (action === 'verify') {
+                                actionIcon = '✓';
+                                actionColor = '#8B6F47';
+                            }
+                            
+                            html += `
+                                <div class="action-item" style="background: white; border-left: 4px solid ${actionColor}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                    <div class="action-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                                        <div style="display: flex; align-items: center; gap: 10px;">
+                                            <span style="background: ${actionColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${stepNum}</span>
+                                            <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${actionIcon} ${action.toUpperCase()}</strong>
+                                            ${isOptional ? '<span style="background: #D4C5B9; color: #6B5B3D; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600;">Optional</span>' : ''}
+                                        </div>
+                                    </div>
+                                    ${url ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #495057;">🌐 URL:</strong>
+                                        <div style="color: #495057; font-size: 0.95em; word-break: break-all; margin-top: 4px;">${url}</div>
+                                    </div>
+                                    ` : ''}
+                                    ${xpath ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #495057;">📍 XPath:</strong>
+                                        <div style="color: #495057; font-size: 0.85em; font-family: monospace; word-break: break-all; margin-top: 4px;">${xpath}</div>
+                                    </div>
+                                    ` : ''}
+                                    ${objectType ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #495057;">🎯 Object Type:</strong>
+                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${objectType}</span>
+                                    </div>
+                                    ` : ''}
+                                    ${textValue ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #495057;">📝 Text Value:</strong>
+                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${textValue}</span>
+                                    </div>
+                                    ` : ''}
+                                    ${waitTime ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #495057;">⏱️ Wait Time:</strong>
+                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${waitTime}ms</span>
+                                    </div>
+                                    ` : ''}
+                                    ${functions ? `
+                                    <div style="margin: 10px 0; padding: 10px; background: #E8DDD4; border-radius: 6px;">
+                                        <strong style="font-size: 0.9em; color: #6B5B3D;">⚙️ Functions:</strong>
+                                        <span style="color: #6B5B3D; font-size: 0.95em; margin-left: 8px;">${functions}</span>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div>';
+                        return html;
+                    }
+                } catch (error) {
+                    console.error('Error loading Excel steps:', error);
+                    // Fall through to show regular actions
+                }
+            }
+            
+            // For AI agent executions, show actions_taken
+            const actions = safeArray(results.actions_taken);
             
             if (actions.length === 0) {
                 return html + renderEmptyState('🎬', 'No Steps Available', 'No execution steps were recorded for this test.');
@@ -2009,6 +2139,191 @@
             } catch (error) {
                 console.error('Error deleting element:', error);
                 showActionMessage('❌ Failed to delete element: ' + error.message, 'error');
+            }
+        }
+        
+        // ===================================
+        // EXCEL REGISTRY UPDATE FUNCTIONS
+        // ===================================
+        
+        async function updateRegistryFromExcel(excelId) {
+            if (!excelId) {
+                showActionMessage('❌ Excel ID not found', 'error');
+                return;
+            }
+            
+            try {
+                showActionMessage('⏳ Comparing Excel elements with registry...', 'info');
+                
+                // Compare with registry
+                const compareResponse = await fetch(`/api/excel/${excelId}/registry/compare`);
+                if (!compareResponse.ok) {
+                    throw new Error('Failed to compare with registry');
+                }
+                
+                const compareData = await compareResponse.json();
+                const comparison = compareData.comparison;
+                
+                // Check if there are any new or updated elements
+                if (comparison.total_new === 0 && comparison.total_updated === 0) {
+                    showActionMessage('ℹ️ No new or updated elements found. All elements already exist in registry.', 'info');
+                    return;
+                }
+                
+                // Show modal with elements to update
+                showRegistryUpdateModal(comparison, excelId);
+                
+            } catch (error) {
+                console.error('Error updating registry from Excel:', error);
+                showActionMessage('❌ Failed to update registry: ' + error.message, 'error');
+            }
+        }
+        
+        function showRegistryUpdateModal(comparison, excelId) {
+            const newElements = comparison.new_elements || [];
+            const updatedElements = comparison.updated_elements || [];
+            
+            let modalHTML = `
+                <div id="registry-update-modal" style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.7);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                ">
+                    <div style="
+                        background: white;
+                        border-radius: 12px;
+                        padding: 30px;
+                        max-width: 900px;
+                        max-height: 90vh;
+                        overflow-y: auto;
+                        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                    ">
+                        <h2 style="margin-top: 0; color: #2C2C2C; border-bottom: 2px solid #8B6F47; padding-bottom: 10px;">
+                            💾 Update Elements to Registry
+                        </h2>
+                        
+                        <p style="color: #6B5B3D; margin: 15px 0;">
+                            Do you want to update new elements to JSON registry?
+                        </p>
+                        
+                        ${newElements.length > 0 ? `
+                        <div style="margin: 20px 0;">
+                            <h3 style="color: #8B6F47; margin-bottom: 10px;">
+                                ✨ New Elements (${newElements.length})
+                            </h3>
+                            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #D4C5B9; border-radius: 8px; padding: 15px;">
+                                ${newElements.map((elem, idx) => `
+                                    <div style="margin-bottom: 15px; padding: 10px; background: #FAF8F5; border-radius: 6px; border-left: 3px solid #8B6F47;">
+                                        <strong style="color: #2C2C2C;">${elem.element_name}</strong>
+                                        <div style="font-size: 0.9em; color: #6B5B3D; margin-top: 5px;">
+                                            <div><strong>URL:</strong> ${elem.url}</div>
+                                            <div style="font-family: monospace; margin-top: 5px; word-break: break-all;">
+                                                <strong>XPath:</strong> ${elem.xpath}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${updatedElements.length > 0 ? `
+                        <div style="margin: 20px 0;">
+                            <h3 style="color: #A0826D; margin-bottom: 10px;">
+                                🔄 Updated Elements (${updatedElements.length})
+                            </h3>
+                            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #D4C5B9; border-radius: 8px; padding: 15px;">
+                                ${updatedElements.map((elem, idx) => `
+                                    <div style="margin-bottom: 15px; padding: 10px; background: #FAF8F5; border-radius: 6px; border-left: 3px solid #A0826D;">
+                                        <strong style="color: #2C2C2C;">${elem.element_name}</strong>
+                                        <div style="font-size: 0.9em; color: #6B5B3D; margin-top: 5px;">
+                                            <div><strong>URL:</strong> ${elem.url}</div>
+                                            <div style="font-family: monospace; margin-top: 5px;">
+                                                <div><strong>Old XPath:</strong> <span style="text-decoration: line-through; color: #999;">${elem.old_xpath}</span></div>
+                                                <div><strong>New XPath:</strong> <span style="color: #8B6F47;">${elem.new_xpath}</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        <div style="display: flex; gap: 10px; margin-top: 25px; justify-content: flex-end;">
+                            <button onclick="closeRegistryUpdateModal()" class="btn-secondary" style="padding: 12px 24px;">
+                                Cancel
+                            </button>
+                            <button onclick="confirmRegistryUpdate('${excelId}')" class="btn-primary" style="padding: 12px 24px; background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);">
+                                ✅ Update Registry
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+        
+        function closeRegistryUpdateModal() {
+            const modal = document.getElementById('registry-update-modal');
+            if (modal) modal.remove();
+        }
+        
+        async function confirmRegistryUpdate(excelId) {
+            try {
+                showActionMessage('⏳ Updating registry...', 'info');
+                closeRegistryUpdateModal();
+                
+                // Get comparison again to ensure we have latest data
+                const compareResponse = await fetch(`/api/excel/${excelId}/registry/compare`);
+                if (!compareResponse.ok) {
+                    throw new Error('Failed to compare with registry');
+                }
+                
+                const compareData = await compareResponse.json();
+                const comparison = compareData.comparison;
+                
+                // Update registry
+                const updateResponse = await fetch(`/api/excel/${excelId}/registry/update`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        new_elements: comparison.new_elements,
+                        updated_elements: comparison.updated_elements
+                    })
+                });
+                
+                if (!updateResponse.ok) {
+                    throw new Error('Failed to update registry');
+                }
+                
+                const updateData = await updateResponse.json();
+                
+                let message = `✅ Registry updated successfully! `;
+                if (updateData.added_count > 0) {
+                    message += `Added ${updateData.added_count} new element(s). `;
+                }
+                if (updateData.updated_count > 0) {
+                    message += `Updated ${updateData.updated_count} element(s).`;
+                }
+                
+                if (updateData.errors && updateData.errors.length > 0) {
+                    message += `\n⚠️ Some errors occurred: ${updateData.errors.join(', ')}`;
+                }
+                
+                showActionMessage(message, 'success');
+                
+            } catch (error) {
+                console.error('Error confirming registry update:', error);
+                showActionMessage('❌ Failed to update registry: ' + error.message, 'error');
             }
         }
         

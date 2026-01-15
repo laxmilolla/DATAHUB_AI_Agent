@@ -163,13 +163,26 @@ def list_executions():
             try:
                 with open(f) as file:
                     r = json.load(file)
+                
+                # Format story text - handle Excel executions differently
+                story_text = r.get('story', 'No test scenario')
+                if r.get('source') == 'excel':
+                    # For Excel executions, show Excel filename
+                    excel_meta = r.get('excel_metadata', {})
+                    excel_filename = excel_meta.get('filename', 'Excel Test')
+                    story_text = f"📊 {excel_filename}"
+                else:
+                    # Truncate long stories
+                    story_text = story_text[:100]
+                
                 executions.append({
                     'execution_id': r['execution_id'],
-                    'story': r['story'][:100],
+                    'story': story_text,
                     'status': r['status'],
+                    'source': r.get('source', 'ai'),  # 'ai' or 'excel'
                     'actions_count': len(r.get('actions_taken', [])),
                     'screenshots_count': len(r.get('screenshots', [])),
-                    'started_at': r.get('started_at'),
+                    'started_at': r.get('started_at') or r.get('created_at'),
                     'completed_at': r.get('completed_at'),
                     'duration': r.get('duration')
                 })
@@ -177,7 +190,7 @@ def list_executions():
                 continue
         
         # Sort by started_at timestamp (most recent first)
-        executions.sort(key=lambda x: x.get('started_at') or 0, reverse=True)
+        executions.sort(key=lambda x: x.get('started_at') or '', reverse=True)
     
     return jsonify({'executions': executions}), 200
 

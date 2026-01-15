@@ -18,6 +18,7 @@ sys.path.insert(0, str(refactor_dir.parent))
 from REFACTOR.generator.excel_generator import generate_playwright_from_excel
 from REFACTOR.generator.excel_validator import validate_excel_file, get_validation_summary
 from REFACTOR.generator.excel_template import generate_excel_template, get_template_path
+from REFACTOR.generator.excel_registry_helper import extract_elements_from_excel, compare_with_registry
 
 bp_excel = Blueprint('excel_api', __name__)
 active_excel_generations = {}
@@ -534,6 +535,248 @@ def download_generated_test(excel_id):
     except Exception as e:
         import traceback
         print(f"Error downloading test file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/<excel_id>/registry/compare', methods=['GET'])
+def compare_excel_with_registry(excel_id):
+    """
+    Compare Excel file elements with registry to find new/updated elements.
+    
+    Returns:
+        JSON with new_elements, updated_elements, unchanged_elements
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Extract elements from Excel
+        elements = extract_elements_from_excel(excel_path)
+        
+        # Load registry
+        from utils.element_registry import get_registry
+        registry = get_registry()
+        
+        # Compare with registry
+        comparison = compare_with_registry(elements, registry)
+        
+        return jsonify({
+            'success': True,
+            'comparison': comparison,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error comparing Excel with registry: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/<excel_id>/registry/update', methods=['POST'])
+def update_registry_from_excel(excel_id):
+    """
+    Update registry with elements from Excel file.
+    
+    Expected JSON:
+    {
+        "new_elements": [...],  # Elements to add
+        "updated_elements": [...]  # Elements to update
+    }
+    
+    Returns:
+        JSON with update status
+    """
+    try:
+        data = request.get_json()
+        new_elements = data.get('new_elements', [])
+        updated_elements = data.get('updated_elements', [])
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        # Load registry
+        from utils.element_registry import get_registry
+        registry = get_registry()
+        
+        added_count = 0
+        updated_count = 0
+        errors = []
+        
+        # Add new elements
+        for elem in new_elements:
+            try:
+                domain = elem['domain']
+                page = elem['page']
+                element_name = elem['element_name']
+                xpath = elem['xpath']
+                
+                # Load or create element map
+                element_map = registry.load_map(domain, page)
+                if not element_map:
+                    from datetime import datetime
+                    element_map = {
+                        "page": page,
+                        "url": elem['url'],
+                        "version": "1.0",
+                        "timestamp": datetime.now().isoformat() + "Z",
+                        "elements": {},
+                        "id_index": {},
+                        "statistics": {
+                            "total_elements": 0,
+                            "parsed_elements": 0,
+                            "discovered_elements": 0
+                        }
+                    }
+                
+                # Add element
+                if element_name not in element_map['elements']:
+                    element_map['elements'][element_name] = {
+                        'xpath': xpath,
+                        'selector': xpath,
+                        'element_id': registry._generate_element_id(element_name, xpath),
+                        'usage_count': 0,
+                        'last_used': None,
+                        'source': 'excel',
+                        'object_type': elem.get('object_type', ''),
+                        'action': elem.get('action', '')
+                    }
+                    element_map['statistics']['total_elements'] = len(element_map['elements'])
+                    registry.save_map(domain, page, element_map)
+                    added_count += 1
+            except Exception as e:
+                errors.append(f"Failed to add {elem.get('element_name', 'unknown')}: {str(e)}")
+        
+        # Update existing elements
+        for elem in updated_elements:
+            try:
+                domain = elem['domain']
+                page = elem['page']
+                element_name = elem['element_name']
+                new_xpath = elem['new_xpath']
+                
+                # Load element map
+                element_map = registry.load_map(domain, page)
+                if not element_map:
+                    errors.append(f"Registry not found for {domain}/{page}")
+                    continue
+                
+                # Update element
+                if element_name in element_map['elements']:
+                    element_map['elements'][element_name]['xpath'] = new_xpath
+                    element_map['elements'][element_name]['selector'] = new_xpath
+                    element_map['elements'][element_name]['source'] = 'excel_updated'
+                    registry.save_map(domain, page, element_map)
+                    updated_count += 1
+                else:
+                    errors.append(f"Element {element_name} not found in registry")
+            except Exception as e:
+                errors.append(f"Failed to update {elem.get('element_name', 'unknown')}: {str(e)}")
+        
+        return jsonify({
+            'success': True,
+            'added_count': added_count,
+            'updated_count': updated_count,
+            'errors': errors,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error updating registry from Excel: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/<excel_id>/steps', methods=['GET'])
+def get_excel_steps(excel_id):
+    """
+    Get test steps from Excel file.
+    
+    Returns:
+        JSON with steps array
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Read Excel file and extract steps
+        import pandas as pd
+        df = pd.read_excel(excel_path)
+        
+        # Normalize column names
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        
+        steps = []
+        for idx, row in df.iterrows():
+            step = str(row.get('step', idx + 1)).strip()
+            url = str(row.get('url', '')).strip() if pd.notna(row.get('url')) else ''
+            xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else ''
+            action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
+            object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+            text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
+            wait_time = row.get('wait_time', None)
+            functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else ''
+            is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
+            
+            steps.append({
+                'step': step,
+                'url': url if url and url.upper() != 'N/A' else None,
+                'xpath': xpath if xpath and xpath.upper() != 'N/A' else None,
+                'action': action,
+                'object_type': object_type,
+                'text_value': text_value if text_value else None,
+                'wait_time': wait_time,
+                'functions': functions if functions else None,
+                'optional': is_optional
+            })
+        
+        return jsonify({
+            'success': True,
+            'steps': steps,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error getting Excel steps: {e}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
