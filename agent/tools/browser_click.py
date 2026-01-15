@@ -173,27 +173,84 @@ class BrowserClickTool:
                 if dropdown_locator:
                     # Click dropdown button to open menu
                     await dropdown_locator.click()
-                    await self.page.wait_for_timeout(500)  # Wait for menu to open
+                    await self.page.wait_for_timeout(500)  # Brief wait for menu to render
                     
-                    # Wait for dropdown menu portal to appear
-                    menu_portal = await self._wait_for_dropdown_menu_portal()
-                    if menu_portal:
-                        self.context.open_dropdown_menu = menu_portal
-                        logger.info(f"  ✅ Opened dropdown menu: {menu_portal}")
-                        
-                        # Now find and click the option
-                        option_locator = await self._find_option_in_menu(menu_portal, option_value)
-                        if option_locator:
-                            chosen_locator = option_locator
-                            original_element_for_xpath = option_locator
-                            using_registry_xpath = False
-                            logger.info(f"  ✅ Found option '{option_value}' in dropdown menu")
+                    # STRATEGY 1: Try direct XPath first (what we know works - Step 18 success)
+                    # This bypasses unreliable detection and uses proven approach
+                    direct_xpath = f'xpath=//ul[@role="listbox"]//li[@role="option" and normalize-space(.)="{option_value}"]'
+                    try:
+                        option_locator = self.page.locator(direct_xpath).first
+                        count = await option_locator.count()
+                        if count > 0:
+                            is_visible = await option_locator.is_visible(timeout=2000)
+                            if is_visible:
+                                logger.info(f"  ✅ Found option using direct XPath (fast path) - bypassing detection")
+                                chosen_locator = option_locator
+                                original_element_for_xpath = option_locator
+                                using_registry_xpath = False
+                                # Continue to click execution below
+                            else:
+                                raise Exception("Option found but not visible")
                         else:
-                            logger.warning(f"  ⚠️ Option '{option_value}' not found in dropdown menu")
-                            return f"❌ Click FAILED: Option '{option_value}' not found in '{dropdown_name}' dropdown"
-                    else:
-                        logger.warning(f"  ⚠️ Dropdown menu did not open after clicking '{dropdown_name}'")
-                        return f"❌ Click FAILED: Dropdown '{dropdown_name}' did not open"
+                            raise Exception("Option not found with direct XPath")
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Direct XPath failed: {e}, trying detection fallback...")
+                        
+                        # STRATEGY 2: Fallback to detection method (existing code)
+                        menu_portal = await self._wait_for_dropdown_menu_portal()
+                        if menu_portal:
+                            self.context.open_dropdown_menu = menu_portal
+                            logger.info(f"  ✅ Opened dropdown menu via detection: {menu_portal}")
+                            
+                            # Now find and click the option
+                            option_locator = await self._find_option_in_menu(menu_portal, option_value)
+                            if option_locator:
+                                chosen_locator = option_locator
+                                original_element_for_xpath = option_locator
+                                using_registry_xpath = False
+                                logger.info(f"  ✅ Found option '{option_value}' in dropdown menu")
+                            else:
+                                logger.warning(f"  ⚠️ Option '{option_value}' not found in dropdown menu")
+                                # STRATEGY 3: Try aria-controls as last resort
+                                try:
+                                    aria_controls = await dropdown_locator.get_attribute('aria-controls')
+                                    if aria_controls:
+                                        logger.info(f"  🔍 Trying aria-controls method: {aria_controls}")
+                                        menu_id_selector = f'#{aria_controls}'
+                                        option_locator = await self._find_option_in_menu(menu_id_selector, option_value)
+                                        if option_locator:
+                                            chosen_locator = option_locator
+                                            original_element_for_xpath = option_locator
+                                            using_registry_xpath = False
+                                            logger.info(f"  ✅ Found option via aria-controls")
+                                        else:
+                                            return f"❌ Click FAILED: Option '{option_value}' not found in '{dropdown_name}' dropdown (tried XPath, detection, aria-controls)"
+                                    else:
+                                        return f"❌ Click FAILED: Option '{option_value}' not found in '{dropdown_name}' dropdown (tried XPath, detection)"
+                                except Exception as aria_error:
+                                    logger.debug(f"  ⚠️ aria-controls method failed: {aria_error}")
+                                    return f"❌ Click FAILED: Option '{option_value}' not found in '{dropdown_name}' dropdown (tried XPath, detection, aria-controls)"
+                        else:
+                            logger.warning(f"  ⚠️ Dropdown menu detection failed, trying aria-controls...")
+                            # STRATEGY 3: Try aria-controls when detection fails
+                            try:
+                                aria_controls = await dropdown_locator.get_attribute('aria-controls')
+                                if aria_controls:
+                                    logger.info(f"  🔍 Trying aria-controls method: {aria_controls}")
+                                    menu_id_selector = f'#{aria_controls}'
+                                    option_locator = await self._find_option_in_menu(menu_id_selector, option_value)
+                                    if option_locator:
+                                        chosen_locator = option_locator
+                                        original_element_for_xpath = option_locator
+                                        using_registry_xpath = False
+                                        logger.info(f"  ✅ Found option via aria-controls")
+                                    else:
+                                        return f"❌ Click FAILED: Dropdown '{dropdown_name}' did not open (tried XPath, detection, aria-controls)"
+                                else:
+                                    return f"❌ Click FAILED: Dropdown '{dropdown_name}' did not open (tried XPath, detection)"
+                            except Exception as aria_error:
+                                logger.debug(f"  ⚠️ aria-controls method failed: {aria_error}")
+                                return f"❌ Click FAILED: Dropdown '{dropdown_name}' did not open (tried XPath, detection, aria-controls)"
                 else:
                     logger.warning(f"  ⚠️ Dropdown button '{dropdown_name}' not found")
                     return f"❌ Click FAILED: Dropdown button '{dropdown_name}' not found"
