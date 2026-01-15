@@ -173,12 +173,48 @@ def generate_from_excel():
                 'excel_id': excel_id
             }), 500
         
+        # Create execution ID for this Excel test
+        execution_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{excel_id.split('_')[-1][:8]}"
+        
+        # Create execution metadata (similar to existing system)
+        executions_dir = project_root / 'storage' / 'executions'
+        executions_dir.mkdir(parents=True, exist_ok=True)
+        
+        execution_data = {
+            'execution_id': execution_id,
+            'excel_id': excel_id,
+            'source': 'excel',
+            'story': f"Excel test case: {metadata.get('filename', 'test_case.xlsx')}",
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'status': 'running',
+            'created_at': datetime.now().isoformat(),
+            'excel_metadata': {
+                'excel_id': excel_id,
+                'filename': metadata.get('filename'),
+                'uploaded_at': metadata.get('uploaded_at'),
+                'validation': metadata.get('validation', {})
+            },
+            'actions_taken': [],
+            'screenshots': [],
+            'playwright_validation': {
+                'status': 'running',
+                'test_running': True
+            }
+        }
+        
+        # Save initial execution data
+        execution_file = executions_dir / f"{execution_id}.json"
+        with open(execution_file, 'w') as f:
+            json.dump(execution_data, f, indent=2)
+        
         # Update metadata
         metadata['generated_test'] = {
             'test_name': test_name,
             'test_file': str(output_file.relative_to(project_root)),
             'generated_at': datetime.now().isoformat(),
-            'generation_result': generation_result
+            'generation_result': generation_result,
+            'execution_id': execution_id
         }
         
         with open(metadata_file, 'w') as f:
@@ -187,15 +223,103 @@ def generate_from_excel():
         # Update generation status
         active_excel_generations[excel_id]['status'] = 'completed'
         active_excel_generations[excel_id]['test_file'] = str(output_file.relative_to(project_root))
+        active_excel_generations[excel_id]['execution_id'] = execution_id
         
-        # Return response
+        # Run test automatically in background thread
+        def run_excel_test_background():
+            try:
+                # Import TestRunner (from BACKUP when available)
+                try:
+                    from validator.test_runner import TestRunner
+                except ImportError:
+                    print("⚠️ TestRunner not available - test will not be executed automatically")
+                    return
+                
+                # TestRunner expects tests in tests/generated/ directory
+                # Copy test file to that location
+                tests_generated_dir = project_root / 'tests' / 'generated'
+                tests_generated_dir.mkdir(parents=True, exist_ok=True)
+                
+                import shutil
+                test_filename = f"{test_name}.py"
+                test_dest = tests_generated_dir / test_filename
+                shutil.copy2(output_file, test_dest)
+                
+                # TestRunner expects just the filename
+                test_filename_to_run = test_filename
+                
+                # Run the test
+                runner = TestRunner(project_root)
+                test_result = runner.run(test_filename_to_run, execution_id=execution_id)
+                
+                # Update execution data with test results
+                execution_data['status'] = 'completed' if test_result.get('status') == 'passed' else 'failed'
+                execution_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                execution_data['screenshots'] = [s['filename'] for s in test_result.get('screenshots', [])]
+                execution_data['playwright_validation'] = {
+                    'status': test_result.get('status'),
+                    'duration': test_result.get('duration'),
+                    'assertions_passed': test_result.get('assertions_passed', 0),
+                    'assertions_failed': test_result.get('assertions_failed', 0),
+                    'test_file': test_result.get('test_file'),
+                    'timestamp': test_result.get('timestamp'),
+                    'stdout': test_result.get('stdout', ''),
+                    'stderr': test_result.get('stderr', ''),
+                    'exit_code': test_result.get('exit_code', 0)
+                }
+                execution_data['completed_at'] = datetime.now().isoformat()
+                
+                # Save updated execution data
+                with open(execution_file, 'w') as f:
+                    json.dump(execution_data, f, indent=2)
+                
+                # Update Excel metadata with execution results
+                excel_metadata = metadata.copy()
+                if 'test_executions' not in excel_metadata:
+                    excel_metadata['test_executions'] = []
+                
+                excel_metadata['test_executions'].append({
+                    'execution_id': execution_id,
+                    'status': test_result.get('status'),
+                    'duration': test_result.get('duration'),
+                    'executed_at': datetime.now().isoformat()
+                })
+                excel_metadata['last_execution'] = excel_metadata['test_executions'][-1]
+                
+                with open(metadata_file, 'w') as f:
+                    json.dump(excel_metadata, f, indent=2)
+                
+                print(f"✅ Excel test execution completed: {execution_id}")
+                
+            except Exception as e:
+                import traceback
+                print(f"❌ Error running Excel test: {e}")
+                print(traceback.format_exc())
+                
+                # Update execution with error
+                execution_data['status'] = 'error'
+                execution_data['error'] = str(e)
+                execution_data['completed_at'] = datetime.now().isoformat()
+                
+                with open(execution_file, 'w') as f:
+                    json.dump(execution_data, f, indent=2)
+        
+        # Start background thread to run test
+        thread = threading.Thread(target=run_excel_test_background)
+        thread.daemon = True
+        thread.start()
+        
+        # Return response with execution_id
         response = {
             'success': generation_result.get('success', True),
             'excel_id': excel_id,
+            'execution_id': execution_id,
             'test_name': test_name,
             'test_file': str(output_file.relative_to(project_root)),
             'rows_processed': generation_result.get('rows_processed', 0),
-            'generated_at': datetime.now().isoformat()
+            'generated_at': datetime.now().isoformat(),
+            'test_running': True,
+            'results_url': f'/results/{execution_id}'
         }
         
         if generation_result.get('errors'):

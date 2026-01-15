@@ -177,8 +177,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             if (data.success) {
-                showMessage('Test generated successfully!', 'success');
+                showMessage('Test generated successfully! Running test...', 'success');
                 displayResults(data);
+                
+                // If execution_id is provided, redirect to results page after a delay
+                if (data.execution_id && data.results_url) {
+                    setTimeout(() => {
+                        window.location.href = data.results_url;
+                    }, 2000);
+                }
             } else {
                 showMessage('Generation failed: ' + (data.error || 'Unknown error'), 'error');
             }
@@ -232,9 +239,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p><strong>Test Name:</strong> ${data.test_name || 'N/A'}</p>
                 <p><strong>Rows Processed:</strong> ${data.rows_processed || 0}</p>
                 <p><strong>Generated At:</strong> ${new Date(data.generated_at).toLocaleString()}</p>
+                ${data.execution_id ? `<p><strong>Execution ID:</strong> ${data.execution_id}</p>` : ''}
+                ${data.test_running ? '<p style="color: #17a2b8;"><strong>⏳ Test is running in background...</strong></p>' : ''}
             </div>
             
             <div class="action-buttons">
+                ${data.results_url ? `
+                    <button class="btn btn-primary" onclick="window.location.href='${data.results_url}'">
+                        View Results & Screenshots
+                    </button>
+                ` : ''}
                 <button class="btn btn-primary" onclick="downloadTest('${currentExcelId}')">
                     Download Test File
                 </button>
