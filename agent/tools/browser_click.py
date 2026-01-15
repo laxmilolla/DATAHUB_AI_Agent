@@ -166,9 +166,15 @@ class BrowserClickTool:
             # If this is a dropdown selection pattern, open dropdown first, then select option
             if dropdown_selection and dropdown_name and option_value:
                 logger.info(f"  🎯 Handling dropdown selection: opening '{dropdown_name}' dropdown, then selecting '{option_value}'")
+                # FIX: Re-resolve selector using dropdown name to find the correct dropdown button
+                # The original selector might be wrong (e.g., "text=Data Submissions" instead of dropdown button)
+                dropdown_selector, dropdown_using_registry_xpath, dropdown_registry_element = await self._resolve_selector(
+                    dropdown_name, dropdown_name
+                )
+                logger.info(f"  🔍 Resolved dropdown button selector: '{dropdown_selector}' (using registry: {dropdown_using_registry_xpath})")
                 # First, click the dropdown button to open it
                 dropdown_locator, _ = await self._find_and_choose_element(
-                    selector, original_selector, using_registry_xpath
+                    dropdown_selector, dropdown_name, dropdown_using_registry_xpath
                 )
                 if dropdown_locator:
                     # Click dropdown button to open menu
