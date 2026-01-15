@@ -750,10 +750,34 @@ def run_test(exec_id):
 
 @bp.route('/executions/<exec_id>/download-test', methods=['GET'])
 def download_generated_test(exec_id):
-    """Download generated test code as .py file for standalone execution"""
+    """Download generated test code as .py file for standalone execution - supports both regular and Excel executions"""
     try:
         from flask import send_file
         project_root = current_app.config['PROJECT_ROOT']
+        
+        # Check if this is an Excel execution
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        if execution_file.exists():
+            with open(execution_file, 'r') as f:
+                exec_data = json.load(f)
+            
+            # Excel execution has test_file directly in execution data
+            if exec_data.get('source') == 'excel' and exec_data.get('test_file'):
+                test_file_path = project_root / exec_data['test_file']
+                if test_file_path.exists():
+                    filename = exec_data.get('test_name', 'excel_test') + '.py'
+                    response = send_file(
+                        str(test_file_path),
+                        mimetype='text/x-python',
+                        as_attachment=True,
+                        download_name=filename,
+                    )
+                    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                    response.headers['Pragma'] = 'no-cache'
+                    response.headers['Expires'] = '0'
+                    return response
+        
+        # Fallback to regular generated test metadata
         metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
         
         if not metadata_file.exists():
