@@ -101,7 +101,7 @@ def start_experiment():
                 return jsonify({
                     'success': False,
                     'error': 'CDP connection failed',
-                    'message': '❌ Cannot connect to Chrome browser. When Flask runs on a server, it cannot connect to localhost:9222 on your machine. Options: 1) Use SSH port forwarding: ssh -L 9222:localhost:9222 user@server, then start Chrome locally, OR 2) Uncheck "Use My Chrome Browser" to use server browser (screenshots only).',
+                    'message': '❌ Cannot connect to Chrome browser. Setup required:\n\n1. Start Chrome locally: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug\n\n2. Set up SSH reverse forwarding (keep terminal open):\n   ssh -R 9222:localhost:9222 -i ~/Downloads/ai-crdc-hub-key.pem ubuntu@13.222.91.163\n\n3. Then refresh and click "Start Browser" again\n\nOR uncheck "Use My Chrome Browser" to use server browser (screenshots only).',
                     'browser_mode': browser_mode
                 }), 400
             else:
