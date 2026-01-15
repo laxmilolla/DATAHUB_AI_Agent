@@ -6,6 +6,7 @@ CRITICAL: Preserves registry checks, tree climbing, discovery tracking, XPath pr
 import re
 import logging
 from typing import Dict, Any, Optional, List, Tuple
+from pathlib import Path
 from playwright.async_api import Page, Locator
 from agent.utils.modal_utils import ModalUtils
 
@@ -331,6 +332,15 @@ class BrowserClickTool:
             modal_page_name = f"{page_name}-modal"
             page_names_to_try.insert(0, modal_page_name)
             logger.info(f"  🔍 Modal context detected - will also check page_name='{modal_page_name}'")
+            
+            # FIX: Dynamically discover all modal pages for this domain
+            # This handles cases where modal was opened from a different page (e.g., home -> data-submissions-modal)
+            if domain:
+                discovered_modal_pages = self._discover_modal_pages(domain)
+                for discovered_modal in discovered_modal_pages:
+                    if discovered_modal not in page_names_to_try:
+                        page_names_to_try.insert(0, discovered_modal)
+                        logger.info(f"  🔍 Discovered modal page - will also check page_name='{discovered_modal}'")
         
         registry_selector = None
         
@@ -487,6 +497,33 @@ class BrowserClickTool:
         except Exception as e:
             logger.warning(f"  ⚠️ Failed to parse URL: {e}")
             return None, None
+    
+    def _discover_modal_pages(self, domain: str) -> List[str]:
+        """
+        Dynamically discover all modal page names for a domain by scanning element_maps directory
+        Returns list of modal page names (e.g., ['data-submissions-modal', 'home-modal'])
+        """
+        modal_pages = []
+        try:
+            # Get element_maps directory path from element_locator's registry
+            element_registry = self.element_locator.element_registry
+            maps_dir = Path(element_registry.maps_dir)
+            domain_dir = maps_dir / domain
+            
+            if not domain_dir.exists():
+                return modal_pages
+            
+            # Scan for all *-modal_page.json files
+            for page_file in domain_dir.glob('*-modal_page.json'):
+                # Extract page name: "data-submissions-modal_page.json" -> "data-submissions-modal"
+                page_name = page_file.stem.replace('_page', '')
+                if page_name not in modal_pages:
+                    modal_pages.append(page_name)
+                    logger.debug(f"  🔍 Discovered modal page: {page_name}")
+        except Exception as e:
+            logger.debug(f"  ⚠️ Failed to discover modal pages: {e}")
+        
+        return modal_pages
     
     async def _find_and_choose_element(self, selector: str, original_selector: str, 
                                        using_registry_xpath: bool) -> Tuple[Optional[Locator], Optional[Locator]]:

@@ -92,7 +92,8 @@ class RegistryManager:
                 
                 # Save modal discoveries to modal page file
                 if modal_discoveries:
-                    modal_page = f"{page}-modal"
+                    # FIX: Detect which page the modal actually belongs to (not just discovery URL)
+                    modal_page = self._detect_modal_page(domain, page, modal_discoveries)
                     logger.info(f"  💾 Saving {len(modal_discoveries)} modal discoveries to {modal_page}")
                     await self._save_discoveries_to_page(domain, modal_page, modal_discoveries, discovery_url, preserve_manual)
                 
@@ -102,6 +103,68 @@ class RegistryManager:
                     await self._save_discoveries_to_page(domain, page, main_page_discoveries, discovery_url, preserve_manual)
         except Exception as e:
             logger.error(f"  ❌ Failed to save discoveries to registry: {e}", exc_info=True)
+    
+    def _detect_modal_page(self, domain: str, discovery_page: str, modal_discoveries: List[Dict]) -> str:
+        """
+        Detect which page a modal actually belongs to (not just discovery URL)
+        
+        Strategy:
+        1. Check element names/content for page hints (e.g., "submission" → data-submissions)
+        2. Check existing modal files to see if there's already a matching modal
+        3. Fallback to discovery_page-modal
+        
+        Args:
+            domain: Domain name
+            discovery_page: Page name from discovery URL (may be wrong, e.g., "home")
+            modal_discoveries: List of modal discovery dicts
+        Returns:
+            Correct modal page name (e.g., "data-submissions-modal")
+        """
+        # Strategy 1: Check element names/content for page hints
+        element_names = [d.get('name', '').lower() for d in modal_discoveries]
+        element_selectors = [d.get('final_selector', '').lower() for d in modal_discoveries]
+        all_text = ' '.join(element_names + element_selectors)
+        
+        # Detect page from element content
+        page_hints = {}
+        if 'submission' in all_text or 'data-submission' in all_text or 'create-submission' in all_text:
+            page_hints['data-submissions'] = all_text.count('submission') + all_text.count('data-submission')
+        if 'study' in all_text and 'datacommons' in all_text:
+            page_hints['data-submissions'] = page_hints.get('data-submissions', 0) + 1
+        
+        # Strategy 2: Check existing modal files to see if there's already a matching modal
+        try:
+            maps_dir = Path(self.element_registry.maps_dir)
+            domain_dir = maps_dir / domain
+            if domain_dir.exists():
+                # Scan for existing modal files
+                for modal_file in domain_dir.glob('*-modal_page.json'):
+                    existing_modal_page = modal_file.stem.replace('_page', '')
+                    # Load existing modal to check if elements match
+                    existing_map = self.element_registry.load_map(domain, existing_modal_page)
+                    if existing_map:
+                        existing_elements = existing_map.get('elements', {})
+                        # Check if any element names match
+                        for discovery in modal_discoveries:
+                            discovery_name = discovery.get('name', '').lower()
+                            for existing_name in existing_elements.keys():
+                                if discovery_name == existing_name.lower() or discovery_name in existing_name.lower():
+                                    logger.info(f"  🎯 Found matching element '{discovery_name}' in existing modal '{existing_modal_page}'")
+                                    return existing_modal_page
+        except Exception as e:
+            logger.debug(f"  ⚠️ Failed to check existing modal files: {e}")
+        
+        # Strategy 3: Use detected page hint if found
+        if page_hints:
+            best_page = max(page_hints.items(), key=lambda x: x[1])[0]
+            modal_page = f"{best_page}-modal"
+            logger.info(f"  🎯 Detected modal belongs to '{best_page}' based on element content (hints: {page_hints})")
+            return modal_page
+        
+        # Strategy 4: Fallback to discovery_page-modal (original behavior)
+        modal_page = f"{discovery_page}-modal"
+        logger.info(f"  ℹ️ Using discovery page '{discovery_page}' for modal (no hints found)")
+        return modal_page
     
     async def _save_discoveries_to_page(self, domain: str, page: str, page_discoveries: List[Dict], 
                                        discovery_url: str, preserve_manual: bool = True) -> None:
