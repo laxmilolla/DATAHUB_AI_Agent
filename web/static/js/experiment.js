@@ -4,6 +4,34 @@ let currentSessionId = null;
 let screenshotPollInterval = null;
 let statusPollInterval = null;
 
+// Initialize checkbox handler
+document.addEventListener('DOMContentLoaded', () => {
+    const cdpCheckbox = document.getElementById('use-cdp-checkbox');
+    const cdpHelp = document.getElementById('cdp-help');
+    const cdpCommandText = document.getElementById('cdp-command-text');
+    
+    if (cdpCheckbox && cdpHelp && cdpCommandText) {
+        // Detect OS and set command
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const isWindows = navigator.platform.toUpperCase().indexOf('WIN') >= 0;
+        const cdpCommand = isMac ? 
+            '/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222' :
+            isWindows ?
+            'chrome.exe --remote-debugging-port=9222' :
+            'google-chrome --remote-debugging-port=9222';
+        
+        cdpCommandText.textContent = cdpCommand;
+        
+        cdpCheckbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                cdpHelp.style.display = 'block';
+            } else {
+                cdpHelp.style.display = 'none';
+            }
+        });
+    }
+});
+
 // Start browser session
 async function startBrowser() {
     try {
