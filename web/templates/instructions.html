@@ -160,6 +160,14 @@
             </div>
             
             <div id="precondition-section" style="display: none; margin-bottom: 15px; padding: 15px; background: #E8DDD4; border-radius: 8px;">
+                <div id="server-warning" style="display: none; padding: 10px; background: #FFF3CD; border-left: 4px solid #856404; margin-bottom: 10px; border-radius: 4px;">
+                    <strong>⚠️ Note:</strong> Flask is running on server. Browser will open on server (not visible). 
+                    <br><strong>For manual preconditions, run Flask locally:</strong>
+                    <code style="background: white; padding: 4px 8px; border-radius: 4px; display: block; margin-top: 5px;">
+                        cd /Users/lollal/Documents/ai-agent-qa && source venv/bin/activate && python3 api/app.py
+                    </code>
+                    Then access: <code>http://localhost:5000/instructions</code>
+                </div>
                 <p style="margin: 0 0 10px 0; color: #6B5B3D;">
                     <strong>Step 1:</strong> Click "Start Browser" below. Browser will open where you can manually login and enter TOTP.
                 </p>
@@ -200,6 +208,12 @@
                 </table>
             </div>
             
+            <div id="screenshots-section" style="display: none; margin-top: 20px;">
+                <h3>📸 Screenshots</h3>
+                <div id="screenshots-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                </div>
+            </div>
+            
             <div class="download-section" id="download-section">
                 <h3>📥 Download Test Cases</h3>
                 <p>Excel file with all steps, URLs, XPaths, and actions has been generated.</p>
@@ -220,6 +234,14 @@
             const section = document.getElementById('precondition-section');
             if (e.target.checked) {
                 section.style.display = 'block';
+                
+                // Check if running on server (not localhost)
+                const isServer = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+                if (isServer) {
+                    document.getElementById('server-warning').style.display = 'block';
+                } else {
+                    document.getElementById('server-warning').style.display = 'none';
+                }
             } else {
                 section.style.display = 'none';
             }
@@ -381,6 +403,9 @@
                             
                             if (data.status === 'completed' && data.steps && data.steps.length > 0) {
                                 displayXPaths(data.steps);
+                                if (data.screenshots && data.screenshots.length > 0) {
+                                    displayScreenshots(data.screenshots);
+                                }
                                 if (data.excel_file) {
                                     document.getElementById('download-section').classList.add('show');
                                 }
@@ -421,6 +446,30 @@
             });
             
             document.getElementById('xpaths-section').style.display = 'block';
+        }
+        
+        function displayScreenshots(screenshots) {
+            const grid = document.getElementById('screenshots-grid');
+            grid.innerHTML = '';
+            
+            screenshots.forEach((screenshot, idx) => {
+                const filename = screenshot.split('/').pop() || screenshot;
+                const item = document.createElement('div');
+                item.style.cssText = 'border: 2px solid #D4C5B9; border-radius: 8px; overflow: hidden; cursor: pointer; background: white;';
+                item.onclick = () => window.open(`/api/screenshots/${filename}`, '_blank');
+                item.innerHTML = `
+                    <img src="/api/screenshots/${filename}" 
+                         alt="Screenshot ${idx + 1}"
+                         style="width: 100%; height: auto; display: block;"
+                         onerror="this.parentElement.innerHTML='<div style=\\'padding: 20px; text-align: center;\\'>📷 Not Found</div>'">
+                    <div style="padding: 8px; background: #8B6F47; color: white; text-align: center; font-size: 0.85em; font-weight: 600;">
+                        Step ${idx + 1}
+                    </div>
+                `;
+                grid.appendChild(item);
+            });
+            
+            document.getElementById('screenshots-section').style.display = 'block';
         }
         
         async function downloadExcel() {

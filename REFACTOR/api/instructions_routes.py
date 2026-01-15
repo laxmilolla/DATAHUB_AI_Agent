@@ -171,9 +171,14 @@ def continue_after_preconditions(session_id):
                     if tool_name == 'browser_navigate' and url:
                         current_url = url
                 
+                # Extract screenshots from results
+                screenshots = results.get('screenshots', [])
+                if not screenshots and runner.agent and hasattr(runner.agent, 'context'):
+                    screenshots = runner.agent.context.screenshots if hasattr(runner.agent.context, 'screenshots') else []
+                
                 exec_data['status'] = results.get('status', 'completed')
                 exec_data['steps'] = steps_data
-                exec_data['screenshots'] = results.get('screenshots', [])
+                exec_data['screenshots'] = screenshots
                 exec_data['completed_at'] = datetime.now().isoformat()
                 
                 # Generate Excel
@@ -316,10 +321,16 @@ def execute_instructions():
                     if tool_name == 'browser_navigate' and url:
                         current_url = url
                 
+                # Extract screenshots from results
+                screenshots = results.get('screenshots', [])
+                # Screenshots are stored as filenames in context.screenshots
+                if not screenshots and hasattr(agent, 'context'):
+                    screenshots = agent.context.screenshots if hasattr(agent.context, 'screenshots') else []
+                
                 # Update execution record
                 instructions_executions[execution_id]['status'] = results.get('status', 'completed')
                 instructions_executions[execution_id]['steps'] = steps_data
-                instructions_executions[execution_id]['screenshots'] = results.get('screenshots', [])
+                instructions_executions[execution_id]['screenshots'] = screenshots
                 instructions_executions[execution_id]['completed_at'] = datetime.now().isoformat()
                 
                 # Generate Excel file from execution data
