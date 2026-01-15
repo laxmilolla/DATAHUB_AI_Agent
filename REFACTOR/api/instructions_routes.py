@@ -253,6 +253,21 @@ def execute_instructions():
                 # Create Agent
                 agent = Agent()
                 
+                # Detect if running locally (for headful browser)
+                # Check request host if available, otherwise assume local for instructions feature
+                try:
+                    request_host = request.headers.get('Host', '') if hasattr(request, 'headers') else ''
+                    is_local = 'localhost' in request_host or '127.0.0.1' in request_host
+                except:
+                    is_local = True  # Default to local for instructions feature
+                
+                # Monkey-patch browser start to use headless=False if local
+                if is_local:
+                    original_start = agent.playwright_manager.start
+                    async def start_headful(headless=True):
+                        return await original_start(headless=False)
+                    agent.playwright_manager.start = start_headful
+                
                 # Execute instructions
                 results = loop.run_until_complete(agent.execute_story(instructions))
                 
