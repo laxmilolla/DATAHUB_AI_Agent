@@ -624,9 +624,31 @@ def generate_and_validate(exec_id):
 
 @bp.route('/executions/<exec_id>/generated-test', methods=['GET'])
 def get_generated_test(exec_id):
-    """Get generated test code"""
+    """Get generated test code - supports both regular and Excel executions"""
     try:
         project_root = current_app.config['PROJECT_ROOT']
+        
+        # Check if this is an Excel execution
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        if execution_file.exists():
+            with open(execution_file, 'r') as f:
+                exec_data = json.load(f)
+            
+            # Excel execution has test_file directly in execution data
+            if exec_data.get('source') == 'excel' and exec_data.get('test_file'):
+                test_file_path = project_root / exec_data['test_file']
+                if test_file_path.exists():
+                    with open(test_file_path, 'r') as f:
+                        code = f.read()
+                    return jsonify({
+                        'execution_id': exec_id,
+                        'test_file': exec_data['test_file'],
+                        'test_name': exec_data.get('test_name', 'excel_test'),
+                        'code': code,
+                        'source': 'excel'
+                    }), 200
+        
+        # Fallback to regular generated test metadata
         metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
         
         if not metadata_file.exists():
