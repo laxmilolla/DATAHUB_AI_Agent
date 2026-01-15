@@ -281,6 +281,7 @@ class BrowserClickTool:
         )
         
         registry_element = None
+        matched_element_name = None
         for try_page_name in page_names_to_try:
             if not try_page_name:
                 continue
@@ -288,7 +289,27 @@ class BrowserClickTool:
             registry_selector = self.element_locator.check_registry(element_description, domain, try_page_name)
             if registry_selector:
                 # Get full element from registry to check for XPath
+                # Try multiple variations since check_registry does fuzzy matching (e.g., "study" -> "Study")
                 registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_description)
+                if not registry_element:
+                    # Try capitalized version
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_description.capitalize())
+                if not registry_element:
+                    # Try title case
+                    registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_description.title())
+                
+                # If still not found, search the element map to find the actual matched name
+                if not registry_element:
+                    element_map = self.element_locator.element_registry.load_map(domain, try_page_name)
+                    if element_map:
+                        clean_text = element_description.lower()
+                        for name, elem in element_map.get("elements", {}).items():
+                            name_lower = name.lower()
+                            if name_lower == clean_text or name_lower.startswith(clean_text):
+                                registry_element = elem
+                                matched_element_name = name
+                                logger.info(f"  ✅ Found element by fuzzy match: '{element_description}' -> '{name}'")
+                                break
                 
                 # FIX #4: If looking for dropdown button, filter out option selectors
                 if is_looking_for_dropdown_button and '[role="option"]' in registry_selector:

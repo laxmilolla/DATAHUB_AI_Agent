@@ -221,12 +221,41 @@ class BrowserFillTool:
                 registry_selector = self.element_locator.check_registry(element_name_for_registry, domain, try_page_name)
                 if registry_selector:
                     # Get the full element dict for validation
+                    # Try multiple variations since check_registry does fuzzy matching
                     registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry)
+                    if not registry_element:
+                        # Try capitalized version
+                        registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry.capitalize())
+                    if not registry_element:
+                        # Try title case
+                        registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry.title())
+                    
+                    # If still not found, search the element map to find the actual matched name
+                    if not registry_element:
+                        element_map = self.element_locator.element_registry.load_map(domain, try_page_name)
+                        if element_map:
+                            clean_text = element_name_for_registry.lower()
+                            for name, elem in element_map.get("elements", {}).items():
+                                name_lower = name.lower()
+                                if name_lower == clean_text or name_lower.startswith(clean_text):
+                                    registry_element = elem
+                                    logger.info(f"  ✅ Found element by fuzzy match: '{element_name_for_registry}' -> '{name}'")
+                                    break
+                    
                     logger.info(f"  ✅ Found in registry with page_name='{try_page_name}'")
                     break
                 registry_selector = self.element_locator.check_registry(element_name_for_registry.capitalize(), domain, try_page_name)
                 if registry_selector:
                     registry_element = self.element_locator.element_registry.get_element(domain, try_page_name, element_name_for_registry.capitalize())
+                    if not registry_element:
+                        element_map = self.element_locator.element_registry.load_map(domain, try_page_name)
+                        if element_map:
+                            clean_text = element_name_for_registry.capitalize().lower()
+                            for name, elem in element_map.get("elements", {}).items():
+                                name_lower = name.lower()
+                                if name_lower == clean_text or name_lower.startswith(clean_text):
+                                    registry_element = elem
+                                    break
                     break
                 registry_selector = self.element_locator.check_registry(f"{element_name_for_registry} input", domain, try_page_name)
                 if registry_selector:
