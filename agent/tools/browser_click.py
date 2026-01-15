@@ -344,8 +344,22 @@ class BrowserClickTool:
             registry_xpath = registry_element.get('xpath', '') if registry_element else ''
             
             if registry_xpath and should_check_modal:
-                # XPath in registry is already modal-scoped, use it directly
-                selector = f"xpath={registry_xpath}"
+                # XPath in registry is already modal-scoped, but may use different modal selector
+                # If modal selector doesn't match, try replacing it with current modal selector
+                if modal_selector and modal_selector.startswith('[data-testid='):
+                    # Modal selector is specific (e.g., [data-testid="..."]), use XPath as-is
+                    selector = f"xpath={registry_xpath}"
+                elif modal_selector == '[role="dialog"]' and '@data-testid="create-submission-dialog"' in registry_xpath:
+                    # XPath uses specific data-testid but modal detection returned generic [role="dialog"]
+                    # Replace the specific selector with generic one in XPath format
+                    import re
+                    # Replace (//*[@data-testid="create-submission-dialog"]) with (//*[@role="dialog"])
+                    updated_xpath = re.sub(r'\(//\*\[@data-testid="create-submission-dialog"\]\)', r'(//*[@role="dialog"])', registry_xpath)
+                    selector = f"xpath={updated_xpath}"
+                    logger.info(f"  🔄 Updated XPath modal selector to match detected modal: {selector[:80]}...")
+                else:
+                    # Use XPath as-is
+                    selector = f"xpath={registry_xpath}"
                 using_registry_xpath = True
                 logger.info(f"  📋 Using XPath from registry (already modal-scoped): {selector[:80]}...")
             elif registry_xpath and not should_check_modal:
