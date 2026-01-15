@@ -972,12 +972,16 @@
             console.log('🔍 renderScreenshotsTab called with results:', results);
             console.log('🔍 Has playwright_screenshots field?', 'playwright_screenshots' in results);
             console.log('🔍 playwright_screenshots value:', results.playwright_screenshots);
+            console.log('🔍 results.screenshots (raw):', results.screenshots);
+            console.log('🔍 results.screenshots type:', typeof results.screenshots, Array.isArray(results.screenshots));
             
             const screenshots = safeArray(results.screenshots);
             // Also check for validation/playwright screenshots
             const validationScreenshots = safeArray(safeGet(results, 'validation.screenshots', []));
             const playwrightApiScreenshots = safeArray(results.playwright_screenshots);
             
+            console.log('🔍 screenshots after safeArray:', screenshots);
+            console.log('🔍 screenshots.length:', screenshots.length);
             console.log('🔍 playwrightApiScreenshots after safeArray:', playwrightApiScreenshots);
             
             let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">📸 Test Screenshots</h3>';
