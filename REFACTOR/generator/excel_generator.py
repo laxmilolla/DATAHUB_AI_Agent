@@ -171,8 +171,9 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
                     }
                 }
             
-            # Track additions per URL
+            # Track additions and updates per URL
             url_added_count = 0
+            url_updated_count = 0
             
             # Process each row for this URL
             for idx, row in url_rows.iterrows():
@@ -193,16 +194,35 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
                 else:
                     element_name = f"element_{step}"
                 
-                # Check if XPath already exists in registry
-                xpath_exists = False
+                # Check if XPath already exists in registry (same URL/page)
+                existing_element_key = None
+                existing_element = None
+                
+                # Strategy 1: Check by XPath value (most reliable match)
                 for key, elem_data in element_map.get('elements', {}).items():
                     if elem_data.get('xpath') == xpath:
-                        xpath_exists = True
-                        skipped_count += 1
+                        existing_element_key = key
+                        existing_element = elem_data
                         break
                 
-                # Add element if not found
-                if not xpath_exists:
+                # Strategy 2: Check by element_id if we can generate the same ID
+                if not existing_element_key:
+                    potential_element_id = registry._generate_element_id(element_name, xpath)
+                    if potential_element_id in element_map.get('id_index', {}):
+                        existing_element_key = element_map['id_index'][potential_element_id]
+                        existing_element = element_map['elements'].get(existing_element_key)
+                
+                if existing_element_key and existing_element:
+                    # Update existing element (no duplicate)
+                    existing_element['object_type'] = object_type or existing_element.get('object_type', '')
+                    existing_element['action'] = action or existing_element.get('action', '')
+                    existing_element['source'] = 'excel'
+                    existing_element['last_updated'] = datetime.now().isoformat() + "Z"
+                    # Preserve existing element_id and usage_count
+                    url_updated_count += 1
+                    skipped_count += 1
+                else:
+                    # Add new element if not found
                     element_id = registry._generate_element_id(element_name, xpath)
                     
                     element_entry = {
@@ -223,10 +243,15 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
                     url_added_count += 1
                     added_count += 1
             
-            # Save updated registry if we added elements
-            if url_added_count > 0:
+            # Save updated registry if we added or updated elements
+            if url_added_count > 0 or url_updated_count > 0:
                 registry.save_map(domain, page, element_map)
-                print(f"  ✅ Updated registry: {domain}/{page}_page.json ({url_added_count} new elements)")
+                update_msg = []
+                if url_added_count > 0:
+                    update_msg.append(f"{url_added_count} new")
+                if url_updated_count > 0:
+                    update_msg.append(f"{url_updated_count} updated")
+                print(f"  ✅ Updated registry: {domain}/{page}_page.json ({', '.join(update_msg)} elements)")
         
         except Exception as e:
             print(f"  ⚠️  Error processing URL {url}: {e}")
