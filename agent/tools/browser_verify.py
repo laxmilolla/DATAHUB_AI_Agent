@@ -252,12 +252,20 @@ class BrowserVerifyTool:
                 if element_count == 0:
                     logger.warning(f"  ⚠️ Element found in registry but not present on page")
                     
+                    # Extract element attributes for XPath generation
+                    element_attrs = {}
+                    try:
+                        element_attrs = await self.discovery_tracker.xpath_generator.extract_element_attributes(locator.first)
+                    except Exception as e:
+                        logger.debug(f"  ⚠️ Could not extract element attributes: {e}")
+                    
                     await self.discovery_tracker.track(
                         element_name=f"verify_{element_description}",
                         original_query=f"verify {element_description} {verification_type}",
                         final_selector=registry_selector,
                         discovery_method="element_verification",
                         metadata={
+                            "element_attrs": element_attrs,
                             "verification_type": verification_type,
                             "element_description": element_description,
                             "expected_value": expected_value,
@@ -316,6 +324,13 @@ class BrowserVerifyTool:
                 screenshot_result = await self.screenshot_manager.capture(page, f"verify_{element_description}")
                 screenshot_path = screenshot_result.get('filename', '')
                 
+                # Extract element attributes for XPath generation
+                element_attrs = {}
+                try:
+                    element_attrs = await self.discovery_tracker.xpath_generator.extract_element_attributes(locator.first)
+                except Exception as e:
+                    logger.debug(f"  ⚠️ Could not extract element attributes: {e}")
+                
                 # Track discovery
                 await self.discovery_tracker.track(
                     element_name=f"verify_{element_description}",
@@ -323,6 +338,7 @@ class BrowserVerifyTool:
                     final_selector=registry_selector,
                     discovery_method="element_verification",
                     metadata={
+                        "element_attrs": element_attrs,
                         "verification_type": verification_type,
                         "element_description": element_description,
                         "expected_value": expected_value,
@@ -352,12 +368,26 @@ class BrowserVerifyTool:
             except Exception as e:
                 logger.error(f"  ❌ Element verification error: {e}")
                 
+                # Extract element attributes for XPath generation (if locator is available)
+                element_attrs = {}
+                try:
+                    # Try to get locator from registry selector if available
+                    if registry_selector:
+                        if registry_selector.startswith("xpath="):
+                            temp_locator = page.locator(f"xpath={registry_selector[6:]}")
+                        else:
+                            temp_locator = page.locator(registry_selector)
+                        element_attrs = await self.discovery_tracker.xpath_generator.extract_element_attributes(temp_locator.first)
+                except Exception as e2:
+                    logger.debug(f"  ⚠️ Could not extract element attributes: {e2}")
+                
                 await self.discovery_tracker.track(
                     element_name=f"verify_{element_description}",
                     original_query=f"verify {element_description} {verification_type}",
                     final_selector=registry_selector,
                     discovery_method="element_verification",
                     metadata={
+                        "element_attrs": element_attrs,
                         "verification_type": verification_type,
                         "element_description": element_description,
                         "expected_value": expected_value,

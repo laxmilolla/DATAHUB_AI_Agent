@@ -427,14 +427,17 @@ class BrowserFillTool:
                     if not element_name:
                         element_name = selector
                 
-                # Extract element attributes to get tag/type
+                # Extract element attributes using xpath_generator for complete attribute extraction
                 element_attrs = {}
                 element_type = 'input'  # Default for fill operations
                 try:
                     fill_locator = self.page.locator(selector).first
-                    tag_name = await fill_locator.evaluate("el => el.tagName?.toLowerCase() || ''")
-                    if tag_name:
-                        element_attrs['tag'] = tag_name
+                    # Use extract_element_attributes() to get all attributes (id, name, placeholder, type, class, etc.)
+                    element_attrs = await self.discovery_tracker.xpath_generator.extract_element_attributes(fill_locator)
+                    
+                    # Extract element type from tag
+                    if element_attrs.get('tag'):
+                        tag_name = element_attrs['tag'].lower()
                         if tag_name == 'input':
                             element_type = 'input'
                         elif tag_name == 'textarea':
