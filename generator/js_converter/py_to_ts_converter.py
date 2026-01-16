@@ -18,6 +18,21 @@ def convert_python_to_spec_ts(python_code: str) -> str:
     """
     ts_code = python_code
     
+    # 0. Convert Python docstrings (triple quotes) to TypeScript comments
+    # Convert standalone docstrings at the beginning of file
+    ts_code = re.sub(
+        r'^"""(.*?)"""',
+        lambda m: '/*' + m.group(1).strip() + '*/',
+        ts_code,
+        flags=re.DOTALL | re.MULTILINE
+    )
+    # Convert inline docstrings
+    ts_code = re.sub(
+        r'"""([^"]*)"""',
+        lambda m: '/* ' + m.group(1).strip() + ' */',
+        ts_code
+    )
+    
     # 1. Convert imports
     ts_code = re.sub(
         r'from playwright\.sync_api import sync_playwright, expect',
@@ -94,6 +109,9 @@ def convert_python_to_spec_ts(python_code: str) -> str:
             else:
                 converted_lines.append(line)
     ts_code = '\n'.join(converted_lines)
+    
+    # 10b. Remove any remaining Python docstrings that weren't converted
+    ts_code = re.sub(r'""".*?"""', '', ts_code, flags=re.DOTALL)
     
     # 11. Remove Python main block
     ts_code = re.sub(
