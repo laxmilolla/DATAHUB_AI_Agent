@@ -3,11 +3,14 @@ Manual Registry Helper - Core logic for manual element registration
 Simple utility to register elements from HTML + URL
 """
 import re
+import logging
 from typing import Dict, Optional
 from datetime import datetime
 from urllib.parse import urlparse
 
 from REFACTOR.utils.html_element_parser import HTMLElementParser
+
+logger = logging.getLogger(__name__)
 
 
 class ManualRegistryHelper:
@@ -544,7 +547,27 @@ class ManualRegistryHelper:
             discovery['xpath']
         )
         
-        # Create element entry
+        # Check if element with same name already exists (UPDATE instead of duplicate)
+        existing_element = element_map.get("elements", {}).get(element_name)
+        is_update = existing_element is not None
+        
+        if is_update:
+            # Preserve existing usage_count and element_id
+            existing_usage_count = existing_element.get("usage_count", 0)
+            existing_element_id = existing_element.get("element_id")
+            # Use existing element_id if it exists, otherwise use new one
+            final_element_id = existing_element_id if existing_element_id else element_id
+            
+            # Remove old element_id from id_index if it's different
+            if existing_element_id and existing_element_id != final_element_id:
+                old_name = element_map.get("id_index", {}).pop(existing_element_id, None)
+            
+            logger.info(f"  🔄 Updating existing element: {element_name} (preserving usage_count: {existing_usage_count})")
+        else:
+            existing_usage_count = 0
+            final_element_id = element_id
+        
+        # Create/update element entry
         element_entry = {
             "selector": discovery['final_selector'],
             "xpath": discovery['xpath'],
@@ -553,23 +576,24 @@ class ManualRegistryHelper:
             "description": "Manually registered element",
             "source": "manual_registration",
             "discovery_method": "manual",
-            "usage_count": 0,
+            "usage_count": existing_usage_count,  # Preserve existing usage_count
             "alternatives": [],
             "discovery_url": discovery['discovery_url'],
             "unique_attributes": discovery['unique_attributes'],
             "context": "main-page",
-            "element_id": element_id
+            "element_id": final_element_id
         }
         
-        # Add to elements dict
+        # Add/update elements dict
         element_map["elements"][element_name] = element_entry
         
         # Update id_index
-        element_map["id_index"][element_id] = element_name
+        element_map["id_index"][final_element_id] = element_name
         
         # Update statistics
         element_map["statistics"]["total_elements"] = len(element_map["elements"])
-        element_map["statistics"]["discovered_elements"] += 1
+        if not is_update:
+            element_map["statistics"]["discovered_elements"] += 1
         
         # Update timestamp
         element_map["last_updated"] = datetime.utcnow().isoformat() + "Z"
