@@ -36,6 +36,25 @@ class HTMLElementParser:
             }
         """
         try:
+            # Clean HTML string (remove extra whitespace, ensure it's valid)
+            html_string = html_string.strip()
+            
+            # If HTML doesn't start with <, try to find the first tag
+            if not html_string.startswith('<'):
+                # Try to extract first HTML tag
+                import re
+                tag_match = re.search(r'<[^>]+>', html_string)
+                if tag_match:
+                    html_string = tag_match.group(0)
+                else:
+                    return {
+                        'tag': 'unknown',
+                        'attributes': {},
+                        'text_content': '',
+                        'inner_html': '',
+                        'error': 'No valid HTML tag found in input'
+                    }
+            
             # Wrap in a container to parse single element
             wrapped_html = f"<div>{html_string}</div>"
             soup = BeautifulSoup(wrapped_html, 'html.parser')
@@ -43,7 +62,13 @@ class HTMLElementParser:
             # Get the first element (our target)
             element = soup.find()
             if not element:
-                return {'tag': 'unknown', 'attributes': {}, 'text_content': '', 'inner_html': ''}
+                return {
+                    'tag': 'unknown',
+                    'attributes': {},
+                    'text_content': '',
+                    'inner_html': '',
+                    'error': 'Could not parse HTML element'
+                }
             
             # SMART DETECTION: If the element has nested structure and inner elements have better attributes,
             # check if we should use the outer element instead
