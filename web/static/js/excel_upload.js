@@ -59,15 +59,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         uploadedFile = file;
-        fileName.textContent = file.name;
-        fileInfo.style.display = 'block';
+        if (fileName) fileName.textContent = file.name;
+        if (fileInfo) fileInfo.style.display = 'block';
         uploadBtn.disabled = false;
         
         // Reset state
         currentExcelId = null;
         generateBtn.disabled = true;
-        validationResults.style.display = 'none';
-        resultsSection.style.display = 'none';
+        if (validationResults) validationResults.style.display = 'none';
+        if (resultsSection) resultsSection.style.display = 'none';
         hideMessage();
     }
     
@@ -103,11 +103,13 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Disable button and show loading
         uploadBtn.disabled = true;
-        uploadBtn.querySelector('.btn-text').style.display = 'none';
-        uploadBtn.querySelector('.btn-loading').style.display = 'inline-block';
+        const uploadBtnText = uploadBtn.querySelector('.btn-text');
+        const uploadBtnLoading = uploadBtn.querySelector('.btn-loading');
+        if (uploadBtnText) uploadBtnText.style.display = 'none';
+        if (uploadBtnLoading) uploadBtnLoading.style.display = 'inline-block';
         
         hideMessage();
-        validationResults.style.display = 'none';
+        if (validationResults) validationResults.style.display = 'none';
         
         try {
             const response = await fetch('/api/excel/upload', {
@@ -141,8 +143,10 @@ document.addEventListener('DOMContentLoaded', function() {
             generateBtn.disabled = true;
         } finally {
             uploadBtn.disabled = false;
-            uploadBtn.querySelector('.btn-text').style.display = 'inline';
-            uploadBtn.querySelector('.btn-loading').style.display = 'none';
+            const uploadBtnText = uploadBtn.querySelector('.btn-text');
+            const uploadBtnLoading = uploadBtn.querySelector('.btn-loading');
+            if (uploadBtnText) uploadBtnText.style.display = 'inline';
+            if (uploadBtnLoading) uploadBtnLoading.style.display = 'none';
         }
     }
     
@@ -155,8 +159,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Disable button and show loading
         generateBtn.disabled = true;
-        generateBtn.querySelector('.btn-text').style.display = 'none';
-        generateBtn.querySelector('.btn-loading').style.display = 'inline-block';
+        const generateBtnText = generateBtn.querySelector('.btn-text');
+        const generateBtnLoading = generateBtn.querySelector('.btn-loading');
+        if (generateBtnText) generateBtnText.style.display = 'none';
+        if (generateBtnLoading) generateBtnLoading.style.display = 'inline-block';
         
         hideMessage();
         
@@ -204,13 +210,16 @@ document.addEventListener('DOMContentLoaded', function() {
             showMessage('Generation failed: ' + error.message, 'error');
         } finally {
             generateBtn.disabled = false;
-            generateBtn.querySelector('.btn-text').style.display = 'inline';
-            generateBtn.querySelector('.btn-loading').style.display = 'none';
+            const generateBtnText = generateBtn.querySelector('.btn-text');
+            const generateBtnLoading = generateBtn.querySelector('.btn-loading');
+            if (generateBtnText) generateBtnText.style.display = 'inline';
+            if (generateBtnLoading) generateBtnLoading.style.display = 'none';
         }
     }
     
     // Display validation results
     function displayValidationResults(validation) {
+        if (!validationResults || !validationContent) return;
         validationResults.style.display = 'block';
         validationContent.innerHTML = '';
         
@@ -241,6 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Display generation results
     function displayResults(data) {
+        if (!resultsSection || !resultsContent) return;
         resultsSection.style.display = 'block';
         
         let html = `
