@@ -59,16 +59,35 @@ class HTMLElementParser:
             wrapped_html = f"<div>{html_string}</div>"
             soup = BeautifulSoup(wrapped_html, 'html.parser')
             
-            # Get the first element (our target)
-            element = soup.find()
-            if not element:
+            # Get the wrapper div
+            wrapper = soup.find('div')
+            if not wrapper:
                 return {
                     'tag': 'unknown',
                     'attributes': {},
                     'text_content': '',
                     'inner_html': '',
-                    'error': 'Could not parse HTML element'
+                    'error': 'Could not parse HTML wrapper'
                 }
+            
+            # Get direct children of wrapper (not recursive)
+            children = list(wrapper.children)
+            # Filter out NavigableString (text nodes) and get only Tag elements
+            child_elements = [c for c in children if hasattr(c, 'name') and c.name]
+            
+            if len(child_elements) == 1:
+                # If wrapper has exactly one child element, that's our target
+                element = child_elements[0]
+            elif len(child_elements) == 0:
+                # If no children, wrapper itself is the element (user pasted just a div)
+                element = wrapper
+            else:
+                # If multiple children, use the wrapper itself (user pasted a container with multiple elements)
+                # But check if wrapper has attributes - if not, use first child
+                if wrapper.attrs:
+                    element = wrapper
+                else:
+                    element = child_elements[0]
             
             # SMART DETECTION: If the element has nested structure and inner elements have better attributes,
             # check if we should use the outer element instead
