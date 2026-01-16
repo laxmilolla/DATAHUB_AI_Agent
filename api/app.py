@@ -28,14 +28,6 @@ except ImportError as e:
     print(f"⚠️ Excel routes not available: {e}")
     EXCEL_ROUTES_AVAILABLE = False
 
-# Import Experiment routes
-try:
-    from REFACTOR.api.experiment_routes import bp_experiment
-    EXPERIMENT_ROUTES_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ Experiment routes not available: {e}")
-    EXPERIMENT_ROUTES_AVAILABLE = False
-
 # Import Instructions routes
 try:
     from REFACTOR.api.instructions_routes import bp_instructions
@@ -43,6 +35,8 @@ try:
 except ImportError as e:
     print(f"⚠️ Instructions routes not available: {e}")
     INSTRUCTIONS_ROUTES_AVAILABLE = False
+
+# Excel Execution routes moved to Experimented folder - no longer used
 
 def create_app():
     """Create and configure Flask app"""
@@ -71,15 +65,12 @@ def create_app():
         app.register_blueprint(bp_excel)
         print("✅ Excel API routes registered")
     
-    # Register Experiment blueprint if available
-    if EXPERIMENT_ROUTES_AVAILABLE:
-        app.register_blueprint(bp_experiment)
-        print("✅ Experiment API routes registered")
-    
     # Register Instructions blueprint if available
     if INSTRUCTIONS_ROUTES_AVAILABLE:
         app.register_blueprint(bp_instructions)
         print("✅ Instructions API routes registered")
+    
+    # Excel Execution blueprint moved to Experimented folder - no longer registered
     
     # Home route - render UI
     @app.route('/')
@@ -110,6 +101,8 @@ def create_app():
     @app.route('/instructions')
     def instructions_page():
         return render_template('instructions.html', timestamp=int(time.time()))
+    
+    # Excel Execution route moved to Experimented folder - no longer available
     
     return app
 
