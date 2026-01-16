@@ -45,6 +45,25 @@ class HTMLElementParser:
             if not element:
                 return {'tag': 'unknown', 'attributes': {}, 'text_content': '', 'inner_html': ''}
             
+            # SMART DETECTION: If the element has nested structure and inner elements have better attributes,
+            # check if we should use the outer element instead
+            # Priority: outer element with data-testid > inner element with id > inner element with text
+            if element.find():
+                # Check if outer element has data-testid (best selector)
+                outer_data_testid = element.get('data-testid')
+                if outer_data_testid:
+                    # Use outer element - it has the best selector
+                    pass  # Keep using outer element
+                else:
+                    # Check inner elements for better attributes
+                    inner_elements = element.find_all(recursive=False)  # Direct children only
+                    for inner in inner_elements:
+                        inner_data_testid = inner.get('data-testid')
+                        inner_id = inner.get('id')
+                        # If inner has data-testid and outer doesn't, consider using inner
+                        # But for now, we'll stick with outer to maintain structure
+                        pass
+            
             # Extract tag
             tag = element.name.lower() if element.name else 'unknown'
             

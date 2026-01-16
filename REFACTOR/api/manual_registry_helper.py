@@ -160,10 +160,15 @@ class ManualRegistryHelper:
         if attributes.get('id'):
             id_value = attributes['id']
             # Skip dynamic IDs (contain numbers at end or MUI prefixes)
-            if not re.search(r'-\d+$', id_value) and not id_value.startswith(('mui-', 'Mui')):
+            # BUT: For MUI component IDs like "mui-component-select-organization", 
+            # we can still use them if they're stable (no random numbers)
+            is_mui_component_id = id_value.startswith('mui-component-')
+            is_dynamic = re.search(r'-\d+$', id_value) or (id_value.startswith(('mui-', 'Mui')) and not is_mui_component_id)
+            
+            if not is_dynamic:
                 return {
                     'xpath': f"//{tag}[@id='{id_value}']",
-                    'uniqueness_method': 'id'
+                    'uniqueness_method': 'id' if not is_mui_component_id else 'id-mui-component'
                 }
         
         # Priority 3: name (for form elements)
@@ -373,16 +378,22 @@ class ManualRegistryHelper:
     ) -> Dict:
         """Create discovery object matching DiscoveryTracker format"""
         
-        # Extract unique attributes
+        # Extract unique attributes (ALWAYS capture ID even if not used for XPath)
         unique_attributes = {}
         if attributes.get('id'):
-            unique_attributes['id'] = attributes['id']
+            unique_attributes['id'] = attributes['id']  # Always capture ID for reference
         if attributes.get('data-testid'):
             unique_attributes['data_testid'] = attributes['data-testid']
         if attributes.get('name'):
             unique_attributes['name'] = attributes['name']
         if attributes.get('aria-labelledby'):
             unique_attributes['aria_labelledby'] = attributes['aria-labelledby']
+        if attributes.get('role'):
+            unique_attributes['role'] = attributes['role']
+        if attributes.get('aria-expanded') is not None:
+            unique_attributes['aria_expanded'] = attributes['aria-expanded']
+        if attributes.get('aria-haspopup'):
+            unique_attributes['aria_haspopup'] = attributes['aria-haspopup']
         
         # Determine element type with special handling for different input types and complex elements
         element_type = tag
