@@ -203,7 +203,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     displayResults(data);
                 }
             } else {
-                showMessage('Generation failed: ' + (data.error || 'Unknown error'), 'error');
+                // Check for error message, warnings array, or errors array
+                let errorMsg = data.error;
+                if (!errorMsg && data.warnings && data.warnings.length > 0) {
+                    errorMsg = Array.isArray(data.warnings) ? data.warnings.join('; ') : data.warnings;
+                }
+                if (!errorMsg && data.errors && data.errors.length > 0) {
+                    errorMsg = Array.isArray(data.errors) ? data.errors.join('; ') : data.errors;
+                }
+                showMessage('Generation failed: ' + (errorMsg || 'Unknown error'), 'error');
             }
             
         } catch (error) {

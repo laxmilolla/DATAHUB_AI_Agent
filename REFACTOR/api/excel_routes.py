@@ -333,6 +333,9 @@ def generate_from_excel():
         
         if generation_result.get('errors'):
             response['warnings'] = generation_result['errors']
+            # If generation failed, include error message
+            if not generation_result.get('success', True):
+                response['error'] = '; '.join(generation_result['errors']) if generation_result['errors'] else 'Generation failed'
         
         return jsonify(response), 200
         
