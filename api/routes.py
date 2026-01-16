@@ -955,7 +955,7 @@ def download_env_file(exec_id):
 
 @bp.route('/executions/<exec_id>/download-test-zip', methods=['GET'])
 def download_test_with_env_zip(exec_id):
-    """Download test file and all required registry JSON files bundled as a zip file (excludes .env for security)"""
+    """Download test file and all required registry JSON files bundled as a zip file (excludes .env for security) - supports both regular and Excel executions"""
     try:
         from flask import send_file
         from io import BytesIO
@@ -964,18 +964,43 @@ def download_test_with_env_zip(exec_id):
         import re
         
         project_root = current_app.config['PROJECT_ROOT']
-        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+        test_file = None
+        test_name = None
         
-        if not metadata_file.exists():
-            return jsonify({'error': 'No generated test found for this execution'}), 404
+        # Check if this is an Excel execution
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        if execution_file.exists():
+            with open(execution_file, 'r') as f:
+                exec_data = json.load(f)
+            
+            # Excel execution has test_file directly in execution data
+            if exec_data.get('source') == 'excel' and exec_data.get('test_file'):
+                test_file = project_root / exec_data['test_file']
+                test_name = exec_data.get('test_name', 'excel_test')
+                
+                if not test_file.exists():
+                    return jsonify({
+                        'error': f'Excel test file not found: {test_file}',
+                        'test_file': exec_data.get('test_file'),
+                        'resolved_path': str(test_file.resolve())
+                    }), 404
         
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
-        
-        # Get the test file path
-        test_file = Path(metadata['filename'])
-        if not test_file.exists():
-            return jsonify({'error': 'Generated test file not found'}), 404
+        # Fallback to regular generated test metadata
+        if test_file is None:
+            metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+            
+            if not metadata_file.exists():
+                return jsonify({'error': 'No generated test found for this execution'}), 404
+            
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            
+            # Get the test file path
+            test_file = Path(metadata['filename'])
+            test_name = test_file.stem
+            
+            if not test_file.exists():
+                return jsonify({'error': 'Generated test file not found'}), 404
         
         # Read test file to extract REGISTRY_PATHS
         with open(test_file, 'r') as f:
