@@ -2,6 +2,7 @@
 Excel-Based Playwright Generator
 Reads Excel file with Step, URL, XPath, Action, etc. and generates Playwright code
 Registry-aware: Uses element registry instead of hard-coded XPaths
+Auto-populates registries from Excel before test generation
 """
 import pandas as pd
 import re
@@ -9,6 +10,11 @@ import json
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 from urllib.parse import urlparse
+import sys
+
+# Add utils to path for ElementRegistry import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from utils.element_registry import ElementRegistry
 
 
 def escape_xpath(xpath: str) -> str:
@@ -96,6 +102,137 @@ def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> 
             continue
     
     return sorted(list(registry_paths))
+
+
+def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> None:
+    """
+    Auto-populate element registries from Excel data (Excel → JSON)
+    Ensures all XPaths from Excel are present in registries before test generation
+    
+    Args:
+        df: DataFrame with Excel data (columns: step, url, xpath, action, object_type)
+        element_maps_dir: Directory containing element_maps
+    """
+    from datetime import datetime
+    
+    # Import ElementRegistry
+    sys.path.insert(0, str(element_maps_dir.parent))
+    from utils.element_registry import ElementRegistry
+    
+    registry = ElementRegistry(str(element_maps_dir))
+    
+    print("📝 Auto-populating registries from Excel data...")
+    added_count = 0
+    skipped_count = 0
+    
+    # Group rows by URL to process elements per page
+    for url in df['url'].dropna().unique():
+        if not url or url == 'N/A':
+            continue
+        
+        try:
+            # Parse domain and page from URL
+            parsed = urlparse(url)
+            domain = parsed.netloc.split(':')[0]
+            
+            # Extract page name from URL path
+            path_parts = [p for p in parsed.path.split('/') if p]
+            if not path_parts:
+                page = 'home'
+            elif path_parts[-1] == 'explore':
+                page = 'explore'
+            else:
+                page = path_parts[-1].split('?')[0].split('#')[0]
+                if not page:
+                    page = 'home'
+            
+            # Sanitize page name
+            page = re.sub(r'[^\w\-_\.]', '', page)
+            if not page:
+                page = 'home'
+            
+            # Get rows for this URL
+            url_rows = df[df['url'] == url]
+            
+            # Load or create element map for this page
+            element_map = registry.load_map(domain, page)
+            if not element_map:
+                element_map = {
+                    "page": page,
+                    "url": url,
+                    "version": "1.0",
+                    "timestamp": datetime.now().isoformat() + "Z",
+                    "elements": {},
+                    "id_index": {},
+                    "statistics": {
+                        "total_elements": 0,
+                        "parsed_elements": 0,
+                        "discovered_elements": 0
+                    }
+                }
+            
+            # Track additions per URL
+            url_added_count = 0
+            
+            # Process each row for this URL
+            for idx, row in url_rows.iterrows():
+                xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
+                action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
+                object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+                step = str(row.get('step', idx + 1)).strip()
+                
+                # Skip if no XPath
+                if not xpath or xpath == 'N/A':
+                    continue
+                
+                # Generate element name from step/action/object_type
+                if object_type:
+                    element_name = f"{object_type}_{step}"
+                elif action:
+                    element_name = f"{action}_{step}"
+                else:
+                    element_name = f"element_{step}"
+                
+                # Check if XPath already exists in registry
+                xpath_exists = False
+                for key, elem_data in element_map.get('elements', {}).items():
+                    if elem_data.get('xpath') == xpath:
+                        xpath_exists = True
+                        skipped_count += 1
+                        break
+                
+                # Add element if not found
+                if not xpath_exists:
+                    element_id = registry._generate_element_id(element_name, xpath)
+                    
+                    element_entry = {
+                        'xpath': xpath,
+                        'selector': xpath,
+                        'element_id': element_id,
+                        'usage_count': 0,
+                        'last_used': None,
+                        'source': 'excel',
+                        'object_type': object_type,
+                        'action': action,
+                        'discovered_at': datetime.now().isoformat() + "Z"
+                    }
+                    
+                    element_map['elements'][element_name] = element_entry
+                    element_map['id_index'][element_id] = element_name
+                    element_map['statistics']['total_elements'] = len(element_map['elements'])
+                    url_added_count += 1
+                    added_count += 1
+            
+            # Save updated registry if we added elements
+            if url_added_count > 0:
+                registry.save_map(domain, page, element_map)
+                print(f"  ✅ Updated registry: {domain}/{page}_page.json ({url_added_count} new elements)")
+        
+        except Exception as e:
+            print(f"  ⚠️  Error processing URL {url}: {e}")
+            continue
+    
+    print(f"📝 Registry population complete: {added_count} added, {skipped_count} skipped")
 
 
 def build_registry_code(registry_files: List[str]) -> str:
@@ -729,6 +866,11 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
         # Detect registry files from URLs in Excel
         project_root = output_file.parent.parent.parent  # Go up from storage/excel_tests to project root
         element_maps_dir = project_root / 'element_maps'
+        
+        # STEP 1: Auto-populate registries from Excel (Excel → JSON)
+        # This ensures all XPaths from Excel are in registries before test generation
+        # JSON becomes the source of truth, test code references JSON
+        populate_registry_from_excel(df, element_maps_dir)
         
         # Get unique URLs from Excel
         urls = df['url'].dropna().unique().tolist() if 'url' in df.columns else []
