@@ -100,7 +100,9 @@ class ManualRegistryHelper:
                 'registry_path': registry_result['registry_path'],
                 'uniqueness_method': uniqueness_method,
                 'attributes_found': list(attributes.keys()),
-                'text_content': text_content[:100] if text_content else None
+                'all_attributes': attributes,  # Include full attributes dict
+                'text_content': text_content[:100] if text_content else None,
+                'tag': tag
             }
             
             if warning:
