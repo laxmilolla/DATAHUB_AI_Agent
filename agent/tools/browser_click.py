@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from playwright.async_api import Page, Locator
 from agent.utils.modal_utils import ModalUtils
+from agent.utils.label_matcher import LabelMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class BrowserClickTool:
         self.context = execution_context
         self.parsed_steps = parsed_steps
         self.story = story
+        self.label_matcher = LabelMatcher(page)
     
     def _parse_dropdown_selection_pattern(self, step_text: str) -> Optional[Tuple[str, str]]:
         """
@@ -218,6 +220,15 @@ class BrowserClickTool:
                                 dropdown_locator, _ = await self._find_and_choose_element(
                                     registry_css_selector, dropdown_name, False
                                 )
+                
+                # If still not found, try label-to-element matching for dropdown
+                if not dropdown_locator:
+                    logger.info(f"  🔍 Dropdown selector failed, trying label-to-element matching for '{dropdown_name}'")
+                    label_selector = await self.label_matcher.find_element_by_label(dropdown_name, ['select', 'button', 'input'])
+                    if label_selector:
+                        logger.info(f"  ✅ Found dropdown via label: {label_selector}")
+                        dropdown_selector = label_selector
+                        dropdown_using_registry_xpath = label_selector.startswith('xpath=')
                 
                 # If still not found, try original resolution
                 if not dropdown_locator:

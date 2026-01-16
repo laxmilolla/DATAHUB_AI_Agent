@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, Optional, Tuple
 from playwright.async_api import Page
 from agent.utils.modal_utils import ModalUtils
+from agent.utils.label_matcher import LabelMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +368,30 @@ class BrowserFillTool:
                 if not selector_found:
                     logger.warning(f"  [TOTP] Could not find visible input with fallback selectors")
         
+        # Try label-to-element matching if selector fails and we have element name
+        if not using_registry_xpath and element_name_for_registry:
+            try:
+                # Check if selector will work first
+                test_locator = self.page.locator(selector).first
+                is_visible = await test_locator.is_visible(timeout=2000)
+                if not is_visible:
+                    # Try label-to-element matching
+                    logger.info(f"  🔍 Selector not found, trying label-to-element matching for '{element_name_for_registry}'")
+                    label_selector = await self.label_matcher.find_element_by_label(element_name_for_registry, ['input', 'textarea'])
+                    if label_selector:
+                        logger.info(f"  ✅ Found element via label: {label_selector}")
+                        selector = label_selector
+            except Exception as e:
+                # Selector failed, try label matching
+                logger.info(f"  🔍 Selector failed, trying label-to-element matching for '{element_name_for_registry}'")
+                try:
+                    label_selector = await self.label_matcher.find_element_by_label(element_name_for_registry, ['input', 'textarea'])
+                    if label_selector:
+                        logger.info(f"  ✅ Found element via label: {label_selector}")
+                        selector = label_selector
+                except Exception as label_error:
+                    logger.debug(f"  ⚠️ Label matching also failed: {label_error}")
+        
         # Execute fill
         try:
             timeout_ms = 60000 if is_totp_step else 10000
@@ -465,4 +490,5 @@ class BrowserFillTool:
         else:
             logger.warning(f"  ⚠️ Fill mismatch: expected '{text}', got '{actual_value}'")
             return f"⚠️ Filled {selector} - Expected '{text}', got '{actual_value}'"
+    
 
