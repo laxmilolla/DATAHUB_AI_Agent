@@ -59,18 +59,21 @@ class ManualRegistryHelper:
             # Step 2: Extract domain/page from URL
             domain, page = self._extract_domain_page(url)
             
-            # Step 3: Infer element name
-            label_text = self.html_parser.infer_label_from_attributes(attributes)
+            # Step 3: Infer element name (pass text_content for better inference)
+            text_content = parsed.get('text_content', '')
+            label_text = self.html_parser.infer_label_from_attributes(attributes, text_content)
             if not element_name:
-                element_name = label_text or attributes.get('name') or attributes.get('data-testid') or 'Unknown Element'
+                element_name = label_text or attributes.get('name') or attributes.get('data-testid') or attributes.get('id') or text_content[:30] or 'Unknown Element'
             
-            # Step 4: Generate XPath
-            xpath_result = self._generate_xpath(attributes, tag)
+            # Step 4: Generate XPath (pass text_content for better XPath generation)
+            text_content = parsed.get('text_content', '')
+            xpath_result = self._generate_xpath(attributes, tag, text_content)
             xpath = xpath_result['xpath']
             uniqueness_method = xpath_result['uniqueness_method']
+            warning = xpath_result.get('warning', None)
             
-            # Step 5: Generate selector
-            selector = self._generate_selector(attributes, tag)
+            # Step 5: Generate selector (pass text_content for better selector generation)
+            selector = self._generate_selector(attributes, tag, text_content)
             
             # Step 6: Create discovery object
             discovery = self._create_discovery_object(
@@ -87,7 +90,7 @@ class ManualRegistryHelper:
             # Step 7: Update Registry JSON
             registry_result = self._update_registry(domain, page, discovery)
             
-            return {
+            result = {
                 'success': True,
                 'element_name': element_name,
                 'xpath': xpath,
@@ -95,8 +98,15 @@ class ManualRegistryHelper:
                 'label_text': label_text,
                 'element_id': registry_result['element_id'],
                 'registry_path': registry_result['registry_path'],
-                'uniqueness_method': uniqueness_method
+                'uniqueness_method': uniqueness_method,
+                'attributes_found': list(attributes.keys()),
+                'text_content': text_content[:100] if text_content else None
             }
+            
+            if warning:
+                result['warning'] = warning
+            
+            return result
             
         except Exception as e:
             import traceback
@@ -123,15 +133,19 @@ class ManualRegistryHelper:
         
         return domain, page
     
-    def _generate_xpath(self, attributes: Dict, tag: str) -> Dict:
+    def _generate_xpath(self, attributes: Dict, tag: str, text_content: str = '') -> Dict:
         """
         Generate XPath with priority:
         1. data-testid
         2. id (if stable)
         3. name (for form elements)
         4. aria-labelledby
-        5. placeholder
-        6. Positional (fallback)
+        5. aria-label
+        6. role + text content
+        7. placeholder
+        8. class (if stable, not MUI-generated)
+        9. text content (if available and unique)
+        10. Positional (fallback - warn user)
         """
         # Priority 1: data-testid
         if attributes.get('data-testid'):
@@ -151,7 +165,22 @@ class ManualRegistryHelper:
                 }
         
         # Priority 3: name (for form elements)
-        if attributes.get('name') and tag in ['input', 'select', 'textarea', 'button']:
+        if attributes.get('name') and tag in ['input', 'select', 'textarea', 'button', 'option']:
+            # For radio buttons and checkboxes, include value if available
+            if tag == 'input' and attributes.get('type') in ['radio', 'checkbox']:
+                if attributes.get('value'):
+                    return {
+                        'xpath': f"//{tag}[@name='{attributes['name']}' and @value='{attributes['value']}']",
+                        'uniqueness_method': 'name+value'
+                    }
+                else:
+                    # For radio/checkbox without value, use name + text content
+                    if text_content:
+                        text_escaped = text_content.strip()[:50].replace("'", "\\'")
+                        return {
+                            'xpath': f"//{tag}[@name='{attributes['name']}' and contains(text(), '{text_escaped}')]",
+                            'uniqueness_method': 'name+text'
+                        }
             return {
                 'xpath': f"//{tag}[@name='{attributes['name']}']",
                 'uniqueness_method': 'name'
@@ -164,27 +193,107 @@ class ManualRegistryHelper:
                 'uniqueness_method': 'aria-labelledby'
             }
         
-        # Priority 5: placeholder
+        # Priority 5: aria-label
+        if attributes.get('aria-label'):
+            aria_label = attributes['aria-label'].strip()
+            if aria_label:
+                return {
+                    'xpath': f"//{tag}[@aria-label='{aria_label}']",
+                    'uniqueness_method': 'aria-label'
+                }
+        
+        # Priority 6: role + text content (especially useful for dropdown options, table cells)
+        if attributes.get('role') and text_content:
+            text_clean = text_content.strip()[:50]  # Limit length
+            if text_clean:
+                # Escape quotes in text
+                text_escaped = text_clean.replace("'", "\\'")
+                # For option role, also check aria-selected or value
+                if attributes.get('role') == 'option':
+                    if attributes.get('value'):
+                        return {
+                            'xpath': f"//{tag}[@role='option' and @value='{attributes['value']}']",
+                            'uniqueness_method': 'role+value'
+                        }
+                    elif attributes.get('aria-labelledby'):
+                        return {
+                            'xpath': f"//{tag}[@role='option' and @aria-labelledby='{attributes['aria-labelledby']}' and contains(text(), '{text_escaped}')]",
+                            'uniqueness_method': 'role+aria-labelledby+text'
+                        }
+                return {
+                    'xpath': f"//{tag}[@role='{attributes['role']}' and contains(text(), '{text_escaped}')]",
+                    'uniqueness_method': 'role+text'
+                }
+        
+        # Priority 6.5: Special handling for table cells (td/th) - use text + position
+        if tag in ['td', 'th'] and text_content:
+            text_clean = text_content.strip()[:50]
+            if text_clean:
+                text_escaped = text_clean.replace("'", "\\'")
+                # Try to find by text in specific column (if we have parent table context)
+                if attributes.get('data-column') or attributes.get('aria-colindex'):
+                    col_index = attributes.get('data-column') or attributes.get('aria-colindex')
+                    return {
+                        'xpath': f"//{tag}[contains(text(), '{text_escaped}') and (@data-column='{col_index}' or @aria-colindex='{col_index}')]",
+                        'uniqueness_method': 'table-cell+column+text'
+                    }
+                return {
+                    'xpath': f"//{tag}[contains(text(), '{text_escaped}')]",
+                    'uniqueness_method': 'table-cell+text'
+                }
+        
+        # Priority 7: placeholder
         if attributes.get('placeholder'):
             return {
                 'xpath': f"//{tag}[@placeholder='{attributes['placeholder']}']",
                 'uniqueness_method': 'placeholder'
             }
         
-        # Fallback: positional
+        # Priority 8: class (if stable, not MUI-generated)
+        if attributes.get('class'):
+            class_value = attributes['class']
+            # Skip MUI classes (they're dynamic)
+            if not any(mui in class_value.lower() for mui in ['mui', 'css-']):
+                # Use class if it looks stable (has meaningful name)
+                # Extract first meaningful class
+                classes = class_value.split()
+                for cls in classes:
+                    if cls and not cls.startswith('css-') and len(cls) > 3:
+                        return {
+                            'xpath': f"//{tag}[contains(@class, '{cls}')]",
+                            'uniqueness_method': 'class'
+                        }
+        
+        # Priority 9: text content (if available and meaningful)
+        if text_content:
+            text_clean = text_content.strip()
+            if text_clean and len(text_clean) > 2 and len(text_clean) < 100:
+                # Escape quotes
+                text_escaped = text_clean.replace("'", "\\'")
+                return {
+                    'xpath': f"//{tag}[contains(text(), '{text_escaped}')]",
+                    'uniqueness_method': 'text'
+                }
+        
+        # Fallback: positional (warn user this is not ideal)
         return {
             'xpath': f"(//{tag})[1]",
-            'uniqueness_method': 'positional'
+            'uniqueness_method': 'positional',
+            'warning': 'Generic positional XPath - element lacks unique attributes. Consider providing element with data-testid, id, or aria-label.'
         }
     
-    def _generate_selector(self, attributes: Dict, tag: str) -> str:
+    def _generate_selector(self, attributes: Dict, tag: str, text_content: str = '') -> str:
         """
         Generate CSS selector with priority:
         1. data-testid
         2. id
         3. name
         4. aria-labelledby
-        5. placeholder
+        5. aria-label
+        6. role + text
+        7. placeholder
+        8. class (if stable)
+        9. text (if available)
         """
         # Priority 1: data-testid
         if attributes.get('data-testid'):
@@ -196,17 +305,55 @@ class ManualRegistryHelper:
             if not re.search(r'-\d+$', id_value) and not id_value.startswith(('mui-', 'Mui')):
                 return f"#{id_value}"
         
-        # Priority 3: name
-        if attributes.get('name') and tag in ['input', 'select', 'textarea', 'button']:
+        # Priority 3: name (with special handling for radio/checkbox)
+        if attributes.get('name') and tag in ['input', 'select', 'textarea', 'button', 'option']:
+            # For radio buttons and checkboxes, include value if available
+            if tag == 'input' and attributes.get('type') in ['radio', 'checkbox']:
+                if attributes.get('value'):
+                    return f"{tag}[name='{attributes['name']}'][value='{attributes['value']}']"
+                elif text_content:
+                    text_clean = text_content.strip()[:30]
+                    if text_clean:
+                        return f"{tag}[name='{attributes['name']}']:has-text('{text_clean}')"
             return f"{tag}[name='{attributes['name']}']"
         
         # Priority 4: aria-labelledby
         if attributes.get('aria-labelledby'):
             return f"{tag}[aria-labelledby='{attributes['aria-labelledby']}']"
         
-        # Priority 5: placeholder
+        # Priority 5: aria-label
+        if attributes.get('aria-label'):
+            aria_label = attributes['aria-label'].strip()
+            if aria_label:
+                return f"{tag}[aria-label='{aria_label}']"
+        
+        # Priority 6: role + text (with special handling for options)
+        if attributes.get('role') and text_content:
+            text_clean = text_content.strip()[:30]
+            if text_clean:
+                # For option role, prefer value attribute
+                if attributes.get('role') == 'option' and attributes.get('value'):
+                    return f"{tag}[role='option'][value='{attributes['value']}']"
+                return f"{tag}[role='{attributes['role']}']:has-text('{text_clean}')"
+        
+        # Priority 7: placeholder
         if attributes.get('placeholder'):
             return f"{tag}[placeholder='{attributes['placeholder']}']"
+        
+        # Priority 8: class (if stable)
+        if attributes.get('class'):
+            class_value = attributes['class']
+            if not any(mui in class_value.lower() for mui in ['mui', 'css-']):
+                classes = class_value.split()
+                for cls in classes:
+                    if cls and not cls.startswith('css-') and len(cls) > 3:
+                        return f"{tag}.{cls}"
+        
+        # Priority 9: text (if available)
+        if text_content:
+            text_clean = text_content.strip()
+            if text_clean and len(text_clean) > 2 and len(text_clean) < 50:
+                return f"{tag}:has-text('{text_clean}')"
         
         # Fallback
         return f"{tag}"
@@ -235,16 +382,107 @@ class ManualRegistryHelper:
         if attributes.get('aria-labelledby'):
             unique_attributes['aria_labelledby'] = attributes['aria-labelledby']
         
-        # Determine element type
+        # Determine element type with special handling for different input types and complex elements
         element_type = tag
         if tag == 'input':
-            element_type = attributes.get('type', 'input')
-        elif tag in ['button', 'a']:
-            element_type = 'button'
+            input_type = attributes.get('type', 'text')
+            if input_type == 'radio':
+                element_type = 'radio'
+                # For radio buttons, include value
+                if attributes.get('value'):
+                    unique_attributes['value'] = attributes['value']
+            elif input_type == 'checkbox':
+                element_type = 'checkbox'
+                # For checkboxes, include value
+                if attributes.get('value'):
+                    unique_attributes['value'] = attributes['value']
+            else:
+                element_type = input_type  # text, email, password, etc.
         elif tag == 'select':
             element_type = 'select'
+        elif tag == 'option':
+            element_type = 'option'
+            # For dropdown options, include value and parent info
+            if attributes.get('value'):
+                unique_attributes['value'] = attributes['value']
+            if attributes.get('aria-labelledby'):
+                unique_attributes['parent_dropdown_id'] = attributes['aria-labelledby']
         elif tag == 'textarea':
             element_type = 'textarea'
+        elif tag in ['button', 'a']:
+            element_type = 'button'
+        elif tag == 'table':
+            element_type = 'table'
+            # For tables, include data-testid or id for the table itself
+            if attributes.get('data-testid'):
+                unique_attributes['table_testid'] = attributes['data-testid']
+            if attributes.get('id'):
+                unique_attributes['table_id'] = attributes['id']
+        elif tag == 'tr':
+            element_type = 'table-row'
+        elif tag in ['td', 'th']:
+            element_type = 'table-cell'
+            # For table cells, include column index if available
+            if attributes.get('data-column'):
+                unique_attributes['column_index'] = attributes['data-column']
+            elif attributes.get('aria-colindex'):
+                unique_attributes['column_index'] = attributes['aria-colindex']
+        elif tag == 'thead' or tag == 'tbody' or tag == 'tfoot':
+            element_type = 'table-section'
+        # Check for dropdown button (role="button" with aria-expanded or MuiSelect)
+        elif attributes.get('role') == 'button' and (
+            attributes.get('aria-expanded') is not None or
+            'MuiSelect' in attributes.get('class', '') or
+            'select' in (attributes.get('class', '') or '').lower()
+        ):
+            element_type = 'dropdown-button'
+            # For dropdown buttons, extract hidden input name if available
+            if attributes.get('name'):
+                unique_attributes['hidden_input_name'] = attributes['name']
+        # Check for dropdown option (role="option")
+        elif attributes.get('role') == 'option':
+            element_type = 'option'
+            if attributes.get('value'):
+                unique_attributes['value'] = attributes['value']
+            if attributes.get('aria-labelledby'):
+                unique_attributes['parent_dropdown_id'] = attributes['aria-labelledby']
+        
+        # Determine element type with special handling for different input types and complex elements
+        element_type = tag
+        if tag == 'input':
+            input_type = attributes.get('type', 'text')
+            if input_type == 'radio':
+                element_type = 'radio'
+            elif input_type == 'checkbox':
+                element_type = 'checkbox'
+            else:
+                element_type = input_type  # text, email, password, etc.
+        elif tag == 'select':
+            element_type = 'select'
+        elif tag == 'option':
+            element_type = 'option'
+        elif tag == 'textarea':
+            element_type = 'textarea'
+        elif tag in ['button', 'a']:
+            element_type = 'button'
+        elif tag == 'table':
+            element_type = 'table'
+        elif tag == 'tr':
+            element_type = 'table-row'
+        elif tag in ['td', 'th']:
+            element_type = 'table-cell'
+        elif tag == 'thead' or tag == 'tbody' or tag == 'tfoot':
+            element_type = 'table-section'
+        # Check for dropdown button (role="button" with aria-expanded or MuiSelect)
+        elif attributes.get('role') == 'button' and (
+            attributes.get('aria-expanded') is not None or
+            'MuiSelect' in attributes.get('class', '') or
+            'select' in (attributes.get('class', '') or '').lower()
+        ):
+            element_type = 'dropdown-button'
+        # Check for dropdown option (role="option")
+        elif attributes.get('role') == 'option':
+            element_type = 'option'
         
         return {
             'name': element_name,

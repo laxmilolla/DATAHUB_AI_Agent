@@ -316,22 +316,46 @@
                 const data = await response.json();
                 
                 if (data.success) {
+                    let warningHtml = '';
+                    if (data.warning) {
+                        warningHtml = `<div style="background: #fff3cd; color: #856404; padding: 10px; border-radius: 6px; margin: 10px 0; border: 1px solid #ffeaa7;">
+                            <strong>⚠️ Warning:</strong> ${data.warning}
+                        </div>`;
+                    }
+                    
+                    let attributesHtml = '';
+                    if (data.attributes_found && data.attributes_found.length > 0) {
+                        attributesHtml = `<p><strong>Attributes Found:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.attributes_found.join(', ')}</code></p>`;
+                    }
+                    
+                    let textHtml = '';
+                    if (data.text_content) {
+                        textHtml = `<p><strong>Text Content:</strong> "${data.text_content}"</p>`;
+                    }
+                    
                     resultDiv.innerHTML = `
                         <div style="background: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb;">
                             <h3 style="margin: 0 0 10px 0;">✅ Element Registered Successfully!</h3>
+                            ${warningHtml}
                             <p><strong>Element Name:</strong> ${data.element_name}</p>
-                            <p><strong>XPath:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.xpath}</code></p>
-                            <p><strong>Selector:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.selector}</code></p>
+                            <p><strong>XPath:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">${data.xpath}</code></p>
+                            <p><strong>Selector:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">${data.selector}</code></p>
+                            <p><strong>Uniqueness Method:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.uniqueness_method}</code></p>
                             <p><strong>Label:</strong> ${data.label_text || 'N/A'}</p>
+                            ${textHtml}
+                            ${attributesHtml}
                             <p><strong>Element ID:</strong> ${data.element_id}</p>
                             <p><strong>Registry:</strong> ${data.registry_path}</p>
+                            ${data.uniqueness_method === 'positional' ? '<p style="color: #856404; margin-top: 10px;"><strong>💡 Tip:</strong> For better XPath generation, provide elements with <code>data-testid</code>, <code>id</code>, <code>aria-label</code>, or <code>role</code> attributes.</p>' : ''}
                         </div>
                     `;
                     resultDiv.style.display = 'block';
                     
-                    // Clear form
-                    document.getElementById('manual-html').value = '';
-                    document.getElementById('manual-element-name').value = '';
+                    // Clear form only if no warning
+                    if (!data.warning) {
+                        document.getElementById('manual-html').value = '';
+                        document.getElementById('manual-element-name').value = '';
+                    }
                 } else {
                     resultDiv.innerHTML = `
                         <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb;">
