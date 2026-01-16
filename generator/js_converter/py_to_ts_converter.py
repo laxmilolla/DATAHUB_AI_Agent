@@ -34,9 +34,16 @@ def convert_python_to_spec_ts(python_code: str) -> str:
     )
     
     # 1. Convert imports
+    # First convert Playwright import
     ts_code = re.sub(
         r'from playwright\.sync_api import sync_playwright, expect',
         "import { test, expect } from '@playwright/test';",
+        ts_code
+    )
+    # Remove any remaining playwright imports
+    ts_code = re.sub(
+        r'from playwright\.sync_api import .*\n',
+        "",
         ts_code
     )
     
@@ -60,6 +67,25 @@ def convert_python_to_spec_ts(python_code: str) -> str:
         r'from pathlib import Path\n',
         "",
         ts_code
+    )
+    # Remove Python datetime import (not needed in TypeScript)
+    ts_code = re.sub(
+        r'from datetime import datetime\n',
+        "",
+        ts_code
+    )
+    # Remove Python dotenv import (handled in convert_env_loading)
+    ts_code = re.sub(
+        r'from dotenv import load_dotenv\n',
+        "",
+        ts_code
+    )
+    # Remove any other Python imports that might remain
+    ts_code = re.sub(
+        r'^from \w+ import .*\n',
+        "",
+        ts_code,
+        flags=re.MULTILINE
     )
     
     # 2. Convert .env loading section
