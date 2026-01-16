@@ -655,17 +655,14 @@ def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_o
         code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
         code += f"{ind}    except Exception as registry_error:\n"
-        code += f"{ind}        # Fallback to hard-coded XPath\n"
-        code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
-        code += f"{ind}        element = page.locator(selector).nth(0)\n"
-        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
-        code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+        code += f"{ind}        # Registry lookup failed - test must fail\n"
+        code += f"{ind}        print(f'❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
+        code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png')\n"
+        code += f"{ind}        raise Exception(f'Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
     else:
-        # No element_id - use hard-coded XPath (with warning)
-        code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
-        code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-        code += f"{ind}    element = page.locator(selector).nth(0)\n"
-        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+        # No element_id - test must fail (element not in registry)
+        code += f"{ind}    # Element not found in registry - test must fail\n"
+        code += f"{ind}    raise Exception(f'Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.')\n"
     
     # For Create button in modal (Step 19), wait for it to be enabled and scroll into view
     is_create_button = ('create-data-submission-dialog-create-button' in xpath_escaped or 
@@ -804,17 +801,14 @@ def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element
             code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
             code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
             code += f"{ind}    except Exception as registry_error:\n"
-            code += f"{ind}        # Fallback to hard-coded XPath\n"
-            code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
-            code += f"{ind}        element = page.locator(selector).nth(0)\n"
-            code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
-            code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+            code += f"{ind}        # Registry lookup failed - test must fail\n"
+            code += f"{ind}        print(f'❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
+            code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png')\n"
+            code += f"{ind}        raise Exception(f'Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
         else:
-            # No element_id - use hard-coded XPath (with warning)
-            code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
-            code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-            code += f"{ind}    element = page.locator(selector).nth(0)\n"
-            code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+            # No element_id - test must fail (element not in registry)
+            code += f"{ind}    # Element not found in registry - test must fail\n"
+            code += f"{ind}    raise Exception(f'Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.')\n"
     
     if is_totp:
         code += f"{ind}    # Generate TOTP code\n"
@@ -904,17 +898,14 @@ def generate_verify_code(step: str, xpath: str, url: str, element_name: str, ind
         code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
         code += f"{ind}    except Exception as registry_error:\n"
-        code += f"{ind}        # Fallback to hard-coded XPath\n"
-        code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
-        code += f"{ind}        element = page.locator(selector).nth(0)\n"
-        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
-        code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+        code += f"{ind}        # Registry lookup failed - test must fail\n"
+        code += f"{ind}        print(f'❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
+        code += f"{ind}        page.screenshot(path='storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png')\n"
+        code += f"{ind}        raise Exception(f'Registry lookup failed for element_id {element_id_escaped}: {{registry_error}}')\n"
     else:
-        # No element_id - use hard-coded XPath (with warning)
-        code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
-        code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-        code += f"{ind}    element = page.locator(selector).nth(0)\n"
-        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+        # No element_id - test must fail (element not in registry)
+        code += f"{ind}    # Element not found in registry - test must fail\n"
+        code += f"{ind}    raise Exception(f'Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.')\n"
     element_display = element_name or 'element'
     code += f"{ind}    print(f'✅ Step {step}: Verified {element_display} is visible')\n"
     code += f"{ind}    page.screenshot(path='storage/screenshots/pw_step{step}_{safe_name}_verified.png')\n"
