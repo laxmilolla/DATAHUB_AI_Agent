@@ -186,6 +186,50 @@
                 </div>
             </div>
 
+            <!-- Manual Element Registration Section -->
+            <div class="card">
+                <h2>🔧 Manual Element Registration</h2>
+                <p style="color: #6B5B3D; margin-bottom: 20px;">
+                    Register elements manually by pasting HTML from browser inspect. Rich metadata is automatically extracted and saved to registry.
+                </p>
+                
+                <div class="form-group">
+                    <label for="manual-html">HTML Element (from Inspect):</label>
+                    <textarea 
+                        id="manual-html" 
+                        rows="4"
+                        placeholder='<input name="name" data-testid="submission-name-input" aria-labelledby="submission-name-filter"...>'
+                        style="width: 100%; padding: 10px; border: 2px solid #D4C5B9; border-radius: 8px; font-family: monospace; font-size: 0.9em;"
+                    ></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="manual-url">URL (where element is located):</label>
+                    <input 
+                        type="text" 
+                        id="manual-url" 
+                        placeholder="https://hub-stage.datacommons.cancer.gov/data-submissions"
+                        style="width: 100%; padding: 10px; border: 2px solid #D4C5B9; border-radius: 8px;"
+                    />
+                </div>
+                
+                <div class="form-group">
+                    <label for="manual-element-name">Element Name (Optional - will infer from label):</label>
+                    <input 
+                        type="text" 
+                        id="manual-element-name" 
+                        placeholder="Submission Name"
+                        style="width: 100%; padding: 10px; border: 2px solid #D4C5B9; border-radius: 8px;"
+                    />
+                </div>
+                
+                <button class="btn btn-primary" id="register-element-btn" onclick="registerElement()">
+                    Register Element
+                </button>
+                
+                <div id="manual-register-result" style="margin-top: 20px; display: none;"></div>
+            </div>
+
             <!-- AI Agent Test Section -->
             <div class="card">
                 <h2>AI Agent Test</h2>
@@ -236,6 +280,82 @@
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/excel_upload.js') }}"></script>
+    <script>
+        async function registerElement() {
+            const html = document.getElementById('manual-html').value.trim();
+            const url = document.getElementById('manual-url').value.trim();
+            const elementName = document.getElementById('manual-element-name').value.trim();
+            
+            if (!html) {
+                alert('Please paste HTML element');
+                return;
+            }
+            if (!url) {
+                alert('Please provide URL');
+                return;
+            }
+            
+            const btn = document.getElementById('register-element-btn');
+            const resultDiv = document.getElementById('manual-register-result');
+            
+            btn.disabled = true;
+            btn.textContent = 'Registering...';
+            resultDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/manual-register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        html: html,
+                        url: url,
+                        element_name: elementName || null
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #d4edda; color: #155724; padding: 15px; border-radius: 8px; border: 1px solid #c3e6cb;">
+                            <h3 style="margin: 0 0 10px 0;">✅ Element Registered Successfully!</h3>
+                            <p><strong>Element Name:</strong> ${data.element_name}</p>
+                            <p><strong>XPath:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.xpath}</code></p>
+                            <p><strong>Selector:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 4px;">${data.selector}</code></p>
+                            <p><strong>Label:</strong> ${data.label_text || 'N/A'}</p>
+                            <p><strong>Element ID:</strong> ${data.element_id}</p>
+                            <p><strong>Registry:</strong> ${data.registry_path}</p>
+                        </div>
+                    `;
+                    resultDiv.style.display = 'block';
+                    
+                    // Clear form
+                    document.getElementById('manual-html').value = '';
+                    document.getElementById('manual-element-name').value = '';
+                } else {
+                    resultDiv.innerHTML = `
+                        <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; border: 1px solid #f5c6cb;">
+                            <h3 style="margin: 0 0 10px 0;">❌ Registration Failed</h3>
+                            <p><strong>Error:</strong> ${data.error}</p>
+                            ${data.details ? `<pre style="font-size: 0.8em; overflow-x: auto; margin-top: 10px;">${data.details}</pre>` : ''}
+                        </div>
+                    `;
+                    resultDiv.style.display = 'block';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px;">
+                        <h3>❌ Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Register Element';
+            }
+        }
+    </script>
 </body>
 </html>
 

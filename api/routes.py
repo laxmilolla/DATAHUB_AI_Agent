@@ -308,6 +308,58 @@ def parse_html():
             'traceback': traceback.format_exc()
         }), 500
 
+@bp.route('/manual-register', methods=['POST'])
+def manual_register_element():
+    """
+    Manually register element from HTML
+    User pastes HTML element + URL, system updates registry
+    
+    Expected JSON:
+    {
+        "html": "<input name=\"name\" data-testid=\"submission-name-input\"...>",
+        "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+        "element_name": "Submission Name"  // Optional - will infer if not provided
+    }
+    """
+    try:
+        data = request.get_json()
+        html_string = data.get('html', '').strip()
+        url = data.get('url', '').strip()
+        element_name = data.get('element_name', '').strip() or None
+        
+        # Validation
+        if not html_string:
+            return jsonify({'success': False, 'error': 'HTML element required'}), 400
+        if not url:
+            return jsonify({'success': False, 'error': 'URL required'}), 400
+        
+        # Initialize registry
+        element_registry = get_registry()
+        
+        # Register element
+        from REFACTOR.api.manual_registry_helper import ManualRegistryHelper
+        helper = ManualRegistryHelper(element_registry)
+        
+        result = helper.register_element(
+            html_string=html_string,
+            url=url,
+            element_name=element_name
+        )
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'details': traceback.format_exc()
+        }), 500
+
+
 @bp.route('/save-element-map', methods=['POST'])
 def save_element_map():
     """Save parsed element map to registry"""

@@ -7,3 +7,4 @@ aiohttp==3.11.11
 groq>=0.4.0  # FREE cloud LLM (no local resources)
 
 pyotp==2.9.0
+beautifulsoup4==4.12.3
