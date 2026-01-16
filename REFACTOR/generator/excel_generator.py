@@ -782,9 +782,10 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
                         if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
                             is_modal_step = True
                     
-                    # Lookup element_id from registry
-                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_click_code(step, xpath, current_url or '', element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    # Lookup element_id from registry - use URL from this row (not current_url)
+                    row_url = url if url and url != 'N/A' else current_url or ''
+                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_click_code(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Click action requires XPath")
             
@@ -803,18 +804,20 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
                         if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
                             is_modal_step = True
                     
-                    # Lookup element_id from registry
-                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_fill_code(step, xpath, text_value, current_url or '', element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    # Lookup element_id from registry - use URL from this row (not current_url)
+                    row_url = url if url and url != 'N/A' else current_url or ''
+                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_fill_code(step, xpath, text_value, row_url, element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Fill action requires XPath")
             
             elif action == 'verify':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
-                    # Lookup element_id from registry
-                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_verify_code(step, xpath, current_url or '', element_name, element_id=element_id)
+                    # Lookup element_id from registry - use URL from this row (not current_url)
+                    row_url = url if url and url != 'N/A' else current_url or ''
+                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_verify_code(step, xpath, row_url, element_name, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Verify action requires XPath")
             
