@@ -1,11 +1,14 @@
 """
 Excel-Based Playwright Generator
 Reads Excel file with Step, URL, XPath, Action, etc. and generates Playwright code
+Registry-aware: Uses element registry instead of hard-coded XPaths
 """
 import pandas as pd
 import re
+import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
+from urllib.parse import urlparse
 
 
 def escape_xpath(xpath: str) -> str:
@@ -20,6 +23,338 @@ def escape_text(text: str) -> str:
     if not text:
         return ''
     return str(text).replace("'", "\\'")
+
+
+def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> List[str]:
+    """
+    Detect registry files needed based on URLs in Excel file
+    
+    Args:
+        urls: List of URLs from Excel file
+        element_maps_dir: Base directory for element maps (usually 'element_maps')
+    
+    Returns:
+        List of relative registry file paths
+    """
+    registry_paths = set()
+    
+    for url in urls:
+        if not url or url == 'N/A':
+            continue
+        
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.split(':')[0]  # Remove port if present
+            
+            # Extract page name from URL path
+            path_parts = [p for p in parsed.path.split('/') if p]
+            if not path_parts:
+                page = 'home'
+            elif path_parts[-1] == 'explore':
+                page = 'explore'
+            else:
+                page = path_parts[-1].split('?')[0].split('#')[0]
+                if not page:
+                    page = 'home'
+            
+            # Sanitize page name
+            page_sanitized = re.sub(r'[^\w\-_\.]', '', page)
+            if not page_sanitized:
+                page_sanitized = 'home'
+            
+            # Check if registry file exists
+            domain_dir = element_maps_dir / domain
+            if domain_dir.exists():
+                # Try exact match: page_page.json
+                registry_file = domain_dir / f'{page_sanitized}_page.json'
+                if registry_file.exists():
+                    registry_paths.add(f'element_maps/{domain}/{page_sanitized}_page.json')
+                    continue
+                
+                # Try without extension
+                if '.' in page_sanitized:
+                    page_no_ext = page_sanitized.rsplit('.', 1)[0]
+                    registry_file = domain_dir / f'{page_no_ext}_page.json'
+                    if registry_file.exists():
+                        registry_paths.add(f'element_maps/{domain}/{page_no_ext}_page.json')
+                        continue
+                
+                # Fallback to common page names
+                for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
+                    registry_file = domain_dir / page_name
+                    if registry_file.exists():
+                        registry_paths.add(f'element_maps/{domain}/{page_name}')
+                        break
+                
+                # If no match found, try any JSON file in domain directory
+                if not any(f'element_maps/{domain}' in p for p in registry_paths):
+                    json_files = list(domain_dir.glob('*.json'))
+                    if json_files:
+                        registry_paths.add(f'element_maps/{domain}/{json_files[0].name}')
+        except Exception as e:
+            # Skip invalid URLs
+            continue
+    
+    return sorted(list(registry_paths))
+
+
+def build_registry_code(registry_files: List[str]) -> str:
+    """
+    Build registry loading code and helper functions
+    
+    Args:
+        registry_files: List of relative registry file paths
+    
+    Returns:
+        String containing registry loading code and helper functions
+    """
+    if not registry_files:
+        # No registries - return empty string (tests will use hard-coded XPaths)
+        return ""
+    
+    # Format registry paths list
+    registry_paths_list_str = "[\n"
+    for reg_path in registry_files:
+        registry_paths_list_str += f"    '{reg_path}',\n"
+    registry_paths_list_str += "]"
+    
+    code = f'''# ============================================================================
+# MULTI-REGISTRY SUPPORT (loads all registries for pages visited in test)
+# ============================================================================
+# Automatically detects and loads all registry files needed based on URLs in Excel
+REGISTRY_PATHS = {registry_paths_list_str}
+
+# Load registries per domain/page (for dynamic loading based on current page)
+# NO MERGE: Keep registries separate to avoid conflicts when same element name exists in multiple registries
+REGISTRIES_BY_PATH = {{}}  # registry_path -> registry_data
+loaded_count = 0
+
+for registry_path_str in REGISTRY_PATHS:
+    try:
+        registry_path = Path(registry_path_str)
+        if registry_path.exists():
+            with open(registry_path, 'r') as f:
+                registry_data = json.load(f)
+                # Store per-path for dynamic loading (NO MERGE - prevents conflicts)
+                REGISTRIES_BY_PATH[registry_path_str] = registry_data
+            loaded_count += 1
+            print(f"✅ Loaded registry: {{len(registry_data.get('elements', {{}}))}} elements from {{registry_path.name}}")
+        else:
+            print(f"⚠️  Registry file not found: {{registry_path}}")
+    except Exception as e:
+        print(f"⚠️  Failed to load registry {{registry_path_str}}: {{e}}")
+
+if loaded_count > 0:
+    total_elements = sum(len(reg.get('elements', {{}})) for reg in REGISTRIES_BY_PATH.values())
+    total_ids = sum(len(reg.get('id_index', {{}})) for reg in REGISTRIES_BY_PATH.values())
+    print(f"✅ Loaded {{loaded_count}} registries: {{total_elements}} total elements, {{total_ids}} total IDs (separate, not merged)")
+
+def get_registry_for_page(page_url):
+    """Get registry for current page based on URL"""
+    if not page_url:
+        return None
+    
+    parsed = urlparse(page_url)
+    domain = parsed.netloc.split(':')[0]  # Remove port if present
+    
+    # Extract page name from URL path
+    path_parts = [p for p in parsed.path.split('/') if p]
+    if not path_parts:
+        page_name = 'home'
+    elif path_parts[-1] == 'explore':
+        page_name = 'explore'
+    else:
+        # Get last path segment, remove query params
+        page_name = path_parts[-1].split('?')[0].split('#')[0]
+        # Remove file extension if present
+        if '.' in page_name:
+            page_name = page_name.rsplit('.', 1)[0]
+    
+    # Try to find matching registry file
+    best_match = None
+    best_score = 0
+    
+    for registry_path_str, registry_data in REGISTRIES_BY_PATH.items():
+        # Check if registry path matches domain
+        if domain not in registry_path_str:
+            continue
+        
+        score = 0
+        # Score based on how well the registry path matches the page
+        
+        # Exact page name match gets highest score
+        if page_name in registry_path_str:
+            score += 10
+        
+        # Check for specific page patterns in registry path
+        registry_filename = registry_path_str.split('/')[-1]
+        
+        # Match page name in filename (e.g., LoginMFA.aspx_page.json for LoginMFA.aspx)
+        if page_name.lower() in registry_filename.lower():
+            score += 8
+        
+        # Match common patterns
+        if 'home' in registry_filename.lower() and (not path_parts or path_parts[-1] == ''):
+            score += 5
+        
+        # Match domain exactly
+        if domain in registry_path_str:
+            score += 3
+        
+        if score > best_score:
+            best_score = score
+            best_match = registry_data
+    
+    # If we found a good match, return it
+    if best_match and best_score >= 3:
+        return best_match
+    
+    # Fallback: return first registry that matches domain
+    for registry_path_str, registry_data in REGISTRIES_BY_PATH.items():
+        if domain in registry_path_str:
+            return registry_data
+    
+    return None
+
+def get_xpath_by_id(element_id, page_url=None):
+    """Get XPath from registry by unique ID - prefers registry for current page, searches all registries for same domain if not found"""
+    if not element_id:
+        raise Exception(f"❌ element_id is required")
+    
+    # STEP 1: Try to get registry for current page first
+    if page_url:
+        page_registry = get_registry_for_page(page_url)
+        if page_registry:
+            current_registry = page_registry.get('elements', {{}})
+            current_id_index = page_registry.get('id_index', {{}})
+            
+            # Check if element_id exists in current page registry
+            if element_id in current_id_index:
+                registry_key = current_id_index[element_id]
+                if registry_key in current_registry:
+                    xpath = current_registry[registry_key].get('xpath')
+                    if xpath:
+                        return xpath
+    
+    # STEP 2: If not found in page-specific registry, search all registries for same domain
+    if page_url:
+        parsed = urlparse(page_url)
+        domain = parsed.netloc.split(':')[0]  # Remove port if present
+        
+        # Search all registries for this domain
+        for registry_path_str, registry_data in REGISTRIES_BY_PATH.items():
+            if domain in registry_path_str:
+                id_index = registry_data.get('id_index', {{}})
+                elements = registry_data.get('elements', {{}})
+                
+                if element_id in id_index:
+                    registry_key = id_index[element_id]
+                    if registry_key in elements:
+                        xpath = elements[registry_key].get('xpath')
+                        if xpath:
+                            return xpath
+    
+    # STEP 3: Last resort - search ALL registries (cross-domain fallback)
+    for registry_data in REGISTRIES_BY_PATH.values():
+        id_index = registry_data.get('id_index', {{}})
+        elements = registry_data.get('elements', {{}})
+        
+        if element_id in id_index:
+            registry_key = id_index[element_id]
+            if registry_key in elements:
+                xpath = elements[registry_key].get('xpath')
+                if xpath:
+                    return xpath
+    
+    # Not found in any registry
+    raise Exception(f"❌ element_id '{{element_id}}' not found in any registry id_index")
+
+'''
+    return code
+
+
+def lookup_element_id_by_xpath(xpath: str, url: str, registry_files: List[str], element_maps_dir: Path) -> Optional[str]:
+    """
+    Look up element_id from registry by matching XPath
+    
+    Args:
+        xpath: XPath to find
+        url: URL for context (to determine which registry to check first)
+        registry_files: List of registry file paths
+        element_maps_dir: Base directory for element maps
+    
+    Returns:
+        element_id if found, None otherwise
+    """
+    if not xpath or xpath == 'N/A':
+        return None
+    
+    # Parse URL to determine domain/page
+    parsed = urlparse(url) if url else None
+    domain = parsed.netloc.split(':')[0] if parsed else None
+    
+    # Try registries in order: page-specific first, then domain, then all
+    registries_to_check = []
+    
+    # Priority 1: Page-specific registry (if URL provided)
+    if domain and url:
+        for reg_path in registry_files:
+            if domain in reg_path and url.split('/')[-1].split('?')[0] in reg_path:
+                registries_to_check.insert(0, reg_path)
+    
+    # Priority 2: Domain-specific registries
+    if domain:
+        for reg_path in registry_files:
+            if domain in reg_path and reg_path not in registries_to_check:
+                registries_to_check.append(reg_path)
+    
+    # Priority 3: All other registries
+    for reg_path in registry_files:
+        if reg_path not in registries_to_check:
+            registries_to_check.append(reg_path)
+    
+    # Search registries
+    for reg_path_str in registries_to_check:
+        try:
+            # reg_path_str is relative (e.g., 'element_maps/domain/page.json')
+            # element_maps_dir is absolute path to element_maps directory
+            # So we need to construct the full path correctly
+            if reg_path_str.startswith('element_maps/'):
+                # Remove 'element_maps/' prefix and append to element_maps_dir
+                relative_path = reg_path_str.replace('element_maps/', '')
+                registry_file = element_maps_dir / relative_path
+            else:
+                # Assume it's already relative to element_maps
+                registry_file = element_maps_dir / reg_path_str
+            
+            if not registry_file.exists():
+                continue
+            
+            with open(registry_file, 'r') as f:
+                registry_data = json.load(f)
+            
+            elements = registry_data.get('elements', {})
+            id_index = registry_data.get('id_index', {})
+            
+            # Search for matching XPath
+            for key, element_data in elements.items():
+                element_xpath = element_data.get('xpath', '')
+                if element_xpath == xpath:
+                    # Found match - get element_id
+                    element_id = element_data.get('element_id')
+                    if element_id:
+                        return element_id
+            
+            # Also check id_index for reverse lookup
+            for element_id, registry_key in id_index.items():
+                if registry_key in elements:
+                    element_xpath = elements[registry_key].get('xpath', '')
+                    if element_xpath == xpath:
+                        return element_id
+        except Exception:
+            continue
+    
+    return None
 
 
 def generate_navigate_code(step: str, url: str, indent: int = 12) -> str:
@@ -55,8 +390,8 @@ def generate_wait_code(step: str, wait_time: int, indent: int = 12) -> str:
     return code
 
 
-def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False) -> str:
-    """Generate click code"""
+def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None) -> str:
+    """Generate click code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
@@ -84,9 +419,28 @@ def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_o
     else:
         code += f"{ind}try:\n"
     
-    code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-    code += f"{ind}    element = page.locator(selector).nth(0)\n"
-    code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+    # Use registry lookup if element_id is available
+    if element_id:
+        element_id_escaped = escape_xpath(element_id)
+        code += f"{ind}    # Try registry lookup first\n"
+        code += f"{ind}    try:\n"
+        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+        code += f"{ind}        selector = f'xpath={{xpath}}'\n"
+        code += f"{ind}        element = page.locator(selector).nth(0)\n"
+        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+        code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
+        code += f"{ind}    except Exception as registry_error:\n"
+        code += f"{ind}        # Fallback to hard-coded XPath\n"
+        code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
+        code += f"{ind}        element = page.locator(selector).nth(0)\n"
+        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+        code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+    else:
+        # No element_id - use hard-coded XPath (with warning)
+        code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
+        code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
+        code += f"{ind}    element = page.locator(selector).nth(0)\n"
+        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
     
     # For Create button in modal (Step 19), wait for it to be enabled and scroll into view
     is_create_button = ('create-data-submission-dialog-create-button' in xpath_escaped or 
@@ -143,8 +497,8 @@ def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_o
     return code
 
 
-def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False) -> str:
-    """Generate fill code"""
+def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None) -> str:
+    """Generate fill code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     text_escaped = escape_text(text_value)
@@ -214,9 +568,28 @@ def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element
         code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
         code += f"{ind}        print(f'⚠️  Step {step}: TOTP field not found with fallback selectors, using original selector')\n"
     else:
-        code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-        code += f"{ind}    element = page.locator(selector).nth(0)\n"
-        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+        # Use registry lookup if element_id is available
+        if element_id:
+            element_id_escaped = escape_xpath(element_id)
+            code += f"{ind}    # Try registry lookup first\n"
+            code += f"{ind}    try:\n"
+            code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+            code += f"{ind}        selector = f'xpath={{xpath}}'\n"
+            code += f"{ind}        element = page.locator(selector).nth(0)\n"
+            code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+            code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
+            code += f"{ind}    except Exception as registry_error:\n"
+            code += f"{ind}        # Fallback to hard-coded XPath\n"
+            code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
+            code += f"{ind}        element = page.locator(selector).nth(0)\n"
+            code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+            code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+        else:
+            # No element_id - use hard-coded XPath (with warning)
+            code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
+            code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
+            code += f"{ind}    element = page.locator(selector).nth(0)\n"
+            code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
     
     if is_totp:
         code += f"{ind}    # Generate TOTP code\n"
@@ -285,8 +658,8 @@ def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element
     return code
 
 
-def generate_verify_code(step: str, xpath: str, url: str, element_name: str, indent: int = 12) -> str:
-    """Generate verify code"""
+def generate_verify_code(step: str, xpath: str, url: str, element_name: str, indent: int = 12, element_id: Optional[str] = None) -> str:
+    """Generate verify code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
@@ -294,9 +667,29 @@ def generate_verify_code(step: str, xpath: str, url: str, element_name: str, ind
     code = f"{ind}# Step {step}: Verify {element_name or 'element'}\n"
     code += f"{ind}page.wait_for_timeout(3000)  # Wait 3 seconds before step\n"
     code += f"{ind}try:\n"
-    code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
-    code += f"{ind}    element = page.locator(selector).nth(0)\n"
-    code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
+    
+    # Use registry lookup if element_id is available
+    if element_id:
+        element_id_escaped = escape_xpath(element_id)
+        code += f"{ind}    # Try registry lookup first\n"
+        code += f"{ind}    try:\n"
+        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+        code += f"{ind}        selector = f'xpath={{xpath}}'\n"
+        code += f"{ind}        element = page.locator(selector).nth(0)\n"
+        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+        code += f"{ind}        print(f'✅ Step {step}: Using registry element_id: {element_id_escaped}')\n"
+        code += f"{ind}    except Exception as registry_error:\n"
+        code += f"{ind}        # Fallback to hard-coded XPath\n"
+        code += f"{ind}        selector = 'xpath={xpath_escaped}'\n"
+        code += f"{ind}        element = page.locator(selector).nth(0)\n"
+        code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
+        code += f"{ind}        print(f'⚠️  Step {step}: Registry lookup failed, using fallback XPath: {{registry_error}}')\n"
+    else:
+        # No element_id - use hard-coded XPath (with warning)
+        code += f"{ind}    # Using hard-coded XPath (element not found in registry)\n"
+        code += f"{ind}    selector = 'xpath={xpath_escaped}'\n"
+        code += f"{ind}    element = page.locator(selector).nth(0)\n"
+        code += f"{ind}    element.wait_for(state='visible', timeout=10000)\n"
     element_display = element_name or 'element'
     code += f"{ind}    print(f'✅ Step {step}: Verified {element_display} is visible')\n"
     code += f"{ind}    page.screenshot(path='storage/screenshots/pw_step{step}_{safe_name}_verified.png')\n"
@@ -377,7 +770,10 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
                         # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
                         if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
                             is_modal_step = True
-                    test_body += generate_click_code(step, xpath, current_url or '', element_name, is_optional, is_modal_step=is_modal_step)
+                    
+                    # Lookup element_id from registry
+                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_click_code(step, xpath, current_url or '', element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Click action requires XPath")
             
@@ -395,14 +791,19 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
                         # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
                         if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
                             is_modal_step = True
-                    test_body += generate_fill_code(step, xpath, text_value, current_url or '', element_name, functions, is_optional, is_modal_step=is_modal_step)
+                    
+                    # Lookup element_id from registry
+                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_fill_code(step, xpath, text_value, current_url or '', element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Fill action requires XPath")
             
             elif action == 'verify':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
-                    test_body += generate_verify_code(step, xpath, current_url or '', element_name)
+                    # Lookup element_id from registry
+                    element_id = lookup_element_id_by_xpath(xpath, current_url or '', registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_verify_code(step, xpath, current_url or '', element_name, element_id=element_id)
                 else:
                     errors.append(f"Step {step}: Verify action requires XPath")
             
@@ -417,9 +818,11 @@ Generated from: {excel_file.name}
 """
 from playwright.sync_api import sync_playwright
 import os
+import json
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / '.env'
@@ -428,6 +831,8 @@ if env_path.exists():
     print(f'✅ Loaded environment variables from {{env_path}}')
 else:
     print(f'⚠️  .env file not found at {{env_path}}')
+
+{registry_code}
 
 def {test_name}():
     """Auto-generated test from Excel file"""
