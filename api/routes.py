@@ -1105,16 +1105,38 @@ def mark_test_passed(exec_id):
                 'source': exec_data.get('source')
             }), 400
         
-        # Get Excel file path
-        excel_file_path = exec_data.get('excel_file')
+        # Get Excel file path from excel_id
+        excel_id = exec_data.get('excel_id')
+        if not excel_id:
+            return jsonify({'error': 'Excel ID not found in execution data'}), 400
+        
+        # Load Excel metadata to get file path
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({
+                'error': f'Excel metadata not found: {excel_id}',
+                'metadata_file': str(metadata_file)
+            }), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path from metadata
+        excel_file_path = metadata.get('file_path')
         if not excel_file_path:
-            return jsonify({'error': 'Excel file path not found in execution data'}), 400
+            return jsonify({
+                'error': 'Excel file path not found in metadata',
+                'excel_id': excel_id
+            }), 400
         
         excel_file = project_root / excel_file_path
         if not excel_file.exists():
             return jsonify({
                 'error': 'Excel file not found',
-                'path': str(excel_file)
+                'path': str(excel_file),
+                'excel_id': excel_id
             }), 404
         
         # Import required modules
