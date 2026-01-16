@@ -608,6 +608,113 @@ def approve_discoveries(execution_id):
 def generate_and_validate(exec_id):
     """Generate Playwright test and validate it"""
     try:
+        project_root = current_app.config['PROJECT_ROOT']
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        
+        # Check if this is an Excel execution
+        if execution_file.exists():
+            with open(execution_file, 'r') as f:
+                exec_data = json.load(f)
+            
+            if exec_data.get('source') == 'excel':
+                # For Excel executions, regenerate from Excel file
+                excel_id = exec_data.get('excel_id')
+                if not excel_id:
+                    return jsonify({
+                        'error': 'Excel ID not found in execution data',
+                        'execution_id': exec_id
+                    }), 400
+                
+                # Import Excel generation function
+                sys.path.insert(0, str(project_root))
+                from REFACTOR.generator.excel_generator import generate_playwright_from_excel
+                from validator.test_runner import TestRunner
+                from pathlib import Path
+                from datetime import datetime
+                import uuid
+                
+                # Get Excel file path from metadata
+                metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+                metadata_file = metadata_dir / f"{excel_id}.json"
+                
+                if not metadata_file.exists():
+                    return jsonify({
+                        'error': f'Excel metadata not found: {excel_id}'
+                    }), 404
+                
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                
+                excel_path = project_root / metadata['file_path']
+                if not excel_path.exists():
+                    return jsonify({
+                        'error': f'Excel file not found: {excel_path}'
+                    }), 404
+                
+                # Generate new test file
+                output_dir = project_root / 'storage' / 'excel_tests'
+                output_dir.mkdir(parents=True, exist_ok=True)
+                new_exec_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                output_file = output_dir / f"test_excel_{excel_id}.py"
+                
+                # Generate test from Excel
+                generation_result = generate_playwright_from_excel(excel_path, output_file)
+                
+                if not generation_result.get('success'):
+                    return jsonify({
+                        'error': 'Failed to generate test from Excel',
+                        'errors': generation_result.get('errors', [])
+                    }), 500
+                
+                # Update execution data with new test file
+                exec_data['test_file'] = str(output_file.relative_to(project_root))
+                exec_data['regenerated_at'] = datetime.now().isoformat()
+                with open(execution_file, 'w') as f:
+                    json.dump(exec_data, f, indent=2)
+                
+                # Run test in background
+                def run_test_background():
+                    try:
+                        runner = TestRunner(project_root)
+                        test_result = runner.run(output_file.name, exec_id)
+                        
+                        # Update execution with test results
+                        exec_data['playwright_validation'] = {
+                            'status': test_result.get('status'),
+                            'duration': test_result.get('duration'),
+                            'assertions_passed': test_result.get('assertions_passed', 0),
+                            'assertions_failed': test_result.get('assertions_failed', 0),
+                            'test_file': test_result.get('test_file'),
+                            'timestamp': test_result.get('timestamp'),
+                            'stdout': test_result.get('stdout', ''),
+                            'stderr': test_result.get('stderr', ''),
+                            'exit_code': test_result.get('exit_code', 0)
+                        }
+                        exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                        exec_data['completed_at'] = datetime.now().isoformat()
+                        
+                        with open(execution_file, 'w') as f:
+                            json.dump(exec_data, f, indent=2)
+                    except Exception as e:
+                        print(f"Error running Excel test in background: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                thread = threading.Thread(target=run_test_background)
+                thread.daemon = True
+                thread.start()
+                
+                return jsonify({
+                    'success': True,
+                    'execution_id': exec_id,
+                    'test_file': str(output_file.relative_to(project_root)),
+                    'test_path': str(output_file),
+                    'regenerated_at': exec_data['regenerated_at'],
+                    'test_running': True,
+                    'source': 'excel'
+                }), 200
+        
+        # Regular execution flow (original code)
         # Force reload to ensure latest code (reload all generator modules)
         import importlib
         modules_to_reload = [
@@ -626,8 +733,6 @@ def generate_and_validate(exec_id):
         data = request.get_json(silent=True) or {}
         test_name = data.get('test_name')
         validate_selectors = data.get('validate_selectors', True)  # Pre-generation selector validation
-        
-        project_root = current_app.config['PROJECT_ROOT']
         
         # Step 1: Generate Playwright code (with pre-validation)
         try:
