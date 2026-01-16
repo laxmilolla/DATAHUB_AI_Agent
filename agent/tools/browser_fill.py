@@ -160,6 +160,23 @@ class BrowserFillTool:
             
             logger.info(f"  🔍 Extracted element name from step text: '{element_name_for_registry}'")
         
+        # Fallback: Extract element name from selector if step_text extraction failed
+        if not element_name_for_registry:
+            # Try to extract from selector patterns
+            # Pattern: input[name="submissionName"] -> "submissionName" -> "Submission Name"
+            name_match = re.search(r'name=["\']([^"\']+)["\']', selector)
+            if name_match:
+                name_value = name_match.group(1)
+                # Convert camelCase to Title Case (e.g., "submissionName" -> "Submission Name")
+                element_name_for_registry = re.sub(r'([a-z])([A-Z])', r'\1 \2', name_value).title()
+                logger.info(f"  🔍 Extracted element name from selector name attribute: '{element_name_for_registry}'")
+            else:
+                # Pattern: input[placeholder="Submission Name"] -> "Submission Name"
+                placeholder_match = re.search(r'placeholder=["\']([^"\']+)["\']', selector)
+                if placeholder_match:
+                    element_name_for_registry = placeholder_match.group(1)
+                    logger.info(f"  🔍 Extracted element name from selector placeholder: '{element_name_for_registry}'")
+        
         # Get domain and page for registry check (using proper URL parsing)
         try:
             from urllib.parse import urlparse
@@ -397,7 +414,42 @@ class BrowserFillTool:
             timeout_ms = 60000 if is_totp_step else 10000
             await self.page.wait_for_selector(selector, state='visible', timeout=timeout_ms)
         except Exception as selector_error:
-            if using_registry_xpath and selector != original_selector:
+            # Try label matching as fallback if selector fails
+            if element_name_for_registry and not using_registry_xpath:
+                logger.info(f"  🔍 Selector failed, trying label-to-element matching for '{element_name_for_registry}'")
+                try:
+                    label_selector = await self.label_matcher.find_element_by_label(element_name_for_registry, ['input', 'textarea'])
+                    if label_selector:
+                        logger.info(f"  ✅ Found element via label: {label_selector}")
+                        selector = label_selector
+                        using_registry_xpath = label_selector.startswith('xpath=')
+                        # Retry with label selector
+                        timeout_ms = 60000 if is_totp_step else 10000
+                        await self.page.wait_for_selector(selector, state='visible', timeout=timeout_ms)
+                    else:
+                        # Label matching failed, continue with original error handling
+                        if using_registry_xpath and selector != original_selector:
+                            logger.warning(f"  ⚠️ Registry selector failed: {selector_error}")
+                            logger.info(f"  ⚙️ Falling back to original selector: {original_selector}")
+                            selector = original_selector
+                            using_registry_xpath = False
+                            timeout_ms = 60000 if is_totp_step else 10000
+                            await self.page.wait_for_selector(selector, state='visible', timeout=timeout_ms)
+                        else:
+                            raise selector_error
+                except Exception as label_error:
+                    logger.debug(f"  ⚠️ Label matching also failed: {label_error}")
+                    # Continue with original error handling
+                    if using_registry_xpath and selector != original_selector:
+                        logger.warning(f"  ⚠️ Registry selector failed: {selector_error}")
+                        logger.info(f"  ⚙️ Falling back to original selector: {original_selector}")
+                        selector = original_selector
+                        using_registry_xpath = False
+                        timeout_ms = 60000 if is_totp_step else 10000
+                        await self.page.wait_for_selector(selector, state='visible', timeout=timeout_ms)
+                    else:
+                        raise selector_error
+            elif using_registry_xpath and selector != original_selector:
                 logger.warning(f"  ⚠️ Registry selector failed: {selector_error}")
                 logger.info(f"  ⚙️ Falling back to original selector: {original_selector}")
                 selector = original_selector

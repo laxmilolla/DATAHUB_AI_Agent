@@ -31,8 +31,9 @@ class LabelMatcher:
             element_types = ['input', 'select', 'textarea']
         
         try:
-            # Normalize search text
+            # Normalize search text - remove spaces for flexible matching
             search_text = label_text.lower().strip()
+            search_text_no_spaces = search_text.replace(' ', '').replace('-', '').replace('_', '')
             
             # Find all labels
             labels = await self.page.locator('label').all()
@@ -45,9 +46,14 @@ class LabelMatcher:
                         continue
                     
                     label_text_lower = label_text_content.strip().lower()
+                    label_text_no_spaces = label_text_lower.replace(' ', '').replace('-', '').replace('_', '')
                     
                     # Check if label contains search text (partial match)
-                    if search_text in label_text_lower or label_text_lower in search_text:
+                    # Try exact match first, then space-normalized match
+                    if (search_text in label_text_lower or 
+                        label_text_lower in search_text or
+                        search_text_no_spaces in label_text_no_spaces or
+                        label_text_no_spaces in search_text_no_spaces):
                         logger.info(f"  📋 Found matching label: '{label_text_content.strip()}'")
                         
                         # Strategy 1: Find element via 'for' attribute
