@@ -37,7 +37,7 @@ REFACTOR/
 ### From Existing Codebase
 
 #### generator/excel_generator.py
-**Source**: `generator/excel_generator.py` (experiment)
+**Source**: `generator/excel_generator.py`
 **Status**: ✅ Working, needs production enhancements
 **Action**: Copy → Enhance → Integrate
 
@@ -59,7 +59,7 @@ REFACTOR/
 ## Pull Order (Methodical)
 
 1. **Excel Generator Core** (`generator/excel_generator.py`)
-   - Copy from experiment
+   - From generator
    - Enhance for production
    - Test standalone
 

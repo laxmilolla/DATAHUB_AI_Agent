@@ -192,7 +192,7 @@ class ActionExecutor:
         except Exception as e:
             logger.debug(f"  ⚠️ Scroll into view failed (continuing): {e}")
         
-        # Use JavaScript click as fallback if normal click times out
+        # Use JavaScript click and force click as fallbacks if normal click times out
         try:
             if force:
                 await locator.click(force=True, timeout=timeout)
@@ -205,10 +205,24 @@ class ActionExecutor:
                     await locator.evaluate("el => el.click()")
                     logger.info(f"  ✅ JavaScript click succeeded")
                 except Exception as js_error:
-                    logger.error(f"  ❌ JavaScript click also failed: {js_error}")
-                    raise e  # Re-raise original timeout error
+                    logger.warning(f"  ⚠️ JavaScript click failed, trying force click as last resort...")
+                    try:
+                        await locator.click(force=True, timeout=timeout)
+                        logger.info(f"  ✅ Force click succeeded")
+                    except Exception as force_error:
+                        logger.error(f"  ❌ Force click also failed: {force_error}")
+                        raise e  # Re-raise original timeout error
             else:
-                raise
+                # Non-timeout error - try force click before giving up
+                if not force:
+                    logger.warning(f"  ⚠️ Click failed, trying force click...")
+                    try:
+                        await locator.click(force=True, timeout=timeout)
+                        logger.info(f"  ✅ Force click succeeded")
+                    except Exception as force_error:
+                        raise e  # Re-raise original error
+                else:
+                    raise
     
     async def fill(self, locator: Locator, text: str) -> None:
         """

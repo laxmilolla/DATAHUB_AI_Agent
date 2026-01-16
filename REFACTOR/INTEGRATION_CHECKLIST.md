@@ -164,7 +164,7 @@ Use this checklist to track progress as you pull code methodically from the exis
 
 | Component | Source File | Destination | Status | Notes |
 |-----------|-------------|-------------|--------|-------|
-| Excel Generator | `generator/excel_generator.py` | `REFACTOR/generator/` | ✅ Copied | Working experiment code |
+| Excel Generator | `generator/excel_generator.py` | `REFACTOR/generator/` | ✅ Copied | Working code |
 | Test Script | `test_excel_generator.py` | `REFACTOR/tests/` | ✅ Copied | Test script |
 
 ### Referenced Components (Not Copied)

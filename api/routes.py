@@ -190,7 +190,22 @@ def list_executions():
                 continue
         
         # Sort by started_at timestamp (most recent first)
-        executions.sort(key=lambda x: x.get('started_at') or '', reverse=True)
+        # Handle mixed types (string vs float) by converting to comparable format
+        def get_sort_key(exec):
+            started_at = exec.get('started_at') or exec.get('created_at') or ''
+            if isinstance(started_at, (int, float)):
+                return started_at
+            elif isinstance(started_at, str):
+                # Try to parse ISO format or return 0
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                    return dt.timestamp()
+                except:
+                    return 0
+            return 0
+        
+        executions.sort(key=get_sort_key, reverse=True)
     
     return jsonify({'executions': executions}), 200
 
@@ -850,6 +865,13 @@ def download_generated_test(exec_id):
                     response.headers['Pragma'] = 'no-cache'
                     response.headers['Expires'] = '0'
                     return response
+                else:
+                    # Excel execution but test file doesn't exist
+                    return jsonify({
+                        'error': f'Excel test file not found: {test_file_path}',
+                        'test_file': exec_data.get('test_file'),
+                        'resolved_path': str(test_file_path.resolve())
+                    }), 404
         
         # Fallback to regular generated test metadata
         metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
@@ -1045,18 +1067,44 @@ def download_test_ts_zip(exec_id):
         import re
         
         project_root = current_app.config['PROJECT_ROOT']
-        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
         
-        if not metadata_file.exists():
-            return jsonify({'error': 'No generated test found for this execution'}), 404
+        # Check if this is an Excel execution
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        python_test_file = None
+        test_name = None
         
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
+        if execution_file.exists():
+            with open(execution_file, 'r') as f:
+                exec_data = json.load(f)
+            
+            # Excel execution has test_file directly in execution data
+            if exec_data.get('source') == 'excel' and exec_data.get('test_file'):
+                python_test_file = project_root / exec_data['test_file']
+                test_name = exec_data.get('test_name', 'excel_test')
+                
+                if not python_test_file.exists():
+                    return jsonify({
+                        'error': f'Excel test file not found: {python_test_file}',
+                        'test_file': exec_data.get('test_file'),
+                        'resolved_path': str(python_test_file.resolve())
+                    }), 404
         
-        # Get the Python test file path
-        python_test_file = Path(metadata['filename'])
-        if not python_test_file.exists():
-            return jsonify({'error': 'Generated Python test file not found'}), 404
+        # Fallback to regular generated test metadata
+        if python_test_file is None:
+            metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
+            
+            if not metadata_file.exists():
+                return jsonify({'error': 'No generated test found for this execution'}), 404
+            
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            
+            # Get the Python test file path
+            python_test_file = Path(metadata['filename'])
+            test_name = python_test_file.stem
+            
+            if not python_test_file.exists():
+                return jsonify({'error': 'Generated Python test file not found'}), 404
         
         # Read Python test file
         with open(python_test_file, 'r') as f:
@@ -1088,8 +1136,9 @@ def download_test_ts_zip(exec_id):
   }
 }'''
         
-        # Create README content
-        test_name = python_test_file.stem
+        # Create README content (test_name already set above)
+        if test_name is None:
+            test_name = python_test_file.stem
         readme_content = f'''# Playwright TypeScript Test Setup
 
 ## Prerequisites

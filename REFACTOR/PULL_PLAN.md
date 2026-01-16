@@ -11,7 +11,7 @@ This document outlines exactly what code to pull from the existing codebase, in 
 ## Phase 1: Core Excel Generator (Week 1, Days 1-2)
 
 ### Step 1.1: Copy Excel Generator ✅ DONE
-**Source**: `generator/excel_generator.py` (experiment)
+**Source**: `generator/excel_generator.py`
 **Destination**: `REFACTOR/generator/excel_generator.py`
 **Status**: ✅ Copied
 

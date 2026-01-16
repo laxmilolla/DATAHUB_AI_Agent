@@ -47,8 +47,8 @@ cat BACKUP/api/routes.py | grep -A 20 "def generate_and_validate"
 
 ## Files Already Copied
 
-- ✅ `REFACTOR/generator/excel_generator.py` - From experiment (working)
-- ✅ `REFACTOR/tests/test_excel_generator.py` - From experiment
+- ✅ `REFACTOR/generator/excel_generator.py` - From BACKUP (working)
+- ✅ `REFACTOR/tests/test_excel_generator.py` - From BACKUP
 
 ## Files to Pull Next
 

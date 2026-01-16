@@ -5,7 +5,7 @@
 ## Excel Generator Core
 
 ### File: `REFACTOR/generator/excel_generator.py`
-**Source**: `BACKUP/generator/excel_generator.py` (experiment) → Already copied to REFACTOR
+**Source**: `BACKUP/generator/excel_generator.py` → Already copied to REFACTOR
 **Status**: ✅ Working
 **Functions to Keep**:
 - `escape_xpath()` - ✅ Keep as-is

@@ -1,14 +1,8 @@
 """
-Extended Test Experiment
-Runs Excel test steps first, then allows dynamic addition of more steps via instructions
-
-Usage:
-    python experiment_extended_test.py                    # Interactive mode
-    python experiment_extended_test.py "click grant button"  # Run single instruction
+Test script to run Excel steps and then add specific instructions
 """
 import asyncio
 import sys
-import argparse
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from playwright.async_api import async_playwright
@@ -34,7 +28,7 @@ def run_excel_steps():
     
     try:
         # Import the generator and run Excel steps directly
-        from generator.excel_generator import generate_playwright_from_excel
+        from REFACTOR.generator.excel_generator import generate_playwright_from_excel
         
         excel_file = Path('test_case.xlsx')
         if not excel_file.exists():
@@ -93,51 +87,10 @@ def run_excel_steps():
                             selector = f'xpath={xpath}'
                             element = page.locator(selector).nth(0)
                             element.wait_for(state='visible', timeout=10000)
-                            
-                            # Copy exact logic from ActionExecutor.click() - adapted for sync Playwright
-                            # Step 1: Ensure element is in viewport before clicking
-                            try:
-                                element.scroll_into_view_if_needed(timeout=3000)
-                            except Exception as e:
-                                print(f'⚠️  Step {step}: Scroll into view failed (continuing): {e}')
-                            
-                            # Step 2: Try normal click with timeout (like ActionExecutor)
-                            click_succeeded = False
-                            try:
-                                element.click(timeout=10000)
-                                click_succeeded = True
-                            except Exception as e:
-                                # Step 3: If timeout, try JavaScript click as fallback (like ActionExecutor)
-                                if "timeout" in str(e).lower() or "Timeout" in str(e):
-                                    print(f'⚠️  Step {step}: Click timeout, trying JavaScript click as fallback...')
-                                    try:
-                                        element.evaluate('el => el.click()')
-                                        print(f'✅ Step {step}: JavaScript click succeeded')
-                                        click_succeeded = True
-                                    except Exception as js_error:
-                                        print(f'❌ Step {step}: JavaScript click also failed: {js_error}')
-                                        # Step 4: Last resort - try force click (like ActionExecutor with force=True)
-                                        try:
-                                            print(f'⚠️  Step {step}: Trying force click as last resort...')
-                                            element.click(force=True, timeout=10000)
-                                            print(f'✅ Step {step}: Force click succeeded')
-                                            click_succeeded = True
-                                        except Exception as force_error:
-                                            print(f'❌ Step {step}: Force click also failed: {force_error}')
-                                            raise e  # Re-raise original timeout error
-                                else:
-                                    # Non-timeout error - try force click before giving up
-                                    try:
-                                        print(f'⚠️  Step {step}: Click failed, trying force click...')
-                                        element.click(force=True, timeout=10000)
-                                        click_succeeded = True
-                                    except Exception as force_error:
-                                        raise e  # Re-raise original error
-                            
-                            if click_succeeded:
-                                page.wait_for_timeout(1000)
-                                print(f'✅ Step {step}: Clicked {object_type or "element"}')
-                                page.screenshot(path=f'storage/screenshots/pw_step{step}_{object_type or "element"}.png')
+                            element.click()
+                            page.wait_for_timeout(1000)
+                            print(f'✅ Step {step}: Clicked {object_type or "element"}')
+                            page.screenshot(path=f'storage/screenshots/pw_step{step}_{object_type or "element"}.png')
                     
                     elif action == 'fill':
                         if xpath and xpath != 'N/A':
@@ -253,7 +206,7 @@ def run_excel_steps():
 
 
 async def run_additional_instructions(page, instructions: str):
-    """Run additional instructions using Agent - matches ExperimentRunner.execute_instructions()"""
+    """Run additional instructions using Agent"""
     print("\n" + "="*80)
     print("PHASE 2: Running Additional Instructions")
     print("="*80)
@@ -263,49 +216,37 @@ async def run_additional_instructions(page, instructions: str):
     try:
         from agent.core.agent import Agent
         
-        # Create Agent (like ExperimentRunner does)
+        # Create Agent
         agent = Agent()
         
-        # Get current URL and cookies from sync page to maintain session
+        # Get current URL from page
         current_url = page.url
-        # Get cookies from sync context (need to do this before async operations)
-        try:
-            cookies = page.context.cookies()
-        except Exception as e:
-            print(f"⚠️  Could not get cookies from sync context: {e}")
-            cookies = []
         
         # Create async playwright and connect to existing browser
         # Since we have sync page, we'll create a new async browser and navigate to same URL
         playwright_async = await async_playwright().start()
         browser_async = await playwright_async.chromium.launch(headless=False)
-        context_async = await browser_async.new_context(viewport={'width': 1920, 'height': 1080})
-        
-        # Copy cookies from sync browser to maintain session
-        if cookies:
-            await context_async.add_cookies(cookies)
-        
-        page_async = await context_async.new_page()
+        page_async = await browser_async.new_page(viewport={'width': 1920, 'height': 1080})
         
         # Navigate to current page URL to maintain state
         await page_async.goto(current_url)
         await page_async.wait_for_load_state('networkidle')
         
-        # Set up agent with async page (like ExperimentRunner does)
+        # Set up agent with async page
         from agent.browser.playwright_manager import PlaywrightManager
         agent.playwright_manager = PlaywrightManager()
         agent.playwright_manager.playwright = playwright_async
         agent.playwright_manager.browser = browser_async
         agent.playwright_manager.page = page_async
         
-        # Initialize agent components (same as ExperimentRunner)
+        # Initialize agent components
         from agent.discovery.xpath_generator import XPathGenerator
         from agent.browser.action_executor import ActionExecutor
         from agent.discovery.discovery_tracker import DiscoveryTracker
         from agent.browser.element_locator import ElementLocator
         from agent.utils.story_parser import StoryParser
         from agent.utils.step_matcher import StepMatcher
-        from agent.utils.llm_helper import LLMHelper
+        from agent.llm.llm_helper import LLMHelper
         
         agent.xpath_generator = XPathGenerator(page_async)
         agent.action_executor = ActionExecutor(page_async, agent.screenshot_manager)
@@ -322,7 +263,7 @@ async def run_additional_instructions(page, instructions: str):
             page_async, agent.element_registry, parsed_steps, agent.context.current_step_number, agent.context
         )
         
-        # Initialize tool handlers (same as ExperimentRunner)
+        # Initialize tool handlers
         from agent.tools.browser_navigate import BrowserNavigateTool
         from agent.tools.browser_click import BrowserClickTool
         from agent.tools.browser_fill import BrowserFillTool
@@ -330,21 +271,12 @@ async def run_additional_instructions(page, instructions: str):
         from agent.tools.browser_verify import BrowserVerifyTool
         
         agent.navigate_tool = BrowserNavigateTool(agent.playwright_manager, agent.context, agent.discovery_tracker)
-        agent.click_tool = BrowserClickTool(
-            page_async, agent.element_locator, agent.action_executor, agent.discovery_tracker,
-            agent.registry_manager, agent.xpath_generator, agent.llm_helper, agent.totp_handler,
-            agent.screenshot_manager, agent.context, parsed_steps, instructions
-        )
-        agent.fill_tool = BrowserFillTool(
-            page_async, agent.element_locator, agent.action_executor, agent.totp_handler,
-            agent.discovery_tracker, agent.context, parsed_steps, instructions
-        )
-        agent.evaluate_tool = BrowserEvaluateTool(agent.playwright_manager)
-        agent.verify_tool = BrowserVerifyTool(
-            agent.playwright_manager, agent.discovery_tracker, agent.screenshot_manager, agent.element_locator
-        )
+        agent.click_tool = BrowserClickTool(agent.playwright_manager, agent.context, agent.discovery_tracker, agent.action_executor, agent.xpath_generator, agent.element_registry, agent.registry_manager)
+        agent.fill_tool = BrowserFillTool(agent.playwright_manager, agent.context, agent.discovery_tracker, agent.action_executor, agent.xpath_generator, agent.element_registry, agent.registry_manager, agent.totp_handler)
+        agent.evaluate_tool = BrowserEvaluateTool(agent.playwright_manager, agent.context)
+        agent.verify_tool = BrowserVerifyTool(agent.playwright_manager, agent.context, agent.discovery_tracker)
         
-        # Execute instructions using Agent.execute_story() (exactly like ExperimentRunner.execute_instructions())
+        # Execute instructions
         results = await agent.execute_story(instructions)
         
         print("\n✅ Phase 2 Complete: Additional instructions executed")
@@ -366,104 +298,46 @@ async def run_additional_instructions(page, instructions: str):
 
 def main():
     """Main experiment flow"""
-    parser = argparse.ArgumentParser(description='Run Excel test steps and execute additional instructions')
-    parser.add_argument('instructions', nargs='?', help='Instructions to execute after Excel steps (optional)')
-    parser.add_argument('--no-excel', action='store_true', help='Skip Excel steps and run instructions only')
-    args = parser.parse_args()
-    
     print("\n" + "="*80)
-    print("EXTENDED TEST EXPERIMENT")
+    print("EXTENDED TEST EXPERIMENT - WITH SPECIFIC INSTRUCTIONS")
     print("="*80)
     
-    browser = None
-    page = None
+    # Phase 1: Run Excel steps (sync)
+    browser, page = run_excel_steps()
     
-    # Phase 1: Run Excel steps (unless skipped)
-    if not args.no_excel:
-        print("This will:")
-        print("1. Run Excel test steps (default) - browser visible")
-        print("2. Keep browser open")
-        print("3. Execute additional instructions")
-        print("="*80)
-        
-        browser, page = run_excel_steps()
-        
-        if not browser or not page:
-            print("❌ Failed to run Excel steps. Exiting.")
-            return
-    else:
-        # Skip Excel steps - create browser directly
-        print("Skipping Excel steps - creating browser for instructions only")
-        print("="*80)
-        playwright = sync_playwright().start()
-        browser = playwright.chromium.launch(headless=False)
-        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
-        page.goto('https://hub-stage.datacommons.cancer.gov/')
-        page.wait_for_load_state('networkidle')
+    if not browser or not page:
+        print("❌ Failed to run Excel steps. Exiting.")
+        return
     
-    # Phase 2: Execute instructions
-    if args.instructions:
-        # Single instruction mode
-        print("\n" + "="*80)
-        print(f"EXECUTING INSTRUCTION: {args.instructions}")
-        print("="*80)
-        
-        try:
-            results = asyncio.run(run_additional_instructions(page, args.instructions))
-            if results:
-                print("\n✅ Instruction completed!")
-            else:
-                print("\n❌ Instruction failed")
-        except Exception as e:
-            print(f"\n❌ Error: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # Close browser after single instruction
-        try:
-            browser.close()
-            print("✅ Browser closed")
-        except:
-            pass
+    # Phase 2: Run specific instructions
+    instructions = "Go to the data submissions page, click on the Program dropdown, and select NCI"
+    
+    print(f"\n📝 Running instructions: {instructions}")
+    
+    # Run additional instructions (async)
+    results = asyncio.run(run_additional_instructions(page, instructions))
+    
+    if results:
+        print("\n✅ All steps completed!")
+        print(f"Status: {results.get('status', 'unknown')}")
+        print(f"Actions: {len(results.get('actions_taken', []))}")
     else:
-        # Interactive mode
-        print("\n" + "="*80)
-        print("READY FOR ADDITIONAL INSTRUCTIONS")
-        print("="*80)
-        print("Browser is open. You can now provide additional instructions.")
-        print("Example: 'look for the Program dropdown and select NCI'")
-        print("Type 'done' to finish, or 'exit' to close browser")
-        print("="*80)
-        
-        while True:
-            try:
-                instructions = input("\n📝 Enter instructions (or 'done'/'exit'): ").strip()
-                
-                if instructions.lower() in ['done', 'exit', 'quit']:
-                    print("\n✅ Experiment complete. Closing browser...")
-                    break
-                
-                if not instructions:
-                    continue
-                
-                # Run additional instructions (async)
-                results = asyncio.run(run_additional_instructions(page, instructions))
-                
-            except KeyboardInterrupt:
-                print("\n\n⚠️  Interrupted by user")
-                break
-            except Exception as e:
-                print(f"\n❌ Error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Close browser
-        try:
-            browser.close()
-            print("✅ Browser closed")
-        except:
-            pass
+        print("\n❌ Instructions execution failed")
+    
+    # Keep browser open for inspection
+    print("\n⏸️  Browser will remain open for 30 seconds for inspection...")
+    import time
+    time.sleep(30)
+    
+    # Close browser
+    try:
+        browser.close()
+        print("✅ Browser closed")
+    except:
+        pass
 
 
 if __name__ == '__main__':
     main()
+
+

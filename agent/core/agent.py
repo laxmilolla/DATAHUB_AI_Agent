@@ -105,8 +105,9 @@ class Agent:
             # Initialize LLM helper with story
             self.llm_helper = LLMHelper(self.bedrock_client, story)
             
-            # Start browser
-            await self.playwright_manager.start(headless=True)
+            # Start browser only if not already started (e.g., if connected via CDP)
+            if not self.playwright_manager.page:
+                await self.playwright_manager.start(headless=True)
             page = self.playwright_manager.get_page()
             
             # Initialize components that need page

@@ -1,0 +1,44 @@
+Element Name,Type,XPath,Tag,ID,Text
+Back to CRDC,button,//div[@id='navbar-dropdown-join-crdc-data-hub' and @role='button'],div,navbar-dropdown-join-crdc-data-hub,Back to CRDC
+Submission Requests,button,//div[@id='navbar-dropdown-submission-requests' and @role='button'],div,navbar-dropdown-submission-requests,Submission Requests
+Data Submissions,button,//div[@id='navbar-dropdown-data-submissions' and @role='button'],div,navbar-dropdown-data-submissions,Data Submissions
+Data Explorer,button,//div[@id='navbar-dropdown-data-explorer' and @role='button'],div,navbar-dropdown-data-explorer,Data Explorer
+Documentation,button,//div[@id='navbar-dropdown-documentation' and @role='button'],div,navbar-dropdown-documentation,Documentation
+Model Navigator,button,//div[@id='navbar-dropdown-model-navigator' and @role='button'],div,navbar-dropdown-model-navigator,Model Navigator
+Sign up,button,//button[@role='button' and normalize-space(.)='Sign up'],button,,Sign up
+Continue,button,//button[@role='button' and normalize-space(.)='Continue'],button,,Continue
+Close,button,//div[@id='loginDialogCloseButton' and @role='button'],div,loginDialogCloseButton,Close
+header-logo-home-link,link,//a[@id='header-logo-home-link'],a,header-logo-home-link,
+Back to CRDC,link,//a[normalize-space(.)='Back to CRDC'],a,,Back to CRDC
+Submission Requests,link,//a[normalize-space(.)='Submission Requests'],a,,Submission Requests
+Data Submissions,link,//a[normalize-space(.)='Data Submissions'],a,,Data Submissions
+Data Explorer,link,//a[normalize-space(.)='Data Explorer'],a,,Data Explorer
+Login,link,//a[@id='header-navbar-login-button'],a,header-navbar-login-button,Login
+Log In,link,//a[@id='loginPageLoginButton'],a,loginPageLoginButton,Log In
+Events,link,//a[normalize-space(.)='Events'],a,,Events
+Data Access and Submission,link,//a[normalize-space(.)='Data Access and Submission'],a,,Data Access and Submission
+Data Release Updates,link,//a[normalize-space(.)='Data Release Updates'],a,,Data Release Updates
+Support for Researchers,link,//a[normalize-space(.)='Support for Researchers'],a,,Support for Researchers
+Publications,link,//a[normalize-space(.)='Publications'],a,,Publications
+Accessibility,link,//a[normalize-space(.)='Accessibility'],a,,Accessibility
+Disclaimer,link,//a[normalize-space(.)='Disclaimer'],a,,Disclaimer
+FOIA,link,//a[normalize-space(.)='FOIA'],a,,FOIA
+HHS Vulnerability Disclosure,link,//a[normalize-space(.)='HHS Vulnerability Disclosure'],a,,HHS Vulnerability Disclosure
+Release Notes,link,//a[normalize-space(.)='Release Notes'],a,,Release Notes
+National Cancer Instituteat the National Institutes of Health,link,(//*[normalize-space(.)='National Cancer Instituteat th'])[1],a,,National Cancer Instituteat the National Institute
+Live chat,link,//a[normalize-space(.)='Live chat'],a,,Live chat
+1-800-4-CANCER,link,//a[normalize-space(.)='1-800-4-CANCER'],a,,1-800-4-CANCER
+NCIinfo@nih.gov,link,//a[normalize-space(.)='NCIinfo@nih.gov'],a,,NCIinfo@nih.gov
+Site Feedback,link,//a[normalize-space(.)='Site Feedback'],a,,Site Feedback
+https://www.instagram.com/nationalcancerinstitute/,link,(//*)[1],a,,
+https://twitter.com/thenci,link,(//*)[1],a,,
+https://www.facebook.com/cancer.gov,link,(//*)[1],a,,
+https://www.youtube.com/NCIgov,link,(//*)[1],a,,
+https://www.linkedin.com/company/nationalcancerinstitute/,link,(//*)[1],a,,
+U.S. Department of Health and Human Services,link,(//*[normalize-space(.)='U.S. Department of Health and'])[1],a,,U.S. Department of Health and Human Services
+National Cancer Institute,link,//a[normalize-space(.)='National Cancer Institute'],a,,National Cancer Institute
+National Institutes of Health,link,//a[normalize-space(.)='National Institutes of Health'],a,,National Institutes of Health
+USA.gov,link,//a[normalize-space(.)='USA.gov'],a,,USA.gov
+log in,link,//a[@id='loginDialogLinkToLogin'],a,loginDialogLinkToLogin,log in
+Log In,link,//a[@id='loginDialogLoginButton'],a,loginDialogLoginButton,Log In
+email,input (text),//input[@id='email-input'],input,email-input,

@@ -1,0 +1,7 @@
+Element Name,Type,XPath,Tag,ID,Text
+Go Back,button,//button[@role='button' and normalize-space(.)='Go Back'],button,,Go Back
+NIH Web Policies and Notices,link,//a[normalize-space(.)='NIH Web Policies and Notices'],a,,NIH Web Policies and Notices
+NIH Login Service Privacy Policy,link,(//*[normalize-space(.)='NIH Login Service Privacy Poli'])[1],a,,NIH Login Service Privacy Policy
+HHS Vulnerability Disclosure,link,//a[normalize-space(.)='HHS Vulnerability Disclosure'],a,,HHS Vulnerability Disclosure
+301-496-4357,link,//a[normalize-space(.)='301-496-4357'],a,,301-496-4357
+866-319-4357,link,//a[normalize-space(.)='866-319-4357'],a,,866-319-4357

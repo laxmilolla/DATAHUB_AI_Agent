@@ -1,0 +1,32 @@
+{
+  "page": "data-submissions",
+  "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+  "version": "1.0",
+  "timestamp": "2026-01-15T19:37:44.427275Z",
+  "elements": {
+    "text": {
+      "selector": "input[type=\"text\"]",
+      "xpath": "(//*)[1]",
+      "uniqueness_method": "positional",
+      "type": "input",
+      "description": "Discovered by AI in test exec_1768523816",
+      "source": "ai_discovery",
+      "discovery_method": "direct",
+      "usage_count": 1,
+      "alternatives": [],
+      "discovery_url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+      "unique_attributes": null,
+      "context": "main-page",
+      "element_id": "ID_d4e1aae2"
+    }
+  },
+  "id_index": {
+    "ID_d4e1aae2": "text"
+  },
+  "statistics": {
+    "total_elements": 0,
+    "parsed_elements": 0,
+    "discovered_elements": 0
+  },
+  "last_updated": "2026-01-16T00:37:44.429295Z"
+}
