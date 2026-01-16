@@ -548,6 +548,9 @@
                         ${status === 'completed' ? `
                         <div class="status-actions">
                             ${isExcelExecution ? `
+                            <button class="btn-primary" onclick="markTestPassed('${executionId}')" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-right: 10px;">
+                                ✅ Mark Test as Passed & Update Registry
+                            </button>
                             <button class="btn-primary" onclick="updateRegistryFromExcel('${excelId}')" style="background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);">
                                 💾 Update Elements to Registry
                             </button>
@@ -2146,6 +2149,43 @@
         // EXCEL REGISTRY UPDATE FUNCTIONS
         // ===================================
         
+        async function markTestPassed(executionId) {
+            if (!confirm('Mark this test as passed and update registry with Excel XPaths?\n\nThis will:\n- Mark the test as "passed"\n- Add all XPaths from Excel to registry\n- Enable future tests to use registry IDs instead of hard-coded XPaths')) {
+                return;
+            }
+            
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '⏳ Updating Registry...';
+            
+            try {
+                const response = await fetch(`/api/executions/${executionId}/mark-passed`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert(`✅ Test marked as passed!\n\nRegistry updated successfully.\nFuture tests will use registry IDs instead of hard-coded XPaths.`);
+                    // Reload the page to show updated status
+                    location.reload();
+                } else {
+                    alert(`❌ Failed to mark test as passed:\n${data.error || 'Unknown error'}`);
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            } catch (error) {
+                console.error('Error marking test as passed:', error);
+                alert(`❌ Error: ${error.message}`);
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
         async function updateRegistryFromExcel(excelId) {
             if (!excelId) {
                 showActionMessage('❌ Excel ID not found', 'error');

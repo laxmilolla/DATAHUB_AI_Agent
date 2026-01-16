@@ -1081,6 +1081,98 @@ def download_test_with_env_zip(exec_id):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/executions/<exec_id>/mark-passed', methods=['POST'])
+def mark_test_passed(exec_id):
+    """
+    Mark test execution as passed and populate registry with Excel XPaths
+    This allows future tests to use registry IDs instead of hard-coded XPaths
+    """
+    try:
+        project_root = current_app.config['PROJECT_ROOT']
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        
+        if not execution_file.exists():
+            return jsonify({'error': 'Execution not found'}), 404
+        
+        # Load execution data
+        with open(execution_file, 'r') as f:
+            exec_data = json.load(f)
+        
+        # Check if this is an Excel execution
+        if exec_data.get('source') != 'excel':
+            return jsonify({
+                'error': 'Only Excel executions can be marked as passed for registry update',
+                'source': exec_data.get('source')
+            }), 400
+        
+        # Get Excel file path
+        excel_file_path = exec_data.get('excel_file')
+        if not excel_file_path:
+            return jsonify({'error': 'Excel file path not found in execution data'}), 400
+        
+        excel_file = project_root / excel_file_path
+        if not excel_file.exists():
+            return jsonify({
+                'error': 'Excel file not found',
+                'path': str(excel_file)
+            }), 404
+        
+        # Import required modules
+        import pandas as pd
+        sys.path.insert(0, str(project_root))
+        from REFACTOR.generator.excel_generator import populate_registry_from_excel
+        
+        # Read Excel file
+        try:
+            df = pd.read_excel(excel_file)
+            # Normalize column names
+            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        except Exception as e:
+            return jsonify({
+                'error': f'Failed to read Excel file: {str(e)}',
+                'path': str(excel_file)
+            }), 400
+        
+        # Populate registry from Excel
+        element_maps_dir = project_root / 'element_maps'
+        element_maps_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # This will add/update elements in registries
+            populate_registry_from_excel(df, element_maps_dir)
+        except Exception as e:
+            import traceback
+            print(f"Error populating registry: {e}")
+            print(traceback.format_exc())
+            return jsonify({
+                'error': f'Failed to populate registry: {str(e)}',
+                'traceback': traceback.format_exc()
+            }), 500
+        
+        # Mark execution as passed
+        exec_data['registry_updated'] = True
+        exec_data['registry_updated_at'] = datetime.now().isoformat()
+        exec_data['test_status'] = 'passed'
+        
+        # Save updated execution data
+        with open(execution_file, 'w') as f:
+            json.dump(exec_data, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Test marked as passed and registry updated successfully',
+            'execution_id': exec_id,
+            'excel_file': str(excel_file),
+            'registry_updated_at': exec_data['registry_updated_at']
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error marking test as passed: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/executions/<exec_id>/download-test-ts-zip', methods=['GET'])
 def download_test_ts_zip(exec_id):
     """Download TypeScript test file (.spec.ts), package.json, README, and all required registry JSON files bundled as a zip file (excludes .env for security)"""
