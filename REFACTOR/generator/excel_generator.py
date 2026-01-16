@@ -726,6 +726,17 @@ def generate_playwright_from_excel(excel_file: Path, output_file: Path) -> Dict:
         # Normalize column names (case-insensitive, handle spaces)
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         
+        # Detect registry files from URLs in Excel
+        project_root = output_file.parent.parent.parent  # Go up from storage/excel_tests to project root
+        element_maps_dir = project_root / 'element_maps'
+        
+        # Get unique URLs from Excel
+        urls = df['url'].dropna().unique().tolist() if 'url' in df.columns else []
+        registry_files = detect_registry_files_from_urls(urls, element_maps_dir) if element_maps_dir.exists() else []
+        
+        # Generate registry code
+        registry_code = build_registry_code(registry_files)
+        
         # Generate code
         test_body = ""
         errors = []
