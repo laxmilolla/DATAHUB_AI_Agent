@@ -340,11 +340,20 @@ def manual_register_element():
         from REFACTOR.api.manual_registry_helper import ManualRegistryHelper
         helper = ManualRegistryHelper(element_registry)
         
+        # Debug: Log received HTML (first 200 chars)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Manual register - HTML received (first 200 chars): {html_string[:200]}")
+        logger.info(f"Manual register - URL: {url}, Element name: {element_name}")
+        
         result = helper.register_element(
             html_string=html_string,
             url=url,
             element_name=element_name
         )
+        
+        # Debug: Log result
+        logger.info(f"Manual register - Result: success={result.get('success')}, uniqueness_method={result.get('uniqueness_method')}, attributes_found={result.get('attributes_found', [])}")
         
         if result['success']:
             return jsonify(result), 200

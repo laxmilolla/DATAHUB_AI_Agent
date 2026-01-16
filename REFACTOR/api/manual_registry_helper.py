@@ -54,10 +54,14 @@ class ManualRegistryHelper:
             # Step 1: Parse HTML
             parsed = self.html_parser.parse_element(html_string)
             if parsed.get('error'):
+                logger.error(f"HTML parsing failed: {parsed['error']}, HTML received: {html_string[:200]}")
                 return {'success': False, 'error': f'HTML parsing failed: {parsed["error"]}'}
             
             tag = parsed['tag']
             attributes = parsed['attributes']
+            
+            # Debug: Log what was parsed
+            logger.debug(f"Parsed HTML - tag: {tag}, attributes count: {len(attributes)}, keys: {list(attributes.keys())[:10]}")
             
             # Step 2: Extract domain/page from URL
             domain, page = self._extract_domain_page(url)
