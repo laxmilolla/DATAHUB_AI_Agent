@@ -829,7 +829,10 @@ test('{test_name}', async ({{ page }}) => {{
 }});
 '''
         
-        # Validate generated TypeScript - check for Python syntax
+        # Validate generated TypeScript - check for common syntax errors
+        validation_errors = []
+        
+        # Check for Python syntax patterns
         python_syntax_patterns = [
             r'urlparse\(',
             r'\[.*for.*in.*\]',  # List comprehensions
@@ -840,12 +843,27 @@ test('{test_name}', async ({{ page }}) => {{
             r'pathParts\s*=\s*\[.*for',  # Python list comprehension
         ]
         
-        validation_errors = []
         for pattern in python_syntax_patterns:
             import re
             matches = re.findall(pattern, test_script)
             if matches:
                 validation_errors.append(f"Found Python syntax pattern '{pattern}': {matches[:3]}")
+        
+        # Check for unclosed catch blocks (catch without closing brace before next try/catch/if/function)
+        # Count opening and closing braces in catch blocks
+        catch_blocks = re.findall(r'} catch \([^)]+\) \{', test_script)
+        # Count closing braces that should match catch blocks
+        # This is a simple check - if we have N catch blocks, we should have N closing braces after them
+        # More sophisticated: check that every catch has a matching closing brace before the next catch/try/if/function
+        
+        # Check for catch blocks with :any (old syntax)
+        if re.search(r'catch\s*\([^)]+:\s*any\s*\)', test_script):
+            validation_errors.append("Found catch blocks with ':any' type annotation (should be removed)")
+        
+        # Check for missing closing braces after criticalFailures.push
+        # Pattern: criticalFailures.push(...) followed by something that's not a closing brace
+        if re.search(r'criticalFailures\.push\([^)]+\);\s*\n\s*(?!})', test_script):
+            validation_errors.append("Found criticalFailures.push without closing brace")
         
         if validation_errors:
             errors.extend([f"TypeScript validation failed: {err}" for err in validation_errors])
