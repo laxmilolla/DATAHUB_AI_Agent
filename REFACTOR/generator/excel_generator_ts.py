@@ -303,7 +303,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         element_id_escaped = escape_xpath(element_id)
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url());\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -532,7 +532,7 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_id_escaped = escape_xpath(element_id)
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url());\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        const element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -592,7 +592,7 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         element_id_escaped = escape_xpath(element_id)
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url());\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -825,16 +825,39 @@ test('{test_name}', async ({{ page }}) => {{
 }});
 '''
         
+        # Validate generated TypeScript - check for Python syntax
+        python_syntax_patterns = [
+            r'urlparse\(',
+            r'\[.*for.*in.*\]',  # List comprehensions
+            r'\.items\(\)',
+            r'#\s+(Remove|Extract|Check|Match)',  # Python-style comments in code
+            r'if\s+.*\s+in\s+[^:]+:',  # Python 'in' operator in if statements
+            r'parsed\s*=\s*urlparse',  # Python assignment
+            r'pathParts\s*=\s*\[.*for',  # Python list comprehension
+        ]
+        
+        validation_errors = []
+        for pattern in python_syntax_patterns:
+            import re
+            matches = re.findall(pattern, test_script)
+            if matches:
+                validation_errors.append(f"Found Python syntax pattern '{pattern}': {matches[:3]}")
+        
+        if validation_errors:
+            errors.extend([f"TypeScript validation failed: {err}" for err in validation_errors])
+            print(f"⚠️  TypeScript validation warnings: {validation_errors}")
+        
         # Write to file
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_file, 'w') as f:
+        with open(output_file, 'w', encoding='utf-8') as f:
             f.write(test_script)
         
         return {
             'success': len(errors) == 0,
             'output_file': str(output_file),
             'rows_processed': len(df),
-            'errors': errors
+            'errors': errors,
+            'validation_warnings': validation_errors if validation_errors else []
         }
     
     except Exception as e:
