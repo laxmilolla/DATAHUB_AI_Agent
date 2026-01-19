@@ -667,6 +667,7 @@ def generate_ts_from_excel():
             thread.start()
             
             response_data['execution_id'] = execution_id
+            response_data['results_url'] = f'/results/{execution_id}'
             response_data['test_running'] = True
             response_data['message'] = 'TypeScript test generation completed. Test is running in background. Screenshots will be available shortly.'
         
