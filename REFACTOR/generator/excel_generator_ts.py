@@ -301,9 +301,11 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
+        # Use URL from Excel row, fallback to undefined if empty
+        url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -532,9 +534,11 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
+            # Use URL from Excel row, fallback to undefined if empty
+            url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        const element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -594,9 +598,11 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
+        # Use URL from Excel row, fallback to undefined if empty
+        url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', page.url);\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
