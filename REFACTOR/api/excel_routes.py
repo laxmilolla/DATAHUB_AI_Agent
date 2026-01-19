@@ -572,7 +572,10 @@ def generate_ts_from_excel():
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        return jsonify({
+        # Check if we should run the test (default: True)
+        run_test = data.get('run_test', True)
+        
+        response_data = {
             'success': True,
             'test_file': str(output_file.relative_to(project_root)),
             'test_name': test_name,
@@ -580,7 +583,94 @@ def generate_ts_from_excel():
             'download_url': f'/api/excel/{excel_id}/test-ts',
             'zip_download_url': f'/api/excel/{excel_id}/test-ts-zip',
             'generation_result': generation_result
-        })
+        }
+        
+        # Run test in background if requested
+        if run_test:
+            # Find or create execution_id for this Excel file
+            # Check if there's an existing execution for this Excel
+            executions_dir = project_root / 'storage' / 'executions'
+            execution_id = None
+            
+            # Look for existing execution with this excel_id
+            if executions_dir.exists():
+                for exec_file in executions_dir.glob('*.json'):
+                    try:
+                        with open(exec_file, 'r') as f:
+                            exec_data = json.load(f)
+                        if exec_data.get('excel_id') == excel_id:
+                            execution_id = exec_data.get('execution_id') or exec_file.stem
+                            break
+                    except:
+                        continue
+            
+            # Create new execution if not found
+            if not execution_id:
+                execution_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                execution_file = executions_dir / f'{execution_id}.json'
+                executions_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create execution data
+                exec_data = {
+                    'execution_id': execution_id,
+                    'excel_id': excel_id,
+                    'source': 'excel',
+                    'status': 'running',
+                    'created_at': datetime.now().isoformat(),
+                    'test_file': str(output_file.relative_to(project_root)),
+                    'test_name': test_name
+                }
+                
+                with open(execution_file, 'w') as f:
+                    json.dump(exec_data, f, indent=2)
+            
+            # Run test in background thread
+            def run_test_background():
+                try:
+                    from validator.typescript_test_runner import TypeScriptTestRunner
+                    
+                    runner = TypeScriptTestRunner(project_root)
+                    test_result = runner.run(str(output_file), execution_id)
+                    
+                    # Update execution with test results
+                    execution_file = executions_dir / f'{execution_id}.json'
+                    if execution_file.exists():
+                        with open(execution_file, 'r') as f:
+                            exec_data = json.load(f)
+                        
+                        exec_data['playwright_validation'] = {
+                            'status': test_result.get('status'),
+                            'duration': test_result.get('duration'),
+                            'assertions_passed': test_result.get('assertions_passed', 0),
+                            'assertions_failed': test_result.get('assertions_failed', 0),
+                            'test_file': test_result.get('test_file'),
+                            'timestamp': test_result.get('timestamp'),
+                            'stdout': test_result.get('stdout', ''),
+                            'stderr': test_result.get('stderr', ''),
+                            'exit_code': test_result.get('exit_code', 0)
+                        }
+                        exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                        exec_data['status'] = 'completed'
+                        exec_data['completed_at'] = datetime.now().isoformat()
+                        
+                        with open(execution_file, 'w') as f:
+                            json.dump(exec_data, f, indent=2)
+                        
+                        print(f"✅ TypeScript test execution completed for {execution_id}")
+                except Exception as e:
+                    print(f"Error running TypeScript test in background: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            thread = threading.Thread(target=run_test_background)
+            thread.daemon = True
+            thread.start()
+            
+            response_data['execution_id'] = execution_id
+            response_data['test_running'] = True
+            response_data['message'] = 'TypeScript test generation completed. Test is running in background. Screenshots will be available shortly.'
+        
+        return jsonify(response_data)
         
     except Exception as e:
         import traceback
