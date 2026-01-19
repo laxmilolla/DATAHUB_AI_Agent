@@ -148,7 +148,25 @@ def convert_python_to_spec_ts(python_code: str) -> str:
     # 12. Remove any remaining Python docstrings that weren't converted
     ts_code = re.sub(r'""".*?"""', '', ts_code, flags=re.DOTALL)
     
-    # 13. Remove Python main block
+    # 13. Convert Python-specific syntax to TypeScript
+    # Convert list indexing with negative numbers
+    ts_code = re.sub(r'\[(-\d+)\]', r'.at(\1)', ts_code)
+    
+    # Convert Python 'in' operator for strings
+    ts_code = re.sub(r"'(\w+)' in (\w+)", r'\2.includes(\'\1\')', ts_code)
+    ts_code = re.sub(r'"(\w+)" in (\w+)', r'\2.includes("\1")', ts_code)
+    
+    # Convert Python .split() with rsplit
+    ts_code = re.sub(r'\.rsplit\(', '.split(', ts_code)
+    
+    # Convert None to null
+    ts_code = re.sub(r'\bNone\b', 'null', ts_code)
+    
+    # Convert True/False to true/false
+    ts_code = re.sub(r'\bTrue\b', 'true', ts_code)
+    ts_code = re.sub(r'\bFalse\b', 'false', ts_code)
+    
+    # 14. Remove Python main block
     ts_code = re.sub(
         r'if __name__ == [\'"]__main__[\'"]:.*?test_\w+\(\)',
         '',
@@ -218,7 +236,7 @@ def convert_registry_loading(ts_code: str) -> str:
     # Convert REGISTRIES_BY_PATH initialization
     ts_code = re.sub(
         r'REGISTRIES_BY_PATH = \{\}  # registry_path -> registry_data',
-        "const REGISTRIES_BY_PATH: { [key: string]: any } = {};  // registry_path -> registry_data",
+        "const REGISTRIES_BY_PATH: { [key: string]: any } = {};  // registry_path -> registryData",
         ts_code
     )
     ts_code = re.sub(r'loaded_count = 0', 'let loadedCount = 0', ts_code)
@@ -242,11 +260,25 @@ def convert_registry_loading(ts_code: str) -> str:
         ts_code
     )
     
-    # Convert variable names
-    ts_code = re.sub(r'registry_path_str', 'registryPathStr', ts_code)
-    ts_code = re.sub(r'registry_data', 'registryData', ts_code)
-    ts_code = re.sub(r'registry_path\.name', 'path.basename(registryPathStr)', ts_code)
-    ts_code = re.sub(r'registryPath\.name', 'path.basename(registryPathStr)', ts_code)
+    # Convert variable names (comprehensive)
+    ts_code = re.sub(r'\bregistry_path_str\b', 'registryPathStr', ts_code)
+    ts_code = re.sub(r'\bregistry_data\b', 'registryData', ts_code)
+    ts_code = re.sub(r'\bregistry_path\b', 'registryPath', ts_code)
+    ts_code = re.sub(r'\bregistryPath\.name\b', 'path.basename(registryPathStr)', ts_code)
+    ts_code = re.sub(r'\bloaded_count\b', 'loadedCount', ts_code)
+    ts_code = re.sub(r'\btotal_elements\b', 'totalElements', ts_code)
+    ts_code = re.sub(r'\btotal_ids\b', 'totalIds', ts_code)
+    ts_code = re.sub(r'\bpage_url\b', 'pageUrl', ts_code)
+    ts_code = re.sub(r'\bpage_name\b', 'pageName', ts_code)
+    ts_code = re.sub(r'\bpath_parts\b', 'pathParts', ts_code)
+    ts_code = re.sub(r'\bbest_match\b', 'bestMatch', ts_code)
+    ts_code = re.sub(r'\bbest_score\b', 'bestScore', ts_code)
+    ts_code = re.sub(r'\belement_id\b', 'elementId', ts_code)
+    ts_code = re.sub(r'\bpage_registry\b', 'pageRegistry', ts_code)
+    ts_code = re.sub(r'\bcurrent_registry\b', 'currentRegistry', ts_code)
+    ts_code = re.sub(r'\bcurrent_id_index\b', 'currentIdIndex', ts_code)
+    ts_code = re.sub(r'\bregistry_key\b', 'registryKey', ts_code)
+    ts_code = re.sub(r'\bregistry_filename\b', 'registryFilename', ts_code)
     
     # Convert Python len() and .get() calls
     ts_code = re.sub(
@@ -254,25 +286,19 @@ def convert_registry_loading(ts_code: str) -> str:
         'Object.keys(registryData.elements || {}).length',
         ts_code
     )
-    ts_code = re.sub(
-        r'len\(registry_data\.get\([\'"]elements[\'"], \{\}\)\)',
-        'Object.keys(registryData.elements || {}).length',
-        ts_code
-    )
     
     # Convert increment
-    ts_code = re.sub(r'loaded_count \+= 1', 'loadedCount++', ts_code)
     ts_code = re.sub(r'loadedCount \+= 1', 'loadedCount++', ts_code)
     
     # Convert summary calculations
     ts_code = re.sub(
-        r'total_elements = sum\(len\(reg\.get\([\'"]elements[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
-        'const totalElements = Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.elements || {}).length, 0)',
+        r'sum\(len\(reg\.get\([\'"]elements[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
+        'Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.elements || {}).length, 0)',
         ts_code
     )
     ts_code = re.sub(
-        r'total_ids = sum\(len\(reg\.get\([\'"]id_index[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
-        'const totalIds = Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.id_index || {}).length, 0)',
+        r'sum\(len\(reg\.get\([\'"]id_index[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
+        'Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.id_index || {}).length, 0)',
         ts_code
     )
     
