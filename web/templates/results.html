@@ -1265,18 +1265,18 @@
                                 <strong>🎯 Recommendation:</strong> ${recommendation}
                             </div>
                             ${validation.test_file ? `
-                            <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center;">
+                            <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
                                 <a href="/api/executions/${executionId}/generated-test" target="_blank" 
                                    class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                     👁️ View Code
                                 </a>
                                 <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; margin-right: 10px;">
-                                    📥 Download .py File
+                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
+                                    📦 Download .py (Complete Package)
                                 </button>
                                 <button onclick="downloadPlaywrightTestTS('${executionId}')" 
                                         class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
-                                    📘 Download .spec.ts File
+                                    📦 Download .spec.ts (Complete Package)
                                 </button>
                             </div>
                             ` : ''}
@@ -1735,18 +1735,18 @@
                             <strong>🎯 Recommendation:</strong> ${recommendation}
                         </div>
                         ${result.test_path ? `
-                        <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center;">
+                        <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
                             <a href="/api/executions/${executionId}/generated-test" target="_blank" 
                                class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                 👁️ View Code
                             </a>
                             <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; margin-right: 10px;">
-                                📥 Download .py File
+                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
+                                📦 Download .py (Complete Package)
                             </button>
                             <button onclick="downloadPlaywrightTestTS('${executionId}')" 
                                     class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
-                                📘 Download .spec.ts File
+                                📦 Download .spec.ts (Complete Package)
                             </button>
                         </div>
                         ` : ''}
