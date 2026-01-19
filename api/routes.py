@@ -1315,26 +1315,46 @@ def download_test_ts_zip(exec_id):
         # Check if this is an Excel execution
         execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
         python_test_file = None
+        ts_test_file = None
         test_name = None
         
         if execution_file.exists():
             with open(execution_file, 'r') as f:
                 exec_data = json.load(f)
             
-            # Excel execution has test_file directly in execution data
-            if exec_data.get('source') == 'excel' and exec_data.get('test_file'):
-                python_test_file = project_root / exec_data['test_file']
-                test_name = exec_data.get('test_name', 'excel_test')
+            # Excel execution - check for pre-generated TypeScript file first
+            if exec_data.get('source') == 'excel':
+                excel_id = exec_data.get('excel_id')
+                if excel_id:
+                    # Check Excel metadata for pre-generated TypeScript file
+                    metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+                    metadata_file = metadata_dir / f"{excel_id}.json"
+                    if metadata_file.exists():
+                        with open(metadata_file, 'r') as f:
+                            excel_metadata = json.load(f)
+                        if 'generated_test_ts' in excel_metadata:
+                            ts_test_file = project_root / excel_metadata['generated_test_ts']['test_file']
+                            test_name = excel_metadata['generated_test_ts']['test_name']
+                            if ts_test_file.exists():
+                                # Use pre-generated TypeScript file (preferred)
+                                pass
+                            else:
+                                ts_test_file = None
                 
-                if not python_test_file.exists():
-                    return jsonify({
-                        'error': f'Excel test file not found: {python_test_file}',
-                        'test_file': exec_data.get('test_file'),
-                        'resolved_path': str(python_test_file.resolve())
-                    }), 404
+                # Fallback to Python file if no TypeScript file found
+                if ts_test_file is None and exec_data.get('test_file'):
+                    python_test_file = project_root / exec_data['test_file']
+                    test_name = exec_data.get('test_name', 'excel_test')
+                    
+                    if not python_test_file.exists():
+                        return jsonify({
+                            'error': f'Excel test file not found: {python_test_file}',
+                            'test_file': exec_data.get('test_file'),
+                            'resolved_path': str(python_test_file.resolve())
+                        }), 404
         
         # Fallback to regular generated test metadata
-        if python_test_file is None:
+        if python_test_file is None and ts_test_file is None:
             metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
             
             if not metadata_file.exists():
@@ -1350,17 +1370,27 @@ def download_test_ts_zip(exec_id):
             if not python_test_file.exists():
                 return jsonify({'error': 'Generated Python test file not found'}), 404
         
-        # Read Python test file
-        with open(python_test_file, 'r') as f:
-            python_code = f.read()
-        
-        # Convert Python to TypeScript
-        from generator.js_converter.py_to_ts_converter import convert_python_to_spec_ts
-        ts_code = convert_python_to_spec_ts(python_code)
-        
-        # Extract REGISTRY_PATHS from Python test file
-        registry_paths = []
-        match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", python_code, re.DOTALL)
+        # Use pre-generated TypeScript file if available, otherwise convert Python
+        if ts_test_file and ts_test_file.exists():
+            # Read pre-generated TypeScript file (preferred - uses new generator)
+            with open(ts_test_file, 'r') as f:
+                ts_code = f.read()
+            
+            # Extract REGISTRY_PATHS from TypeScript file
+            registry_paths = []
+            match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_code, re.DOTALL)
+        else:
+            # Fallback: Convert Python to TypeScript (old method)
+            with open(python_test_file, 'r') as f:
+                python_code = f.read()
+            
+            # Convert Python to TypeScript
+            from generator.js_converter.py_to_ts_converter import convert_python_to_spec_ts
+            ts_code = convert_python_to_spec_ts(python_code)
+            
+            # Extract REGISTRY_PATHS from Python test file
+            registry_paths = []
+            match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", python_code, re.DOTALL)
         if match:
             paths_str = match.group(1)
             path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
