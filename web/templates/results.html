@@ -1969,30 +1969,101 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showActionMessage('✅ TypeScript test generated successfully! Downloading...', 'success');
+                    showActionMessage('✅ TypeScript test generated successfully!', 'success');
                     if (btn) {
-                        btn.textContent = '✅ Generated';
-                        btn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                        btn.textContent = '⏳ Running...';
+                        btn.style.background = 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)';
                     }
                     
-                    // Automatically download the zip file
-                    if (data.zip_download_url) {
-                        const linkElement = document.createElement('a');
-                        linkElement.style.display = 'none';
-                        linkElement.href = data.zip_download_url;
-                        linkElement.download = (data.test_name || 'test') + '_typescript_complete.zip';
-                        document.body.appendChild(linkElement);
-                        linkElement.click();
+                    // If test is running (execution_id provided), poll for results
+                    if (data.execution_id && data.test_running) {
+                        showActionMessage('⏳ TypeScript test is running in background. Screenshots will appear when ready...', 'info');
                         
-                        setTimeout(() => {
-                            document.body.removeChild(linkElement);
-                            showActionMessage('✅ TypeScript test generated and downloaded!', 'success');
-                        }, 1000);
+                        // Find the status div to update
+                        const statusDiv = document.getElementById('playwright-status') || document.querySelector('.playwright-status');
+                        
+                        // Poll for test results every 3 seconds
+                        let attempts = 0;
+                        const maxAttempts = 100; // 5 minutes max
+                        const pollInterval = setInterval(async () => {
+                            attempts++;
+                            try {
+                                const resultsResponse = await fetch(`/api/executions/${data.execution_id}/results`);
+                                if (resultsResponse.ok) {
+                                    const results = await resultsResponse.json();
+                                    const pwValidation = results.playwright_validation || {};
+                                    const screenshots = results.playwright_screenshots || [];
+                                    
+                                    // Update status message
+                                    if (statusDiv) {
+                                        if (attempts % 5 === 0) { // Update every 15 seconds
+                                            statusDiv.innerHTML = `
+                                                <div class="alert alert-info" style="margin-bottom: 15px;">
+                                                    <div class="alert-icon">⏳</div>
+                                                    <div class="alert-content">
+                                                        <h4>TypeScript Test Running...</h4>
+                                                        <p>Status: ${pwValidation.status || 'running'}</p>
+                                                        <p>Screenshots: ${screenshots.length}</p>
+                                                        <p style="font-size: 0.85em; margin-top: 5px;">Checking every 3 seconds... (${attempts}/${maxAttempts})</p>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }
+                                    }
+                                    
+                                    // If test completed or screenshots available
+                                    const testCompleted = pwValidation.status && pwValidation.status !== 'running' && pwValidation.status !== 'not started';
+                                    if (testCompleted || (screenshots.length > 0 && attempts >= 5) || attempts >= maxAttempts) {
+                                        clearInterval(pollInterval);
+                                        
+                                        if (btn) {
+                                            btn.textContent = testCompleted && pwValidation.status === 'passed' ? '✅ Passed' : '✅ Completed';
+                                            btn.style.background = testCompleted && pwValidation.status === 'passed' 
+                                                ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)'
+                                                : 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)';
+                                        }
+                                        
+                                        if (testCompleted || screenshots.length > 0) {
+                                            showActionMessage(`✅ TypeScript test completed! Screenshots: ${screenshots.length}`, 'success');
+                                            // Reload page to show screenshots
+                                            setTimeout(() => {
+                                                window.location.reload();
+                                            }, 2000);
+                                        } else {
+                                            showActionMessage('⏳ Test is still running. Check back in a moment.', 'info');
+                                        }
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('Error polling for test results:', error);
+                            }
+                        }, 3000);
                     } else {
-                        // Fallback: reload page to show download button
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
+                        // Test not running, just download
+                        if (btn) {
+                            btn.textContent = '✅ Generated';
+                            btn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                        }
+                        
+                        // Automatically download the zip file
+                        if (data.zip_download_url) {
+                            const linkElement = document.createElement('a');
+                            linkElement.style.display = 'none';
+                            linkElement.href = data.zip_download_url;
+                            linkElement.download = (data.test_name || 'test') + '_typescript_complete.zip';
+                            document.body.appendChild(linkElement);
+                            linkElement.click();
+                            
+                            setTimeout(() => {
+                                document.body.removeChild(linkElement);
+                                showActionMessage('✅ TypeScript test generated and downloaded!', 'success');
+                            }, 1000);
+                        } else {
+                            // Fallback: reload page to show download button
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        }
                     }
                 } else {
                     showActionMessage('❌ TypeScript generation failed: ' + (data.error || 'Unknown error'), 'error');
