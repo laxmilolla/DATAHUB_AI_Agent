@@ -1225,6 +1225,10 @@
             const comparison = safeGet(results, 'playwright_comparison');
             const screenshots = safeArray(results.playwright_screenshots);
             
+            // Check if this is an Excel execution (needed for Generate TypeScript button)
+            const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
+            const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
+            
             // Check if Playwright results already exist
             if (validation && validation.status) {
                 const status = safeString(validation.status, 'unknown');
@@ -1274,9 +1278,9 @@
                                         class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                     📦 Download .py (Complete Package)
                                 </button>
-                                ${isExcelExecution && excelId ? `
-                                <button onclick="generateTypeScriptFromExcel('${excelId}')" 
-                                        class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+                                ${(isExcelExecution && excelId) ? `
+                                <button onclick="generateTypeScriptFromExcel('${excelId || ''}')" 
+                                        class="btn-primary" id="generateTsBtn_${excelId || ''}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
                                     ⚡ Generate TypeScript
                                 </button>
                                 ` : ''}
@@ -1750,7 +1754,7 @@
                                     class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                 📦 Download .py (Complete Package)
                             </button>
-                            ${isExcelExecution && excelId ? `
+                            ${(typeof isExcelExecution !== 'undefined' && isExcelExecution && excelId) ? `
                             <button onclick="generateTypeScriptFromExcel('${excelId}')" 
                                     class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
                                 ⚡ Generate TypeScript
