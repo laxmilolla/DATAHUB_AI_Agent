@@ -67,7 +67,7 @@ for (const registryPathStr of REGISTRY_PATHS) {{
         }} else {{
             console.log(`⚠️  Registry file not found: ${{registryPathStr}}`);
         }}
-    }} catch (e: any) {{
+    }} catch (e) {{
         console.log(`⚠️  Failed to load registry ${{registryPathStr}}: ${{e}}`);
     }}
 }}
@@ -244,7 +244,7 @@ def generate_navigate_code_ts(step: str, url: str, indent: int = 12) -> str:
     code += f"{ind}    await page.waitForLoadState('networkidle');\n"
     code += f"{ind}    console.log(`📍 Step {step}: Navigated to {url}`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_navigate.png' }});\n"
-    code += f"{ind}}} catch (e: any) {{\n"
+    code += f"{ind}}} catch (e) {{\n"
     code += f"{ind}    console.log(`❌ Step {step}: Navigation failed: ${{e}}`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_navigate_failed.png' }});\n"
     code += f"{ind}}}\n"
@@ -262,7 +262,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12) -> str:
     code += f"{ind}    await page.waitForTimeout({wait_ms});\n"
     code += f"{ind}    console.log(`⏱️  Step {step}: Waited {wait_ms}ms`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_wait.png' }});\n"
-    code += f"{ind}}} catch (e: any) {{\n"
+    code += f"{ind}}} catch (e) {{\n"
     code += f"{ind}    console.log(`❌ Step {step}: Wait failed: ${{e}}`);\n"
     code += f"{ind}}}\n"
     return code
@@ -288,7 +288,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    const modal = page.locator('[role=\"dialog\"], [data-testid=\"create-submission-dialog\"]').first();\n"
         code += f"{ind}    await modal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}    console.log(`✅ Step {step}: Modal is visible`);\n"
-        code += f"{ind}}} catch (modal_error: any) {{\n"
+        code += f"{ind}}} catch (modal_error) {{\n"
         code += f"{ind}    console.log(`⚠️  Step {step}: Modal not found, continuing anyway: ${{modal_error}}`);\n"
         code += f"{ind}}}\n"
     
@@ -308,7 +308,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
-        code += f"{ind}    }} catch (registry_error: any) {{\n"
+        code += f"{ind}    }} catch (registry_error) {{\n"
         code += f"{ind}        // Registry lookup failed - test must fail\n"
         code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
@@ -338,7 +338,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}                    console.log(`⏳ Step {step}: Waiting for Create button to be enabled... (attempt ${{attempt + 1}}/50)`);\n"
         code += f"{ind}                }}\n"
         code += f"{ind}            }}\n"
-        code += f"{ind}        }} catch (check_error: any) {{\n"
+        code += f"{ind}        }} catch (check_error) {{\n"
         code += f"{ind}            console.log(`⚠️  Step {step}: Error checking button state: ${{check_error}}`);\n"
         code += f"{ind}        }}\n"
         code += f"{ind}        await page.waitForTimeout(200);\n"
@@ -359,13 +359,13 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}        // Robust click with fallbacks (JavaScript + force)\n"
         code += f"{ind}        try {{\n"
         code += f"{ind}            await element.click();\n"
-        code += f"{ind}        }} catch (click_error: any) {{\n"
+        code += f"{ind}        }} catch (click_error) {{\n"
         code += f"{ind}            if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
         code += f"{ind}                console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
         code += f"{ind}                try {{\n"
         code += f"{ind}                    await element.evaluate('el => el.click()');\n"
         code += f"{ind}                    console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
-        code += f"{ind}                }} catch (js_error: any) {{\n"
+        code += f"{ind}                }} catch (js_error) {{\n"
         code += f"{ind}                    console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
         code += f"{ind}                    await element.click({{ force: true }});\n"
         code += f"{ind}                    console.log(`✅ Step {step}: Force click succeeded`);\n"
@@ -389,13 +389,13 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    // Robust click with fallbacks (JavaScript + force)\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        await element.click();\n"
-        code += f"{ind}    }} catch (click_error: any) {{\n"
+        code += f"{ind}    }} catch (click_error) {{\n"
         code += f"{ind}        if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
         code += f"{ind}            console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
         code += f"{ind}            try {{\n"
         code += f"{ind}                await element.evaluate('el => el.click()');\n"
         code += f"{ind}                console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
-        code += f"{ind}            }} catch (js_error: any) {{\n"
+        code += f"{ind}            }} catch (js_error) {{\n"
         code += f"{ind}                console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
         code += f"{ind}                await element.click({{ force: true }});\n"
         code += f"{ind}                console.log(`✅ Step {step}: Force click succeeded`);\n"
@@ -412,10 +412,10 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     if is_optional:
-        code += f"{ind}}} catch (e: any) {{\n"
+        code += f"{ind}}} catch (e) {{\n"
         code += f"{ind}    console.log(`ℹ️  Step {step}: Element not found (optional) - continuing`);\n"
     else:
-        code += f"{ind}}} catch (e: any) {{\n"
+        code += f"{ind}}} catch (e) {{\n"
         element_display = element_name or 'element'
         code += f"{ind}    console.log(`❌ Step {step}: Failed to click {element_display}: ${{e}}`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
@@ -451,7 +451,7 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}    const modal = page.locator('[role=\"dialog\"], [data-testid=\"create-submission-dialog\"]').first();\n"
         code += f"{ind}    await modal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}    console.log(`✅ Step {step}: Modal is visible`);\n"
-        code += f"{ind}}} catch (modal_error: any) {{\n"
+        code += f"{ind}}} catch (modal_error) {{\n"
         code += f"{ind}    console.log(`⚠️  Step {step}: Modal not found, continuing anyway: ${{modal_error}}`);\n"
         code += f"{ind}}}\n"
     
@@ -515,13 +515,13 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}        await element.type(totpCode, {{ delay: 10 }});\n"
         code += f"{ind}        await page.waitForTimeout(200);\n"
         code += f"{ind}        console.log(`✅ Step {step}: Filled TOTP code using type() method`);\n"
-        code += f"{ind}    }} catch (e: any) {{\n"
+        code += f"{ind}    }} catch (e) {{\n"
         code += f"{ind}        console.log(`❌ Step {step}: Failed to generate/fill TOTP code: ${{e}}`);\n"
         code += f"{ind}        // Try fallback fill() method\n"
         code += f"{ind}        try {{\n"
         code += f"{ind}            await element.fill(totpCode);\n"
         code += f"{ind}            console.log(`✅ Step {step}: Filled TOTP code using fill() fallback`);\n"
-        code += f"{ind}        }} catch (fill_error: any) {{\n"
+        code += f"{ind}        }} catch (fill_error) {{\n"
         code += f"{ind}            console.log(`❌ Step {step}: fill() fallback also failed: ${{fill_error}}`);\n"
         code += f"{ind}            throw fill_error;\n"
         code += f"{ind}        }}\n"
@@ -537,7 +537,7 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             code += f"{ind}        const element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
             code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
-            code += f"{ind}    }} catch (registry_error: any) {{\n"
+            code += f"{ind}    }} catch (registry_error) {{\n"
             code += f"{ind}        // Registry lookup failed - test must fail\n"
             code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
             code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
@@ -564,10 +564,10 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     if is_optional:
-        code += f"{ind}}} catch (e: any) {{\n"
+        code += f"{ind}}} catch (e) {{\n"
         code += f"{ind}    console.log(`ℹ️  Step {step}: Element not found (optional) - continuing`);\n"
     else:
-        code += f"{ind}}} catch (e: any) {{\n"
+        code += f"{ind}}} catch (e) {{\n"
         element_display = element_name or 'input'
         code += f"{ind}    console.log(`❌ Step {step}: Failed to fill {element_display}: ${{e}}`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
@@ -597,7 +597,7 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         code += f"{ind}        const element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
-        code += f"{ind}    }} catch (registry_error: any) {{\n"
+        code += f"{ind}    }} catch (registry_error) {{\n"
         code += f"{ind}        // Registry lookup failed - test must fail\n"
         code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
@@ -610,7 +610,7 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     element_display = element_name or 'element'
     code += f"{ind}    console.log(`✅ Step {step}: Verified {element_display} is visible`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
-    code += f"{ind}}} catch (e: any) {{\n"
+    code += f"{ind}}} catch (e) {{\n"
     element_display = element_name or 'element'
     code += f"{ind}    console.log(`❌ Step {step}: Failed to verify {element_display}: ${{e}}`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
@@ -787,7 +787,7 @@ try {{
     }}
     console.log(`   Please create a .env file with TOTP_SECRET_KEY=your_secret_key`);
   }}
-}} catch (e: any) {{
+}} catch (e) {{
   if (e.code === 'MODULE_NOT_FOUND') {{
     console.log("⚠️  dotenv not installed - environment variables must be set manually");
   }} else {{
@@ -818,7 +818,7 @@ test('{test_name}', async ({{ page }}) => {{
         }} else {{
             console.log("✅ Test completed successfully");
         }}
-    }} catch (e: any) {{
+    }} catch (e) {{
         console.log(`❌ Test failed: ${{e}}`);
         throw e;
     }}
