@@ -80,6 +80,12 @@ def convert_python_to_spec_ts(python_code: str) -> str:
         "",
         ts_code
     )
+    # Remove Python urlparse import
+    ts_code = re.sub(
+        r'from urllib\.parse import urlparse\n',
+        "",
+        ts_code
+    )
     # Remove any other Python imports that might remain
     ts_code = re.sub(
         r'^from \w+ import .*\n',
@@ -88,31 +94,34 @@ def convert_python_to_spec_ts(python_code: str) -> str:
         flags=re.MULTILINE
     )
     
-    # 2. Convert .env loading section
-    ts_code = convert_env_loading(ts_code)
-    
-    # 3. Convert REGISTRY_PATHS list syntax
+    # 2. Convert REGISTRY_PATHS list syntax (before control flow)
     ts_code = re.sub(r'REGISTRY_PATHS = \[', 'const REGISTRY_PATHS = [', ts_code)
     
-    # 4. Convert registry loading loop
+    # 3. Convert control flow (CRITICAL: must run before other conversions)
+    ts_code = convert_control_flow(ts_code)
+    
+    # 4. Convert .env loading section (after control flow)
+    ts_code = convert_env_loading(ts_code)
+    
+    # 5. Convert registry loading (after control flow)
     ts_code = convert_registry_loading(ts_code)
     
-    # 5. Convert helper functions
+    # 6. Convert helper functions
     ts_code = convert_helper_functions(ts_code)
     
-    # 6. Convert main test function
+    # 7. Convert main test function
     ts_code = convert_test_function(ts_code)
     
-    # 7. Convert all Playwright API calls (add await, camelCase)
+    # 8. Convert all Playwright API calls (add await, camelCase)
     ts_code = convert_playwright_calls(ts_code)
     
-    # 8. Convert string formatting (f-strings to template literals)
+    # 9. Convert string formatting (f-strings to template literals)
     ts_code = convert_string_formatting(ts_code)
     
-    # 9. Convert exception handling
+    # 10. Convert exception handling (remaining parts not handled by control flow)
     ts_code = convert_exception_handling(ts_code)
     
-    # 10. Convert Python comments to TypeScript comments
+    # 11. Convert Python comments to TypeScript comments
     # Convert standalone # comments (but not in strings)
     lines = ts_code.split('\n')
     converted_lines = []
@@ -136,10 +145,10 @@ def convert_python_to_spec_ts(python_code: str) -> str:
                 converted_lines.append(line)
     ts_code = '\n'.join(converted_lines)
     
-    # 10b. Remove any remaining Python docstrings that weren't converted
+    # 12. Remove any remaining Python docstrings that weren't converted
     ts_code = re.sub(r'""".*?"""', '', ts_code, flags=re.DOTALL)
     
-    # 11. Remove Python main block
+    # 13. Remove Python main block
     ts_code = re.sub(
         r'if __name__ == [\'"]__main__[\'"]:.*?test_\w+\(\)',
         '',
@@ -152,12 +161,15 @@ def convert_python_to_spec_ts(python_code: str) -> str:
 
 def convert_env_loading(ts_code: str) -> str:
     """Convert Python .env loading to TypeScript"""
-    # Replace Python dotenv loading with TypeScript version
-    # Pattern 1: Match the old Python-style .env loading
-    env_pattern = r'# Load environment variables.*?print\(f"⚠️  Failed to load \.env file: \{e\}"\)'
+    # The .env loading section will be converted by convert_control_flow
+    # This function just needs to replace the entire section with TypeScript version
+    # Pattern matches the Python .env loading block (after control flow conversion)
     
-    # Pattern 2: Match the newer Python-style .env loading with Path
-    env_pattern2 = r'// Load environment variables from \.env file\s*env_path = Path\(__file__\)\.parent\.parent\.parent / \'\.env\'\s*if env_path\.exists\(\):\s*load_dotenv\(env_path\)\s*console\.log\(`✅ Loaded environment variables from \$\{env_path\}`\)\s*else:\s*console\.log\(`⚠️  \.env file not found at \$\{env_path\}`\)'
+    # Pattern 1: Match after control flow conversion (with braces)
+    env_pattern_converted = r'// Load environment variables from \.env file.*?console\.log\(`⚠️  \.env file not found at \$\{env_path\}`\)\s*\}'
+    
+    # Pattern 2: Match before control flow conversion (with colons) - more flexible
+    env_pattern_python = r'# Load environment variables from \.env file\s+env_path = .*?\.env.*?(?:console\.log|print)\(.*?\.env file not found.*?\)'
     
     ts_env_code = '''// Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
 // Check multiple locations: same dir, parent, home, or 3 levels up
@@ -196,8 +208,8 @@ try {
   }
 }'''
     
-    ts_code = re.sub(env_pattern, ts_env_code, ts_code, flags=re.DOTALL)
-    ts_code = re.sub(env_pattern2, ts_env_code, ts_code, flags=re.DOTALL)
+    ts_code = re.sub(env_pattern_converted, ts_env_code, ts_code, flags=re.DOTALL)
+    ts_code = re.sub(env_pattern_python, ts_env_code, ts_code, flags=re.DOTALL)
     return ts_code
 
 
@@ -211,28 +223,48 @@ def convert_registry_loading(ts_code: str) -> str:
     )
     ts_code = re.sub(r'loaded_count = 0', 'let loadedCount = 0', ts_code)
     
-    # Convert registry loading loop
-    registry_loop_pattern = r'for registry_path_str in REGISTRY_PATHS:(.*?)loaded_count \+= 1'
+    # Convert Python-specific operations (after control flow conversion has added braces)
+    # Convert Path operations
+    ts_code = re.sub(r'registry_path = Path\(registry_path_str\)', 'const registryPath = registryPathStr', ts_code)
+    ts_code = re.sub(r'registry_path = Path\(registryPathStr\)', 'const registryPath = registryPathStr', ts_code)
+    ts_code = re.sub(r'registry_path\.exists\(\)', 'fs.existsSync(registryPathStr)', ts_code)
+    ts_code = re.sub(r'registryPath\.exists\(\)', 'fs.existsSync(registryPathStr)', ts_code)
     
-    def replace_registry_loop(match):
-        loop_body = match.group(1)
-        # Convert Path operations
-        loop_body = re.sub(r'registry_path = Path\(registry_path_str\)', 'const registryPath = registryPathStr', loop_body)
-        loop_body = re.sub(r'registry_path\.exists\(\)', 'fs.existsSync(registryPathStr)', loop_body)
-        loop_body = re.sub(r'with open\(registry_path, [\'"]r[\'"]\) as f:\s*registry_data = json\.load\(f\)', 
-                          'const registryData = JSON.parse(fs.readFileSync(registryPathStr, \'utf-8\'))', loop_body)
-        loop_body = re.sub(r'REGISTRIES_BY_PATH\[registry_path_str\]', 'REGISTRIES_BY_PATH[registryPathStr]', loop_body)
-        loop_body = re.sub(r'len\(registry_data\.get\([\'"]elements[\'"], \{\}\)\)', 
-                          'Object.keys(registryData.elements || {}).length', loop_body)
-        loop_body = re.sub(r'registry_path\.name', 'path.basename(registryPathStr)', loop_body)
-        loop_body = re.sub(r'loaded_count \+= 1', 'loadedCount++', loop_body)
-        loop_body = re.sub(r'print\(f', 'console.log(`', loop_body)
-        loop_body = re.sub(r'registry_path_str', 'registryPathStr', loop_body)
-        return f'for (const registryPathStr of REGISTRY_PATHS) {{{loop_body}    loadedCount++'
+    # Convert file reading
+    ts_code = re.sub(
+        r'with open\(registry_path, [\'"]r[\'"]\) as f:\s*registry_data = json\.load\(f\)',
+        'const registryData = JSON.parse(fs.readFileSync(registryPathStr, \'utf-8\'))',
+        ts_code
+    )
+    ts_code = re.sub(
+        r'with open\(registryPath, [\'"]r[\'"]\) as f:\s*registryData = json\.load\(f\)',
+        'const registryData = JSON.parse(fs.readFileSync(registryPathStr, \'utf-8\'))',
+        ts_code
+    )
     
-    ts_code = re.sub(registry_loop_pattern, replace_registry_loop, ts_code, flags=re.DOTALL)
+    # Convert variable names
+    ts_code = re.sub(r'registry_path_str', 'registryPathStr', ts_code)
+    ts_code = re.sub(r'registry_data', 'registryData', ts_code)
+    ts_code = re.sub(r'registry_path\.name', 'path.basename(registryPathStr)', ts_code)
+    ts_code = re.sub(r'registryPath\.name', 'path.basename(registryPathStr)', ts_code)
     
-    # Convert summary print
+    # Convert Python len() and .get() calls
+    ts_code = re.sub(
+        r'len\(registryData\.get\([\'"]elements[\'"], \{\}\)\)',
+        'Object.keys(registryData.elements || {}).length',
+        ts_code
+    )
+    ts_code = re.sub(
+        r'len\(registry_data\.get\([\'"]elements[\'"], \{\}\)\)',
+        'Object.keys(registryData.elements || {}).length',
+        ts_code
+    )
+    
+    # Convert increment
+    ts_code = re.sub(r'loaded_count \+= 1', 'loadedCount++', ts_code)
+    ts_code = re.sub(r'loadedCount \+= 1', 'loadedCount++', ts_code)
+    
+    # Convert summary calculations
     ts_code = re.sub(
         r'total_elements = sum\(len\(reg\.get\([\'"]elements[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
         'const totalElements = Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.elements || {}).length, 0)',
@@ -241,11 +273,6 @@ def convert_registry_loading(ts_code: str) -> str:
     ts_code = re.sub(
         r'total_ids = sum\(len\(reg\.get\([\'"]id_index[\'"], \{\}\)\) for reg in REGISTRIES_BY_PATH\.values\(\)\)',
         'const totalIds = Object.values(REGISTRIES_BY_PATH).reduce((sum: number, reg: any) => sum + Object.keys(reg.id_index || {}).length, 0)',
-        ts_code
-    )
-    ts_code = re.sub(
-        r'print\(f"✅ Loaded \{loaded_count\} registries: \{total_elements\} total elements, \{total_ids\} total IDs',
-        'console.log(`✅ Loaded ${loadedCount} registries: ${totalElements} total elements, ${totalIds} total IDs',
         ts_code
     )
     
@@ -424,10 +451,133 @@ def convert_string_formatting(ts_code: str) -> str:
     return ts_code
 
 
+def convert_control_flow(ts_code: str) -> str:
+    """
+    Convert Python control flow syntax to TypeScript
+    Handles if/elif/else/for/try/except with proper brace placement
+    """
+    lines = ts_code.split('\n')
+    converted_lines = []
+    indent_stack = []  # Track indentation levels to add closing braces
+    
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        
+        # Close braces for dedented lines
+        while indent_stack and indent < indent_stack[-1]:
+            indent_stack.pop()
+            converted_lines.append(' ' * (indent_stack[-1] if indent_stack else 0) + '}')
+        
+        # Convert if statements
+        if_match = re.match(r'^(\s*)if\s+(.+):\s*$', line)
+        if if_match:
+            indent_str = if_match.group(1)
+            condition = if_match.group(2)
+            # Convert Python boolean operators and conditions
+            condition = condition.replace(' not ', ' !')
+            condition = condition.replace(' and ', ' && ')
+            condition = condition.replace(' or ', ' || ')
+            condition = condition.replace(' in ', ' in ')  # Keep 'in' for now, will be handled separately
+            # Handle 'not condition' at start
+            if condition.startswith('not '):
+                condition = '!' + condition[4:]
+            converted_lines.append(f'{indent_str}if ({condition}) {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert elif statements
+        elif_match = re.match(r'^(\s*)elif\s+(.+):\s*$', line)
+        if elif_match:
+            indent_str = elif_match.group(1)
+            condition = elif_match.group(2)
+            # Convert Python boolean operators
+            condition = condition.replace(' not ', ' !')
+            condition = condition.replace(' and ', ' && ')
+            condition = condition.replace(' or ', ' || ')
+            if condition.startswith('not '):
+                condition = '!' + condition[4:]
+            # Close previous block and open new one
+            if indent_stack and indent_stack[-1] == indent:
+                indent_stack.pop()
+            converted_lines.append(f'{indent_str}}} else if ({condition}) {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert else statements
+        else_match = re.match(r'^(\s*)else:\s*$', line)
+        if else_match:
+            indent_str = else_match.group(1)
+            # Close previous block and open else
+            if indent_stack and indent_stack[-1] == indent:
+                indent_stack.pop()
+            converted_lines.append(f'{indent_str}}} else {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert for loops
+        for_match = re.match(r'^(\s*)for\s+(\w+)\s+in\s+(.+):\s*$', line)
+        if for_match:
+            indent_str = for_match.group(1)
+            var = for_match.group(2)
+            iterable = for_match.group(3)
+            converted_lines.append(f'{indent_str}for (const {var} of {iterable}) {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert for loops with tuple unpacking
+        for_tuple_match = re.match(r'^(\s*)for\s+(\w+),\s*(\w+)\s+in\s+(.+):\s*$', line)
+        if for_tuple_match:
+            indent_str = for_tuple_match.group(1)
+            var1 = for_tuple_match.group(2)
+            var2 = for_tuple_match.group(3)
+            iterable = for_tuple_match.group(4)
+            converted_lines.append(f'{indent_str}for (const [{var1}, {var2}] of {iterable}) {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert try statements
+        try_match = re.match(r'^(\s*)try:\s*$', line)
+        if try_match:
+            indent_str = try_match.group(1)
+            converted_lines.append(f'{indent_str}try {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Convert except statements (already handled by convert_exception_handling, but add brace)
+        except_match = re.match(r'^(\s*)except\s+(.*):\s*$', line)
+        if except_match:
+            indent_str = except_match.group(1)
+            exception_part = except_match.group(2)
+            # Close previous try block
+            if indent_stack and indent_stack[-1] == indent:
+                indent_stack.pop()
+            if exception_part:
+                if ' as ' in exception_part:
+                    exc_type, var = exception_part.split(' as ')
+                    converted_lines.append(f'{indent_str}}} catch ({var.strip()}: any) {{')
+                else:
+                    converted_lines.append(f'{indent_str}}} catch (e: any) {{')
+            else:
+                converted_lines.append(f'{indent_str}}} catch {{')
+            indent_stack.append(indent)
+            continue
+        
+        # Add the line as-is if no conversion needed
+        converted_lines.append(line)
+    
+    # Close any remaining open braces
+    while indent_stack:
+        indent_stack.pop()
+        converted_lines.append(' ' * (indent_stack[-1] if indent_stack else 0) + '}')
+    
+    return '\n'.join(converted_lines)
+
+
 def convert_exception_handling(ts_code: str) -> str:
     """Convert Python exception handling to TypeScript"""
-    ts_code = re.sub(r'except Exception as e:', '} catch (e: any) {', ts_code)
-    ts_code = re.sub(r'except:', '} catch {', ts_code)
+    # Note: except statements are now handled by convert_control_flow
+    # This function handles other exception-related conversions
     ts_code = re.sub(r'raise Exception\(', 'throw new Error(', ts_code)
     ts_code = re.sub(r'raise\s*$', 'throw e', ts_code, flags=re.MULTILINE)
     ts_code = re.sub(r'raise\s*# Re-raise', 'throw e;  // Re-raise', ts_code)
