@@ -1274,6 +1274,12 @@
                                         class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                     📦 Download .py (Complete Package)
                                 </button>
+                                ${isExcelExecution && excelId ? `
+                                <button onclick="generateTypeScriptFromExcel('${excelId}')" 
+                                        class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+                                    ⚡ Generate TypeScript
+                                </button>
+                                ` : ''}
                                 <button onclick="downloadPlaywrightTestTS('${executionId}')" 
                                         class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
                                     📦 Download .spec.ts (Complete Package)
@@ -1744,6 +1750,12 @@
                                     class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
                                 📦 Download .py (Complete Package)
                             </button>
+                            ${isExcelExecution && excelId ? `
+                            <button onclick="generateTypeScriptFromExcel('${excelId}')" 
+                                    class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+                                ⚡ Generate TypeScript
+                            </button>
+                            ` : ''}
                             <button onclick="downloadPlaywrightTestTS('${executionId}')" 
                                     class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);">
                                 📦 Download .spec.ts (Complete Package)
@@ -1928,6 +1940,56 @@
                     console.error('❌ TypeScript download error:', error);
                     showActionMessage('❌ TypeScript download failed: ' + error.message, 'error');
                 });
+        }
+        
+        function generateTypeScriptFromExcel(excelId) {
+            console.log('🔵 generateTypeScriptFromExcel called with excelId:', excelId);
+            const btnId = `generateTsBtn_${excelId}`;
+            const btn = document.getElementById(btnId);
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '⏳ Generating...';
+            }
+            
+            showActionMessage('⏳ Generating TypeScript test...', 'info');
+            
+            fetch(`/api/excel/generate-ts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    excel_id: excelId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showActionMessage('✅ TypeScript test generated successfully! You can now download it.', 'success');
+                    if (btn) {
+                        btn.textContent = '✅ Generated';
+                        btn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                    }
+                    // Reload page after 2 seconds to show updated download button
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showActionMessage('❌ TypeScript generation failed: ' + (data.error || 'Unknown error'), 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = '⚡ Generate TypeScript';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('❌ TypeScript generation error:', error);
+                showActionMessage('❌ TypeScript generation failed: ' + error.message, 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '⚡ Generate TypeScript';
+                }
+            });
         }
         
         function viewRawData() {
