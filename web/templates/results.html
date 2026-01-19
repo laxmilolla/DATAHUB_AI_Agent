@@ -1969,15 +1969,31 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showActionMessage('✅ TypeScript test generated successfully! You can now download it.', 'success');
+                    showActionMessage('✅ TypeScript test generated successfully! Downloading...', 'success');
                     if (btn) {
                         btn.textContent = '✅ Generated';
                         btn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
                     }
-                    // Reload page after 2 seconds to show updated download button
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
+                    
+                    // Automatically download the zip file
+                    if (data.zip_download_url) {
+                        const linkElement = document.createElement('a');
+                        linkElement.style.display = 'none';
+                        linkElement.href = data.zip_download_url;
+                        linkElement.download = (data.test_name || 'test') + '_typescript_complete.zip';
+                        document.body.appendChild(linkElement);
+                        linkElement.click();
+                        
+                        setTimeout(() => {
+                            document.body.removeChild(linkElement);
+                            showActionMessage('✅ TypeScript test generated and downloaded!', 'success');
+                        }, 1000);
+                    } else {
+                        // Fallback: reload page to show download button
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    }
                 } else {
                     showActionMessage('❌ TypeScript generation failed: ' + (data.error || 'Unknown error'), 'error');
                     if (btn) {
