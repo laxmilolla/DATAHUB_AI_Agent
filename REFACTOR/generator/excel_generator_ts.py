@@ -303,11 +303,13 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         element_id_escaped = escape_xpath(element_id)
         # Use URL from Excel row, fallback to undefined if empty
         url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
+        # Declare element variable outside try block so it's in scope for click handling
+        code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-        code += f"{ind}        const element = page.locator(selector).nth(0);\n"
+        code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
         code += f"{ind}    }} catch (registry_error) {{\n"
@@ -536,11 +538,13 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_id_escaped = escape_xpath(element_id)
             # Use URL from Excel row, fallback to undefined if empty
             url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
+            # Declare element variable outside try block so it's in scope for fill handling
+            code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
             code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-            code += f"{ind}        const element = page.locator(selector).nth(0);\n"
+            code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
             code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
             code += f"{ind}    }} catch (registry_error) {{\n"
@@ -600,11 +604,13 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         element_id_escaped = escape_xpath(element_id)
         # Use URL from Excel row, fallback to undefined if empty
         url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
+        # Declare element variable outside try block so it's in scope
+        code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-        code += f"{ind}        const element = page.locator(selector).nth(0);\n"
+        code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
         code += f"{ind}    }} catch (registry_error) {{\n"
