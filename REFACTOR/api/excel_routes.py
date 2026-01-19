@@ -578,6 +578,7 @@ def generate_ts_from_excel():
             'test_name': test_name,
             'excel_id': excel_id,
             'download_url': f'/api/excel/{excel_id}/test-ts',
+            'zip_download_url': f'/api/excel/{excel_id}/test-ts-zip',
             'generation_result': generation_result
         })
         
@@ -627,6 +628,164 @@ def download_ts_test(excel_id):
     except Exception as e:
         import traceback
         print(f"Error downloading TypeScript test file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/<excel_id>/test-ts-zip', methods=['GET'])
+def download_ts_test_zip(excel_id):
+    """
+    Download TypeScript test file (.spec.ts), package.json, README, and all required registry JSON files bundled as a zip file (excludes .env for security)
+    
+    Returns:
+        Zip file download
+    """
+    try:
+        from flask import send_file
+        from io import BytesIO
+        import zipfile
+        import re
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'generated_test_ts' not in metadata:
+            return jsonify({'error': 'TypeScript test not generated yet'}), 404
+        
+        test_file_path = project_root / metadata['generated_test_ts']['test_file']
+        test_name = metadata['generated_test_ts']['test_name']
+        
+        if not test_file_path.exists():
+            return jsonify({'error': f'TypeScript test file not found: {test_file_path}'}), 404
+        
+        # Read TypeScript test file to extract REGISTRY_PATHS
+        with open(test_file_path, 'r') as f:
+            ts_content = f.read()
+        
+        # Extract REGISTRY_PATHS from TypeScript file
+        registry_paths = []
+        # Match: const REGISTRY_PATHS = [\n    'path1',\n    'path2',\n]
+        match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_content, re.DOTALL)
+        if match:
+            paths_str = match.group(1)
+            # Extract all quoted strings
+            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+            registry_paths = [p.strip() for p in path_matches if p.strip()]
+        
+        # Create package.json content
+        package_json_content = '''{
+  "name": "playwright-test",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.0.0",
+    "otplib": "^12.0.0"
+  }
+}'''
+        
+        # Create README content
+        readme_content = f'''# Playwright TypeScript Test Setup
+
+## Prerequisites
+- Node.js (v16 or higher)
+- npm
+
+## Setup Instructions
+
+1. Extract all files from this zip
+2. Create a `.env` file with your environment variables (e.g., `TOTP_SECRET_KEY=your_secret_key`)
+3. Run: `npm install`
+4. Run: `npx playwright install chromium`
+5. Run: `npx playwright test {test_name}.spec.ts`
+
+## Files Included
+- `{test_name}.spec.ts` - Main test file
+- `package.json` - Dependencies
+- `element_maps/` - JSON registry files with element XPath mappings
+
+## Important
+- **`.env` file is NOT included** for security reasons. You must create your own `.env` file with appropriate credentials.
+- Registry JSON files are included in the `element_maps/` directory structure
+
+## Notes
+- Screenshots saved to `storage/screenshots/`
+- Test uses registry-based element lookup (no hard-coded XPaths)
+'''
+        
+        # Create zip file in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add TypeScript test file
+            ts_filename = f'{test_name}.spec.ts'
+            zip_file.write(test_file_path, ts_filename)
+            print(f"✅ Added TypeScript test file to zip: {ts_filename}")
+            
+            # Note: .env file is NOT included for security reasons
+            
+            # Add package.json
+            zip_file.writestr('package.json', package_json_content)
+            print(f"✅ Added package.json to zip")
+            
+            # Add README.md
+            zip_file.writestr('README.md', readme_content)
+            print(f"✅ Added README.md to zip")
+            
+            # Add all registry JSON files with proper directory structure
+            for registry_path in registry_paths:
+                # registry_path is like 'element_maps/domain/page_page.json'
+                full_registry_path = project_root / registry_path
+                
+                if full_registry_path.exists():
+                    # Preserve the full path structure as the test expects it
+                    zip_path = registry_path
+                    zip_file.write(full_registry_path, zip_path)
+                    print(f"✅ Added registry file to zip: {zip_path}")
+                else:
+                    print(f"⚠️  Registry file not found: {full_registry_path}")
+        
+        # Verify zip contents
+        zip_buffer.seek(0)
+        with zipfile.ZipFile(zip_buffer, 'r') as verify_zip:
+            file_list = verify_zip.namelist()
+            print(f"📦 Zip contains {len(file_list)} files:")
+            for name in file_list:
+                print(f"   - {name}")
+        
+        zip_buffer.seek(0)
+        
+        # Create zip filename
+        zip_filename = f'{test_name}_typescript_complete.zip'
+        
+        # Send zip file
+        response = send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+        
+        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        import traceback
+        print(f"Error creating TypeScript zip file: {e}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 

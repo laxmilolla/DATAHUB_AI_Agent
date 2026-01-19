@@ -279,12 +279,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success) {
                 showMessage('TypeScript test generated successfully!', 'success');
                 
-                // Show download link
-                if (data.download_url) {
+                // Show zip download link (preferred - includes all files)
+                if (data.zip_download_url) {
                     const downloadLink = document.createElement('a');
-                    downloadLink.href = data.download_url;
-                    downloadLink.download = data.test_name + '.spec.ts';
-                    downloadLink.textContent = 'Download TypeScript Test';
+                    downloadLink.href = data.zip_download_url;
+                    downloadLink.download = data.test_name + '_typescript_complete.zip';
+                    downloadLink.textContent = '📦 Download TypeScript Test (Complete Package)';
                     downloadLink.className = 'btn btn-primary';
                     downloadLink.style.marginTop = '10px';
                     downloadLink.style.display = 'inline-block';
@@ -306,9 +306,31 @@ document.addEventListener('DOMContentLoaded', function() {
                         resultsSection.style.display = 'block';
                         const resultsContent = document.getElementById('resultsContent');
                         if (resultsContent) {
-                            resultsContent.innerHTML = '<p>TypeScript test generated successfully!</p>';
+                            resultsContent.innerHTML = '<p>TypeScript test generated successfully! Download the complete package (includes .spec.ts, package.json, README, and registry files).</p>';
                             resultsContent.appendChild(downloadLink);
                         }
+                    }
+                } else if (data.download_url) {
+                    // Fallback to single file download if zip URL not available
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = data.download_url;
+                    downloadLink.download = data.test_name + '.spec.ts';
+                    downloadLink.textContent = 'Download TypeScript Test';
+                    downloadLink.className = 'btn btn-primary';
+                    downloadLink.style.marginTop = '10px';
+                    downloadLink.style.display = 'inline-block';
+                    
+                    const existingLink = document.getElementById('ts-download-link');
+                    if (existingLink) {
+                        existingLink.remove();
+                    }
+                    
+                    downloadLink.id = 'ts-download-link';
+                    
+                    const statusMessage = document.getElementById('statusMessage');
+                    if (statusMessage) {
+                        statusMessage.appendChild(document.createElement('br'));
+                        statusMessage.appendChild(downloadLink);
                     }
                 }
             } else {
