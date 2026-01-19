@@ -1137,7 +1137,16 @@ def get_excel_steps(excel_id):
             action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
             object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
             text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
-            wait_time = row.get('wait_time', None)
+            # Handle wait_time - convert NaN to None for JSON compatibility
+            wait_time_raw = row.get('wait_time', None)
+            if pd.isna(wait_time_raw):
+                wait_time = None
+            else:
+                try:
+                    wait_time = float(wait_time_raw) if wait_time_raw is not None else None
+                except (ValueError, TypeError):
+                    wait_time = None
+            
             functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else ''
             is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
             
