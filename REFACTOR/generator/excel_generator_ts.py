@@ -414,12 +414,14 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     if is_optional:
         code += f"{ind}}} catch (e) {{\n"
         code += f"{ind}    console.log(`ℹ️  Step {step}: Element not found (optional) - continuing`);\n"
+        code += f"{ind}}}\n"
     else:
         code += f"{ind}}} catch (e) {{\n"
         element_display = element_name or 'element'
         code += f"{ind}    console.log(`❌ Step {step}: Failed to click {element_display}: ${{e}}`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
         code += f"{ind}    criticalFailures.push(`Step {step}: Click failed`);\n"
+        code += f"{ind}}}\n"
     
     code += f"{ind}\n"
     return code
@@ -566,12 +568,14 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     if is_optional:
         code += f"{ind}}} catch (e) {{\n"
         code += f"{ind}    console.log(`ℹ️  Step {step}: Element not found (optional) - continuing`);\n"
+        code += f"{ind}}}\n"
     else:
         code += f"{ind}}} catch (e) {{\n"
         element_display = element_name or 'input'
         code += f"{ind}    console.log(`❌ Step {step}: Failed to fill {element_display}: ${{e}}`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
         code += f"{ind}    criticalFailures.push(`Step {step}: Fill failed`);\n"
+        code += f"{ind}}}\n"
     
     code += f"{ind}\n"
     return code
