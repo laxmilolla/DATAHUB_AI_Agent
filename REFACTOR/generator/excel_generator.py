@@ -649,7 +649,7 @@ def generate_click_code(step: str, xpath: str, url: str, element_name: str, is_o
         element_id_escaped = escape_xpath(element_id)
         code += f"{ind}    # Try registry lookup first\n"
         code += f"{ind}    try:\n"
-        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url)\n"
         code += f"{ind}        selector = f'xpath={{xpath}}'\n"
         code += f"{ind}        element = page.locator(selector).nth(0)\n"
         code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
@@ -795,7 +795,7 @@ def generate_fill_code(step: str, xpath: str, text_value: str, url: str, element
             element_id_escaped = escape_xpath(element_id)
             code += f"{ind}    # Try registry lookup first\n"
             code += f"{ind}    try:\n"
-            code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+            code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url)\n"
             code += f"{ind}        selector = f'xpath={{xpath}}'\n"
             code += f"{ind}        element = page.locator(selector).nth(0)\n"
             code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
@@ -892,7 +892,7 @@ def generate_verify_code(step: str, xpath: str, url: str, element_name: str, ind
         element_id_escaped = escape_xpath(element_id)
         code += f"{ind}    # Try registry lookup first\n"
         code += f"{ind}    try:\n"
-        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url())\n"
+        code += f"{ind}        xpath = get_xpath_by_id('{element_id_escaped}', page.url)\n"
         code += f"{ind}        selector = f'xpath={{xpath}}'\n"
         code += f"{ind}        element = page.locator(selector).nth(0)\n"
         code += f"{ind}        element.wait_for(state='visible', timeout=10000)\n"
