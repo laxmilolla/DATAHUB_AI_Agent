@@ -495,6 +495,57 @@ def convert_control_flow(ts_code: str) -> str:
             indent_stack.pop()
             converted_lines.append(' ' * (indent_stack[-1] if indent_stack else 0) + '}')
         
+        # Convert function definitions (def -> function)
+        def_match = re.match(r'^(\s*)def\s+(\w+)\((.*?)\):\s*$', line)
+        if def_match:
+            indent_str = def_match.group(1)
+            func_name = def_match.group(2)
+            params = def_match.group(3)
+            
+            # Convert function name from snake_case to camelCase
+            func_name_camel = re.sub(r'_([a-z])', lambda m: m.group(1).upper(), func_name)
+            
+            # Convert parameter names from snake_case to camelCase
+            if params:
+                param_list = [p.strip() for p in params.split(',')]
+                converted_params = []
+                for param in param_list:
+                    # Handle default values (e.g., page_url=None)
+                    if '=' in param:
+                        param_name, default_val = param.split('=', 1)
+                        param_name = param_name.strip()
+                        default_val = default_val.strip()
+                        # Convert param name to camelCase
+                        param_name_camel = re.sub(r'_([a-z])', lambda m: m.group(1).upper(), param_name)
+                        # Add type annotation and optional marker
+                        if default_val.lower() in ('none', 'null'):
+                            converted_params.append(f'{param_name_camel}?: string')
+                        else:
+                            converted_params.append(f'{param_name_camel}: any = {default_val}')
+                    else:
+                        # Convert param name to camelCase
+                        param_camel = re.sub(r'_([a-z])', lambda m: m.group(1).upper(), param)
+                        # Add type annotation
+                        if 'url' in param.lower():
+                            converted_params.append(f'{param_camel}: string | null')
+                        elif 'id' in param.lower():
+                            converted_params.append(f'{param_camel}: string')
+                        else:
+                            converted_params.append(f'{param_camel}: any')
+                params_str = ', '.join(converted_params)
+            else:
+                params_str = ''
+            
+            # Determine return type based on function name
+            if 'get' in func_name.lower():
+                return_type = 'any'
+            else:
+                return_type = 'void'
+            
+            converted_lines.append(f'{indent_str}function {func_name_camel}({params_str}): {return_type} {{')
+            indent_stack.append(indent)
+            continue
+        
         # Convert if statements
         if_match = re.match(r'^(\s*)if\s+(.+):\s*$', line)
         if if_match:
