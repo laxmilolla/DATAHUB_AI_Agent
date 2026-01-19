@@ -16,6 +16,7 @@ refactor_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(refactor_dir.parent))
 
 from REFACTOR.generator.excel_generator import generate_playwright_from_excel
+from REFACTOR.generator.excel_generator_ts import generate_playwright_ts_from_excel
 from REFACTOR.generator.excel_validator import validate_excel_file, get_validation_summary
 from REFACTOR.generator.excel_template import generate_excel_template, get_template_path
 from REFACTOR.generator.excel_registry_helper import extract_elements_from_excel, compare_with_registry
@@ -495,6 +496,137 @@ def download_excel_file(excel_id):
     except Exception as e:
         import traceback
         print(f"Error downloading Excel file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/generate-ts', methods=['POST'])
+def generate_ts_from_excel():
+    """
+    Generate TypeScript Playwright test from Excel file.
+    
+    Expected JSON:
+    {
+        "excel_id": "excel_...",
+        "test_name": "optional_test_name"
+    }
+    
+    Returns:
+        JSON with generation status and test file info
+    """
+    try:
+        data = request.get_json()
+        excel_id = data.get('excel_id')
+        
+        if not excel_id:
+            return jsonify({'error': 'excel_id required'}), 400
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load Excel metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Generate test name
+        test_name = data.get('test_name') or f"test_excel_{excel_id}"
+        
+        # Create output directory
+        output_dir = project_root / 'storage' / 'excel_tests'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = output_dir / f"{test_name}.spec.ts"  # .spec.ts extension
+        
+        # Generate TypeScript code
+        try:
+            generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'excel_id': excel_id
+            }), 500
+        
+        # Update metadata with TypeScript test info
+        if 'generated_test_ts' not in metadata:
+            metadata['generated_test_ts'] = {}
+        
+        metadata['generated_test_ts'] = {
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'generated_at': datetime.now().isoformat(),
+            'generation_result': generation_result
+        }
+        
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'test_file': str(output_file.relative_to(project_root)),
+            'test_name': test_name,
+            'excel_id': excel_id,
+            'download_url': f'/api/excel/{excel_id}/test-ts',
+            'generation_result': generation_result
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error generating TypeScript test: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_excel.route('/api/excel/<excel_id>/test-ts', methods=['GET'])
+def download_ts_test(excel_id):
+    """
+    Download generated TypeScript Playwright test file.
+    
+    Returns:
+        TypeScript test file download
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'generated_test_ts' not in metadata:
+            return jsonify({'error': 'TypeScript test not generated yet'}), 404
+        
+        test_file_path = project_root / metadata['generated_test_ts']['test_file']
+        
+        if not test_file_path.exists():
+            return jsonify({'error': f'TypeScript test file not found: {test_file_path}'}), 404
+        
+        return send_file(
+            str(test_file_path),
+            mimetype='text/typescript',
+            as_attachment=True,
+            download_name=metadata['generated_test_ts']['test_name'] + '.spec.ts'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error downloading TypeScript test file: {e}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 

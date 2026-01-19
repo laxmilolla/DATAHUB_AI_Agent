@@ -91,6 +91,19 @@ document.addEventListener('DOMContentLoaded', function() {
         await generateTest();
     });
     
+    // Generate TypeScript button handler
+    const generateTsBtn = document.getElementById('generateTsBtn');
+    if (generateTsBtn) {
+        generateTsBtn.addEventListener('click', async () => {
+            if (!currentExcelId) {
+                showMessage('Please upload and validate a file first', 'error');
+                return;
+            }
+            
+            await generateTestTS();
+        });
+    }
+    
     // Download template button handler
     downloadTemplateBtn.addEventListener('click', () => {
         window.location.href = '/api/excel/template?include_examples=true';
@@ -133,6 +146,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success) {
                 showMessage('File uploaded and validated successfully!', 'success');
                 generateBtn.disabled = false;
+                const generateTsBtn = document.getElementById('generateTsBtn');
+                if (generateTsBtn) generateTsBtn.disabled = false;
             } else {
                 showMessage('File uploaded but validation failed. Check validation results below.', 'error');
             }
@@ -222,6 +237,96 @@ document.addEventListener('DOMContentLoaded', function() {
             const generateBtnLoading = generateBtn.querySelector('.btn-loading');
             if (generateBtnText) generateBtnText.style.display = 'inline';
             if (generateBtnLoading) generateBtnLoading.style.display = 'none';
+        }
+    }
+    
+    // Generate TypeScript test
+    async function generateTestTS() {
+        if (!currentExcelId) {
+            showMessage('No file uploaded', 'error');
+            return;
+        }
+        
+        const generateTsBtn = document.getElementById('generateTsBtn');
+        if (!generateTsBtn) return;
+        
+        // Disable button and show loading
+        generateTsBtn.disabled = true;
+        const generateTsBtnText = generateTsBtn.querySelector('.btn-text');
+        const generateTsBtnLoading = generateTsBtn.querySelector('.btn-loading');
+        if (generateTsBtnText) generateTsBtnText.style.display = 'none';
+        if (generateTsBtnLoading) generateTsBtnLoading.style.display = 'inline-block';
+        
+        hideMessage();
+        
+        try {
+            const response = await fetch('/api/excel/generate-ts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    excel_id: currentExcelId
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'TypeScript generation failed');
+            }
+            
+            if (data.success) {
+                showMessage('TypeScript test generated successfully!', 'success');
+                
+                // Show download link
+                if (data.download_url) {
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = data.download_url;
+                    downloadLink.download = data.test_name + '.spec.ts';
+                    downloadLink.textContent = 'Download TypeScript Test';
+                    downloadLink.className = 'btn btn-primary';
+                    downloadLink.style.marginTop = '10px';
+                    downloadLink.style.display = 'inline-block';
+                    
+                    // Remove existing download link if any
+                    const existingLink = document.getElementById('ts-download-link');
+                    if (existingLink) {
+                        existingLink.remove();
+                    }
+                    
+                    downloadLink.id = 'ts-download-link';
+                    
+                    // Append to results section or status message area
+                    const statusMessage = document.getElementById('statusMessage');
+                    if (statusMessage) {
+                        statusMessage.appendChild(document.createElement('br'));
+                        statusMessage.appendChild(downloadLink);
+                    } else if (resultsSection) {
+                        resultsSection.style.display = 'block';
+                        const resultsContent = document.getElementById('resultsContent');
+                        if (resultsContent) {
+                            resultsContent.innerHTML = '<p>TypeScript test generated successfully!</p>';
+                            resultsContent.appendChild(downloadLink);
+                        }
+                    }
+                }
+            } else {
+                let errorMsg = data.error;
+                if (!errorMsg && data.errors && data.errors.length > 0) {
+                    errorMsg = Array.isArray(data.errors) ? data.errors.join('; ') : data.errors;
+                }
+                showMessage('TypeScript generation failed: ' + (errorMsg || 'Unknown error'), 'error');
+            }
+            
+        } catch (error) {
+            showMessage('TypeScript generation failed: ' + error.message, 'error');
+        } finally {
+            generateTsBtn.disabled = false;
+            const generateTsBtnText = generateTsBtn.querySelector('.btn-text');
+            const generateTsBtnLoading = generateTsBtn.querySelector('.btn-loading');
+            if (generateTsBtnText) generateTsBtnText.style.display = 'inline';
+            if (generateTsBtnLoading) generateTsBtnLoading.style.display = 'none';
         }
     }
     
