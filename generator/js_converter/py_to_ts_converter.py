@@ -153,7 +153,11 @@ def convert_python_to_spec_ts(python_code: str) -> str:
 def convert_env_loading(ts_code: str) -> str:
     """Convert Python .env loading to TypeScript"""
     # Replace Python dotenv loading with TypeScript version
+    # Pattern 1: Match the old Python-style .env loading
     env_pattern = r'# Load environment variables.*?print\(f"⚠️  Failed to load \.env file: \{e\}"\)'
+    
+    # Pattern 2: Match the newer Python-style .env loading with Path
+    env_pattern2 = r'// Load environment variables from \.env file\s*env_path = Path\(__file__\)\.parent\.parent\.parent / \'\.env\'\s*if env_path\.exists\(\):\s*load_dotenv\(env_path\)\s*console\.log\(`✅ Loaded environment variables from \$\{env_path\}`\)\s*else:\s*console\.log\(`⚠️  \.env file not found at \$\{env_path\}`\)'
     
     ts_env_code = '''// Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
 // Check multiple locations: same dir, parent, home, or 3 levels up
@@ -193,6 +197,7 @@ try {
 }'''
     
     ts_code = re.sub(env_pattern, ts_env_code, ts_code, flags=re.DOTALL)
+    ts_code = re.sub(env_pattern2, ts_env_code, ts_code, flags=re.DOTALL)
     return ts_code
 
 
