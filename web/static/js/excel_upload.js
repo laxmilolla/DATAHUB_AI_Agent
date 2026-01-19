@@ -93,7 +93,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Generate TypeScript button handler
     const generateTsBtn = document.getElementById('generateTsBtn');
+    console.log('🔵 generateTsBtn found:', generateTsBtn);
     if (generateTsBtn) {
+        console.log('🔵 generateTsBtn visible:', window.getComputedStyle(generateTsBtn).display);
         generateTsBtn.addEventListener('click', async () => {
             if (!currentExcelId) {
                 showMessage('Please upload and validate a file first', 'error');
@@ -102,6 +104,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             await generateTestTS();
         });
+    } else {
+        console.error('❌ generateTsBtn NOT FOUND in DOM!');
     }
     
     // Download template button handler
