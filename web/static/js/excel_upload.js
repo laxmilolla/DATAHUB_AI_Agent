@@ -92,8 +92,31 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Generate TypeScript button handler
-    const generateTsBtn = document.getElementById('generateTsBtn');
+    let generateTsBtn = document.getElementById('generateTsBtn');
     console.log('🔵 generateTsBtn found:', generateTsBtn);
+    
+    // If button doesn't exist, create it (workaround for template cache issue)
+    if (!generateTsBtn) {
+        console.warn('⚠️ generateTsBtn not found, creating it dynamically');
+        const actionButtons = document.querySelector('.action-buttons');
+        const generateBtn = document.getElementById('generateBtn');
+        if (actionButtons && generateBtn) {
+            generateTsBtn = document.createElement('button');
+            generateTsBtn.id = 'generateTsBtn';
+            generateTsBtn.className = 'btn btn-primary';
+            generateTsBtn.disabled = true;
+            generateTsBtn.innerHTML = `
+                <span class="btn-text">Generate TypeScript</span>
+                <span class="btn-loading" style="display: none;">
+                    <span class="spinner"></span> Generating...
+                </span>
+            `;
+            // Insert after generateBtn
+            generateBtn.parentNode.insertBefore(generateTsBtn, generateBtn.nextSibling);
+            console.log('✅ generateTsBtn created dynamically');
+        }
+    }
+    
     if (generateTsBtn) {
         console.log('🔵 generateTsBtn visible:', window.getComputedStyle(generateTsBtn).display);
         generateTsBtn.addEventListener('click', async () => {
@@ -105,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
             await generateTestTS();
         });
     } else {
-        console.error('❌ generateTsBtn NOT FOUND in DOM!');
+        console.error('❌ generateTsBtn NOT FOUND and could not be created!');
     }
     
     // Download template button handler
