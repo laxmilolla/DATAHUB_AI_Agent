@@ -337,14 +337,15 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use page.url (current page URL) like Python does - adapts to redirects/navigation
-        # Fallback to Excel URL if page.url is not available
+        # Use Excel URL (from row) for registry lookup - this is the page where the element should be
+        # Fallback to page.url() if Excel URL is not available
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
-        code += f"{ind}        const currentUrl = page.url();\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
+        code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
+        url_escaped = url.replace("'", "\\'") if url else ''
+        code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -573,14 +574,15 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
-            # Use page.url (current page URL) like Python does - adapts to redirects/navigation
+            # Use Excel URL (from row) for registry lookup - this is the page where the element should be
             # Declare element variable outside try block so it's in scope for fill handling
             code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
-            code += f"{ind}        const currentUrl = page.url();\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
+            code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
+            url_escaped = url.replace("'", "\\'") if url else ''
+            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -640,14 +642,15 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use page.url (current page URL) like Python does - adapts to redirects/navigation
+        # Use Excel URL (from row) for registry lookup - this is the page where the element should be
         # Declare element variable outside try block so it's in scope
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
-        code += f"{ind}        const currentUrl = page.url();\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
+        code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
+        url_escaped = url.replace("'", "\\'") if url else ''
+        code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
