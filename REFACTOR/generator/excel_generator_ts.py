@@ -782,6 +782,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
     - Text Value: For fill actions (optional)
     - Wait Time: For wait actions in ms (optional)
     - Optional: true/false (optional)
+    - Modal: yes/no/true/false (optional) - explicitly mark steps that interact with modal dialogs
     
     Returns:
         Dict with success status and info
@@ -828,6 +829,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
             wait_time = row.get('wait_time', None)
             is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
+            # Read modal column (yes/no/true/false) - explicitly mark modal steps
+            modal_from_excel = str(row.get('modal', '')).strip().lower() if pd.notna(row.get('modal')) else None
+            is_modal_from_excel = modal_from_excel in ['yes', 'true', '1', 'y'] if modal_from_excel else None
             
             # Update current URL
             if url and url != 'N/A':
@@ -852,20 +856,38 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             elif action == 'click':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
-                    # Dynamically detect if this click opens a modal (check element name/type)
+                    
+                    # Lookup element_id from registry FIRST (before modal detection) - use URL from this row (not current_url)
+                    row_url = url if url and url != 'N/A' else current_url or ''
+                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    
+                    # Dynamically detect if this click opens a modal (check element name/type AND element_id)
                     # Common patterns: button with "create", "add", "new", "open" in name
+                    # Also check for known modal-opening element IDs (e.g., "Create a Data Submission" button)
                     opens_modal = False
-                    if element_name:
+                    
+                    # Check element_id for known modal-opening buttons
+                    if element_id == 'ID_38253381':  # "Create a Data Submission" button
+                        opens_modal = True
+                    
+                    # Check element name/type for modal keywords
+                    if not opens_modal and element_name:
                         modal_keywords = ['create', 'add', 'new', 'open', 'submit']
                         element_lower = element_name.lower()
                         if any(keyword in element_lower for keyword in modal_keywords):
                             # Check if it's a button (likely opens modal)
-                            if 'button' in element_lower or object_type.lower() == 'button':
+                            if 'button' in element_lower or (object_type and object_type.lower() == 'button'):
                                 opens_modal = True
+                    
+                    # Check XPath for "Create a Data Submission" text (fallback)
+                    if not opens_modal and xpath and 'create' in xpath.lower() and 'data' in xpath.lower() and 'submission' in xpath.lower():
+                        if 'button' in xpath.lower() or (object_type and object_type.lower() == 'button'):
+                            opens_modal = True
                     
                     # If this click opens a modal, mark modal as open
                     if opens_modal:
                         modal_is_open = True
+                        print(f"🔔 Step {step}: Detected modal-opening click (element_id: {element_id}, element_name: {element_name})")
                     
                     # Check if this click closes a modal (e.g., "Cancel", "Close", "Save")
                     closes_modal = False
@@ -873,8 +895,10 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                         close_keywords = ['cancel', 'close', 'save', 'submit', 'done']
                         element_lower = element_name.lower()
                         if any(keyword in element_lower for keyword in close_keywords):
-                            closes_modal = True
-                            modal_is_open = False
+                            # Only close modal if it's a button in a modal (not the main "Create" button)
+                            if modal_is_open and ('button' in element_lower or (object_type and object_type.lower() == 'button')):
+                                closes_modal = True
+                                modal_is_open = False
                     
                     # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
                     # This ensures modal steps are detected even if dynamic detection fails
@@ -889,9 +913,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                             if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
                                 is_modal_step = True
                     
-                    # Lookup element_id from registry - use URL from this row (not current_url)
-                    row_url = url if url and url != 'N/A' else current_url or ''
-                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    if is_modal_step:
+                        print(f"🔔 Step {step}: Marked as modal step (modal_is_open: {modal_is_open})")
                     
                     # Check if next step is on a different URL (for navigation wait after click)
                     next_url_for_wait = None
@@ -920,18 +943,32 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     elif text_value and ('email' in element_name.lower() or 'user' in element_name.lower() or 'username' in element_name.lower()):
                         user_email = text_value  # Store username for TOTP key lookup
                     
-                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
-                    # This ensures modal steps are detected even if dynamic detection fails
-                    is_modal_step = modal_is_open
-                    if not is_modal_step:
-                        try:
-                            step_num = int(str(step).replace('a', '').replace('b', ''))
-                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
-                                is_modal_step = True
-                        except:
-                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                                is_modal_step = True
+                    # Check Excel "modal" column first (explicit override)
+                    if is_modal_from_excel is not None:
+                        # Excel column explicitly specifies modal status - use it
+                        is_modal_step = is_modal_from_excel
+                        if is_modal_step:
+                            print(f"🔔 Step {step}: Marked as modal step (from Excel 'modal' column: {modal_from_excel})")
+                        # Update modal_is_open state if Excel says this is a modal step
+                        if is_modal_step:
+                            modal_is_open = True
+                    else:
+                        # No explicit modal column - use automatic detection
+                        # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
+                        # This ensures modal steps are detected even if dynamic detection fails
+                        is_modal_step = modal_is_open
+                        if not is_modal_step:
+                            try:
+                                step_num = int(str(step).replace('a', '').replace('b', ''))
+                                if step_num >= 16:  # Steps 16+ are in the modal (fallback)
+                                    is_modal_step = True
+                            except:
+                                # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
+                                if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
+                                    is_modal_step = True
+                        
+                        if is_modal_step:
+                            print(f"🔔 Step {step}: Marked as modal step (automatic detection, modal_is_open: {modal_is_open})")
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''

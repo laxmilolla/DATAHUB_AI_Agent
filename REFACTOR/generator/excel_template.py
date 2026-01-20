@@ -42,7 +42,8 @@ def generate_excel_template(output_path: Path, include_examples: bool = True) ->
         'Functions',
         'Text Value',
         'Wait Time',
-        'Optional'
+        'Optional',
+        'Modal'
     ]
     
     # Write headers
@@ -107,7 +108,8 @@ def _get_example_rows() -> list:
             '',
             '',
             '',
-            'false'
+            'false',
+            ''
         ],
         # Step 2: Wait
         [
@@ -119,9 +121,10 @@ def _get_example_rows() -> list:
             '',
             '',
             2000,
-            'false'
+            'false',
+            ''
         ],
-        # Step 3: Click button
+        # Step 3: Click button (opens modal)
         [
             3,
             'https://example.com',
@@ -131,9 +134,10 @@ def _get_example_rows() -> list:
             '',
             '',
             '',
-            'false'
+            'false',
+            'no'
         ],
-        # Step 4: Fill input
+        # Step 4: Fill input (in modal)
         [
             4,
             'https://example.com',
@@ -143,7 +147,8 @@ def _get_example_rows() -> list:
             '',
             'Sample Text',
             '',
-            'false'
+            'false',
+            'yes'
         ],
         # Step 5: Fill password
         [
@@ -155,7 +160,8 @@ def _get_example_rows() -> list:
             '',
             'password123',
             '',
-            'false'
+            'false',
+            ''
         ],
         # Step 6: Fill with TOTP function
         [
@@ -167,9 +173,10 @@ def _get_example_rows() -> list:
             'TOTP',
             '',
             '',
-            'false'
+            'false',
+            ''
         ],
-        # Step 7: Click dropdown option
+        # Step 7: Click dropdown option (in modal)
         [
             7,
             'https://example.com',
@@ -179,7 +186,8 @@ def _get_example_rows() -> list:
             '',
             '',
             '',
-            'false'
+            'false',
+            'yes'
         ],
         # Step 8: Optional step
         [
@@ -191,7 +199,8 @@ def _get_example_rows() -> list:
             '',
             '',
             '',
-            'true'
+            'true',
+            ''
         ],
         # Step 9: Verify element
         [
@@ -203,7 +212,8 @@ def _get_example_rows() -> list:
             '',
             '',
             '',
-            'false'
+            'false',
+            ''
         ],
     ]
 
@@ -229,6 +239,7 @@ def _add_instructions(ws):
         ["Text Value", "Text to fill (for 'fill' actions). Use '${TIMESTAMP}' for dynamic timestamp."],
         ["Wait Time", "Wait time in milliseconds (for 'wait' actions)"],
         ["Optional", "Whether step is optional: true/false"],
+        ["Modal", "Whether step interacts with a modal dialog: yes/no/true/false. Leave empty for automatic detection."],
         ["", ""],
         ["Action Types:", ""],
         ["", ""],

@@ -823,12 +823,24 @@
             
             let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎬 Test Steps</h3>';
             
-            // For Excel executions, show Excel steps
+            // For Excel executions, show Excel steps with status
             if (isExcelExecution && excelId) {
                 try {
-                    const stepsResponse = await fetch(`/api/excel/${excelId}/steps`);
+                    // Try to get steps with execution status first
+                    let stepsResponse = await fetch(`/api/excel-execution/${executionId}/steps`);
+                    let stepsData = null;
+                    
                     if (stepsResponse.ok) {
-                        const stepsData = await stepsResponse.json();
+                        stepsData = await stepsResponse.json();
+                    } else {
+                        // Fallback to Excel steps without status
+                        stepsResponse = await fetch(`/api/excel/${excelId}/steps`);
+                        if (stepsResponse.ok) {
+                            stepsData = await stepsResponse.json();
+                        }
+                    }
+                    
+                    if (stepsData && stepsData.steps) {
                         const steps = stepsData.steps || [];
                         
                         if (steps.length === 0) {
@@ -868,15 +880,51 @@
                                 actionColor = '#8B6F47';
                             }
                             
+                            // Get step status if available
+                            const stepStatus = step.status || 'pending';
+                            const statusIcon = step.status_icon || '⏳';
+                            const statusMessages = step.status_messages || [];
+                            const hasDetails = step.has_details || false;
+                            
+                            // Status colors
+                            let statusColor = '#6c757d'; // pending
+                            let statusBg = '#f8f9fa';
+                            if (stepStatus === 'passed') {
+                                statusColor = '#28a745';
+                                statusBg = '#d4edda';
+                            } else if (stepStatus === 'failed') {
+                                statusColor = '#dc3545';
+                                statusBg = '#f8d7da';
+                            } else if (stepStatus === 'warning') {
+                                statusColor = '#ffc107';
+                                statusBg = '#fff3cd';
+                            }
+                            
                             html += `
                                 <div class="action-item" style="background: white; border-left: 4px solid ${actionColor}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                                     <div class="action-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                                         <div style="display: flex; align-items: center; gap: 10px;">
                                             <span style="background: ${actionColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${stepNum}</span>
                                             <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${actionIcon} ${action.toUpperCase()}</strong>
+                                            <span style="background: ${statusBg}; color: ${statusColor}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; border: 1px solid ${statusColor};">
+                                                ${statusIcon} ${stepStatus.toUpperCase()}
+                                            </span>
                                             ${isOptional ? '<span style="background: #D4C5B9; color: #6B5B3D; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600;">Optional</span>' : ''}
                                         </div>
+                                        ${hasDetails ? `
+                                        <button onclick="toggleStepDetails('step-${stepNum}')" style="background: #667eea; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85em; font-weight: 600;">
+                                            View Details
+                                        </button>
+                                        ` : ''}
                                     </div>
+                                    ${hasDetails ? `
+                                    <div id="step-${stepNum}-details" style="display: none; margin-top: 15px; padding: 15px; background: ${statusBg}; border-radius: 6px; border-left: 3px solid ${statusColor};">
+                                        <strong style="color: ${statusColor}; font-size: 0.9em;">Status Messages:</strong>
+                                        <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #495057;">
+                                            ${statusMessages.map(msg => `<li style="margin: 5px 0;">${msg}</li>`).join('')}
+                                        </ul>
+                                    </div>
+                                    ` : ''}
                                     ${url ? `
                                     <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
                                         <strong style="font-size: 0.9em; color: #495057;">🌐 URL:</strong>
@@ -2468,6 +2516,17 @@
         function closeRegistryUpdateModal() {
             const modal = document.getElementById('registry-update-modal');
             if (modal) modal.remove();
+        }
+        
+        function toggleStepDetails(stepId) {
+            const detailsDiv = document.getElementById(stepId + '-details');
+            if (detailsDiv) {
+                if (detailsDiv.style.display === 'none') {
+                    detailsDiv.style.display = 'block';
+                } else {
+                    detailsDiv.style.display = 'none';
+                }
+            }
         }
         
         async function confirmRegistryUpdate(excelId) {
