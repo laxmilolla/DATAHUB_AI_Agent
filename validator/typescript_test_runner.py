@@ -109,7 +109,7 @@ class TypeScriptTestRunner:
                 cwd=str(test_dir),
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minute timeout
+                timeout=600,  # 10 minute timeout (test has 5 min timeout, allow extra for setup/teardown)
                 env={**dict(os.environ), 'CI': 'true'}  # Set CI mode for headless
             )
             
@@ -187,7 +187,7 @@ class TypeScriptTestRunner:
                 'exit_code': -1,
                 'duration': round(duration, 2),
                 'stdout': '',
-                'stderr': 'Test execution timeout (300s exceeded)',
+                'stderr': 'Test execution timeout (600s exceeded)',
                 'assertions_passed': 0,
                 'assertions_failed': 0,
                 'screenshots': [],

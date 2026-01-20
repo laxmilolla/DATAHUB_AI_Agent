@@ -919,11 +919,12 @@ let envFile: string | null = null;
 try {{
   const dotenv = require('dotenv');
   const testFileDir = __dirname;
+  const projectRoot = path.join(__dirname, '../..');
   const possibleEnvLocations = [
     path.join(testFileDir, '.env'),  // Same directory as test file
     path.join(path.dirname(testFileDir), '.env'),  // Parent directory
+    path.join(projectRoot, '.env'),  // Project root (DATAHUB_AI_Agent/.env)
     path.join(require('os').homedir(), '.env'),  // Home directory
-    path.join(path.dirname(path.dirname(path.dirname(testFileDir))), '.env'),  // 3 levels up
   ];
   
   for (const loc of possibleEnvLocations) {{
