@@ -59,8 +59,11 @@ let loadedCount = 0;
 // Resolve registry paths: try multiple locations for flexibility
 // 1. Relative to test file directory (for local execution with zip package)
 // 2. Relative to project root (for server execution: storage/excel_tests -> project root)
+//    Test file: /home/ubuntu/DATAHUB_AI_Agent/storage/excel_tests/test.spec.ts
+//    2 levels up: /home/ubuntu/DATAHUB_AI_Agent/ (correct)
+//    3 levels up: /home/ubuntu/ (wrong - registry files not there)
 const testFileDir = __dirname;
-const projectRoot = path.join(__dirname, '../../..');
+const projectRoot = path.join(__dirname, '../..');
 
 for (const registryPathStr of REGISTRY_PATHS) {{
     try {{
