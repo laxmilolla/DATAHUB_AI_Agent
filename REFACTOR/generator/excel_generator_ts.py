@@ -313,6 +313,26 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     
+    # Check if we're on the correct page (Excel URL) - navigate if needed
+    if url and url != 'N/A':
+        url_escaped = url.replace("'", "\\'")
+        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
+        code += f"{ind}try {{\n"
+        code += f"{ind}    const currentPageUrl = page.url();\n"
+        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
+        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
+        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
+        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
+        code += f"{ind}        await page.goto(expectedUrl);\n"
+        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
+        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}}} catch (nav_error) {{\n"
+        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
+        code += f"{ind}}}\n"
+    
     # Scope XPath to modal if needed
     if is_modal_step:
         if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
@@ -489,6 +509,26 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     
+    # Check if we're on the correct page (Excel URL) - navigate if needed
+    if url and url != 'N/A':
+        url_escaped = url.replace("'", "\\'")
+        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
+        code += f"{ind}try {{\n"
+        code += f"{ind}    const currentPageUrl = page.url();\n"
+        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
+        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
+        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
+        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
+        code += f"{ind}        await page.goto(expectedUrl);\n"
+        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
+        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}}} catch (nav_error) {{\n"
+        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
+        code += f"{ind}}}\n"
+    
     if is_modal_step:
         code += f"{ind}// Modal step - wait for modal\n"
         code += f"{ind}try {{\n"
@@ -637,6 +677,27 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     
     code = f"{ind}// Step {step}: Verify {element_name or 'element'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    
+    # Check if we're on the correct page (Excel URL) - navigate if needed
+    if url and url != 'N/A':
+        url_escaped = url.replace("'", "\\'")
+        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
+        code += f"{ind}try {{\n"
+        code += f"{ind}    const currentPageUrl = page.url();\n"
+        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
+        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
+        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
+        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
+        code += f"{ind}        await page.goto(expectedUrl);\n"
+        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
+        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}}} catch (nav_error) {{\n"
+        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
+        code += f"{ind}}}\n"
+    
     code += f"{ind}try {{\n"
     
     # Use registry lookup if element_id is available
