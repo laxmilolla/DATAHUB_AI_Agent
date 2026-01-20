@@ -56,22 +56,36 @@ const REGISTRY_PATHS = {registry_paths_list_str};
 const REGISTRIES_BY_PATH: {{ [key: string]: any }} = {{}};  // registry_path -> registryData
 let loadedCount = 0;
 
-// Resolve project root: go up 3 levels from test file (storage/excel_tests -> storage -> project root)
+// Resolve registry paths: try multiple locations for flexibility
+// 1. Relative to test file directory (for local execution with zip package)
+// 2. Relative to project root (for server execution: storage/excel_tests -> project root)
+const testFileDir = __dirname;
 const projectRoot = path.join(__dirname, '../../..');
 
 for (const registryPathStr of REGISTRY_PATHS) {{
     try {{
-        // Resolve registry path relative to project root (not test file directory)
-        const registryPath = path.join(projectRoot, registryPathStr);
+        let registryPath: string | null = null;
         
-        if (fs.existsSync(registryPath)) {{
+        // Try 1: Relative to test file directory (for local zip package)
+        const localPath = path.join(testFileDir, registryPathStr);
+        if (fs.existsSync(localPath)) {{
+            registryPath = localPath;
+        }} else {{
+            // Try 2: Relative to project root (for server execution)
+            const serverPath = path.join(projectRoot, registryPathStr);
+            if (fs.existsSync(serverPath)) {{
+                registryPath = serverPath;
+            }}
+        }}
+        
+        if (registryPath) {{
             const registryData = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
             // Store per-path for dynamic loading (NO MERGE - prevents conflicts)
             REGISTRIES_BY_PATH[registryPathStr] = registryData;
             loadedCount++;
             console.log(`✅ Loaded registry: ${{Object.keys(registryData.elements || {{}}).length}} elements from ${{path.basename(registryPathStr)}}`);
         }} else {{
-            console.log(`⚠️  Registry file not found: ${{registryPath}} (resolved from ${{registryPathStr}})`);
+            console.log(`⚠️  Registry file not found: ${{registryPathStr}} (checked: ${{path.join(testFileDir, registryPathStr)}} and ${{path.join(projectRoot, registryPathStr)}})`);
         }}
     }} catch (e) {{
         console.log(`⚠️  Failed to load registry ${{registryPathStr}}: ${{e}}`);
