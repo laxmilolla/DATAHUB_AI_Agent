@@ -275,22 +275,27 @@ def generate_navigate_code_ts(step: str, url: str, indent: int = 12) -> str:
     return code
 
 
-def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12) -> str:
-    """Generate TypeScript wait code"""
+def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_was_click: bool = False) -> str:
+    """Generate TypeScript wait code
+    
+    Args:
+        step: Step number/identifier
+        wait_time: Wait time in milliseconds
+        indent: Indentation level
+        previous_was_click: If True, previous step was a click that might cause navigation/redirect
+    """
     ind = ' ' * indent
     wait_ms = int(wait_time) if wait_time else 1000
     code = f"{ind}// Step {step}: Wait {wait_ms}ms\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     code += f"{ind}try {{\n"
     code += f"{ind}    await page.waitForTimeout({wait_ms});\n"
-    # After login (step 10), wait for page to fully load after redirect
-    code += f"{ind}    // If this is step 11 (after login), wait for page to fully load\n"
-    code += f"{ind}    const stepNum = typeof {step} === 'string' ? parseInt({step}.replace(/[a-z]/gi, '')) : {step};\n"
-    code += f"{ind}    if (stepNum === 11) {{\n"
-    code += f"{ind}        await page.waitForLoadState('networkidle');\n"
-    code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
-    code += f"{ind}        console.log(`✅ Step {step}: Page fully loaded after login redirect`);\n"
-    code += f"{ind}    }}\n"
+    # If previous step was a click, wait for page to fully load (handles redirects/navigation)
+    if previous_was_click:
+        code += f"{ind}    // Previous step was a click - wait for page to fully load after potential redirect\n"
+        code += f"{ind}    await page.waitForLoadState('networkidle');\n"
+        code += f"{ind}    await page.waitForLoadState('domcontentloaded');\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Page fully loaded after click redirect`);\n"
     code += f"{ind}    console.log(`⏱️  Step {step}: Waited {wait_ms}ms`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_wait.png' }});\n"
     code += f"{ind}}} catch (e) {{\n"
@@ -715,6 +720,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         test_body = ""
         errors = []
         current_url = None
+        previous_action = None  # Track previous action to detect if wait should wait for page load
+        modal_is_open = False  # Track if a modal is currently open (dynamic detection)
         
         for idx, row in df.iterrows():
             step = str(row.get('step', idx + 1)).strip()
@@ -737,51 +744,64 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     test_body += generate_navigate_code_ts(step, url)
                 else:
                     errors.append(f"Step {step}: Navigate action requires URL")
+                previous_action = 'navigate'
+                modal_is_open = False  # Navigation closes any open modal
             
             elif action == 'wait':
-                test_body += generate_wait_code_ts(step, wait_time or 1000)
+                # If previous action was a click, wait for page load (handles redirects)
+                previous_was_click = (previous_action == 'click')
+                test_body += generate_wait_code_ts(step, wait_time or 1000, previous_was_click=previous_was_click)
+                previous_action = 'wait'
             
             elif action == 'click':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
-                    # Check if this is a modal step (after "Create a Data Submission" button click)
-                    # Steps 16-19 are modal steps (dropdowns and form fields in the modal)
-                    is_modal_step = False
-                    try:
-                        step_num = int(str(step).replace('a', '').replace('b', ''))
-                        if step_num >= 16:  # Steps 16+ are in the modal
-                            is_modal_step = True
-                    except:
-                        # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                        if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                            is_modal_step = True
+                    # Dynamically detect if this click opens a modal (check element name/type)
+                    # Common patterns: button with "create", "add", "new", "open" in name
+                    opens_modal = False
+                    if element_name:
+                        modal_keywords = ['create', 'add', 'new', 'open', 'submit']
+                        element_lower = element_name.lower()
+                        if any(keyword in element_lower for keyword in modal_keywords):
+                            # Check if it's a button (likely opens modal)
+                            if 'button' in element_lower or object_type.lower() == 'button':
+                                opens_modal = True
+                    
+                    # If this click opens a modal, mark modal as open
+                    if opens_modal:
+                        modal_is_open = True
+                    
+                    # Check if this click closes a modal (e.g., "Cancel", "Close", "Save")
+                    closes_modal = False
+                    if element_name:
+                        close_keywords = ['cancel', 'close', 'save', 'submit', 'done']
+                        element_lower = element_name.lower()
+                        if any(keyword in element_lower for keyword in close_keywords):
+                            closes_modal = True
+                            modal_is_open = False
+                    
+                    # Use modal_is_open state (dynamic) instead of hard-coded step numbers
+                    is_modal_step = modal_is_open
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
                     test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    previous_action = 'click'
                 else:
                     errors.append(f"Step {step}: Click action requires XPath")
             
             elif action == 'fill':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'input'
-                    # Check if this is a modal step (after "Create a Data Submission" button click)
-                    # Steps 16-19 are modal steps (dropdowns and form fields in the modal)
-                    is_modal_step = False
-                    try:
-                        step_num = int(str(step).replace('a', '').replace('b', ''))
-                        if step_num >= 16:  # Steps 16+ are in the modal
-                            is_modal_step = True
-                    except:
-                        # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                        if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                            is_modal_step = True
+                    # Use modal_is_open state (dynamic) instead of hard-coded step numbers
+                    is_modal_step = modal_is_open
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
                     test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    previous_action = 'fill'
                 else:
                     errors.append(f"Step {step}: Fill action requires XPath")
             
@@ -792,6 +812,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
                     test_body += generate_verify_code_ts(step, xpath, row_url, element_name, element_id=element_id)
+                    previous_action = 'verify'
                 else:
                     errors.append(f"Step {step}: Verify action requires XPath")
             
