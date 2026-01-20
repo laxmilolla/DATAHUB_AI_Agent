@@ -283,6 +283,14 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12) -> str:
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     code += f"{ind}try {{\n"
     code += f"{ind}    await page.waitForTimeout({wait_ms});\n"
+    # After login (step 10), wait for page to fully load after redirect
+    code += f"{ind}    // If this is step 11 (after login), wait for page to fully load\n"
+    code += f"{ind}    const stepNum = typeof {step} === 'string' ? parseInt({step}.replace(/[a-z]/gi, '')) : {step};\n"
+    code += f"{ind}    if (stepNum === 11) {{\n"
+    code += f"{ind}        await page.waitForLoadState('networkidle');\n"
+    code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
+    code += f"{ind}        console.log(`✅ Step {step}: Page fully loaded after login redirect`);\n"
+    code += f"{ind}    }}\n"
     code += f"{ind}    console.log(`⏱️  Step {step}: Waited {wait_ms}ms`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_wait.png' }});\n"
     code += f"{ind}}} catch (e) {{\n"
@@ -324,13 +332,14 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use URL from Excel row, fallback to undefined if empty
-        url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
-        # Declare element variable outside try block so it's in scope for click handling
+        # Use page.url (current page URL) like Python does - adapts to redirects/navigation
+        # Fallback to Excel URL if page.url is not available
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
+        code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
+        code += f"{ind}        const currentUrl = page.url();\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -559,13 +568,14 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
-            # Use URL from Excel row, fallback to undefined if empty
-            url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
+            # Use page.url (current page URL) like Python does - adapts to redirects/navigation
             # Declare element variable outside try block so it's in scope for fill handling
             code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
+            code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
+            code += f"{ind}        const currentUrl = page.url();\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -625,13 +635,14 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use URL from Excel row, fallback to undefined if empty
-        url_param = f"'{url}'" if url and url != 'N/A' else 'undefined'
+        # Use page.url (current page URL) like Python does - adapts to redirects/navigation
         # Declare element variable outside try block so it's in scope
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', {url_param});\n"
+        code += f"{ind}        // Use page.url (current page) for registry lookup - adapts to redirects\n"
+        code += f"{ind}        const currentUrl = page.url();\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', currentUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
