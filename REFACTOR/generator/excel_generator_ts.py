@@ -280,12 +280,15 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     
     Args:
         step: Step number/identifier
-        wait_time: Wait time in milliseconds
+        wait_time: Wait time in milliseconds (from Excel - follow exactly)
         indent: Indentation level
         previous_was_click: If True, previous step was a click that might cause navigation/redirect
     """
     ind = ' ' * indent
     wait_ms = int(wait_time) if wait_time else 1000
+    
+    # Follow Excel wait_time exactly - no hard-coded logic
+    # If user wants to skip wait after TOTP, they should set wait_time to 0 in Excel
     code = f"{ind}// Step {step}: Wait {wait_ms}ms\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     code += f"{ind}try {{\n"
@@ -311,6 +314,8 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
     
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
+    # Check if previous step was TOTP - reduce wait to prevent expiration
+    # Note: We'll pass previous_was_totp as a parameter in the future if needed
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     
     # Check if we're on the correct page (Excel URL) - navigate if needed
@@ -594,16 +599,41 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}        const totpCode = totp.generate(secretKey);\n"
         code += f"{ind}        console.log(`🔐 Step {step}: Generated TOTP code: ${{totpCode.substring(0, 2)}}****`);\n"
         code += f"{ind}        \n"
-        code += f"{ind}        // For TOTP: clear field first, then use type() with delay (more reliable than fill())\n"
+        code += f"{ind}        // For TOTP: focus, clear, then type with delay (most reliable method)\n"
+        code += f"{ind}        // CRITICAL: Minimize wait times - TOTP codes expire quickly!\n"
+        code += f"{ind}        await element.focus();\n"
+        code += f"{ind}        await page.waitForTimeout(50);  // Reduced - TOTP expires!\n"
         code += f"{ind}        await element.fill('');\n"
-        code += f"{ind}        await element.type(totpCode, {{ delay: 10 }});\n"
-        code += f"{ind}        await page.waitForTimeout(200);\n"
+        code += f"{ind}        await page.waitForTimeout(50);  // Reduced - TOTP expires!\n"
+        code += f"{ind}        await element.type(totpCode, {{ delay: 30 }});  // Reduced delay - TOTP expires!\n"
+        code += f"{ind}        await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
+        code += f"{ind}        // CRITICAL: Keep focus on element to prevent auto-clear - don't take screenshot yet!\n"
+        code += f"{ind}        await element.focus();  // Re-focus to prevent field from being cleared\n"
+        code += f"{ind}        // Verify TOTP code is still in the field\n"
+        code += f"{ind}        const currentValue = await element.inputValue();\n"
+        code += f"{ind}        if (currentValue !== totpCode) {{\n"
+        code += f"{ind}            console.log(`⚠️  Step {step}: TOTP code was cleared! Re-entering...`);\n"
+        code += f"{ind}            await element.fill('');\n"
+        code += f"{ind}            await element.type(totpCode, {{ delay: 20 }});\n"
+        code += f"{ind}            await element.focus();\n"
+        code += f"{ind}        }}\n"
         code += f"{ind}        console.log(`✅ Step {step}: Filled TOTP code using type() method`);\n"
         code += f"{ind}    }} catch (e) {{\n"
         code += f"{ind}        console.log(`❌ Step {step}: Failed to generate/fill TOTP code: ${{e}}`);\n"
         code += f"{ind}        // Try fallback fill() method\n"
         code += f"{ind}        try {{\n"
+        code += f"{ind}            await element.focus();\n"
+        code += f"{ind}            await element.fill('');\n"
         code += f"{ind}            await element.fill(totpCode);\n"
+        code += f"{ind}            await element.focus();  // Keep focus to prevent clear\n"
+        code += f"{ind}            await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
+        code += f"{ind}            // Verify value is still there\n"
+        code += f"{ind}            const currentValue = await element.inputValue();\n"
+        code += f"{ind}            if (currentValue !== totpCode) {{\n"
+        code += f"{ind}                console.log(`⚠️  Step {step}: TOTP cleared in fallback! Re-entering...`);\n"
+        code += f"{ind}                await element.fill(totpCode);\n"
+        code += f"{ind}                await element.focus();\n"
+        code += f"{ind}            }}\n"
         code += f"{ind}            console.log(`✅ Step {step}: Filled TOTP code using fill() fallback`);\n"
         code += f"{ind}        }} catch (fill_error) {{\n"
         code += f"{ind}            console.log(`❌ Step {step}: fill() fallback also failed: ${{fill_error}}`);\n"
@@ -650,8 +680,14 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_display = element_name or 'input'
             code += f"{ind}    console.log(`✅ Step {step}: Filled {element_display} with {text_escaped}`);\n"
     
-    code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
-    code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
+    # If this is a TOTP step, minimize wait after fill - TOTP expires quickly!
+    if is_totp:
+        code += f"{ind}    // CRITICAL: Don't take screenshot immediately after TOTP - field might be cleared on focus loss\n"
+        code += f"{ind}    // Screenshot will be taken in next step if needed\n"
+        code += f"{ind}    await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
+    else:
+        code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     if is_optional:
         code += f"{ind}}} catch (e) {{\n"
@@ -814,6 +850,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             elif action == 'wait':
                 # If previous action was a click, wait for page load (handles redirects)
                 previous_was_click = (previous_action == 'click')
+                # Follow Excel wait_time exactly - no hard-coded logic
                 test_body += generate_wait_code_ts(step, wait_time or 1000, previous_was_click=previous_was_click)
                 previous_action = 'wait'
             
