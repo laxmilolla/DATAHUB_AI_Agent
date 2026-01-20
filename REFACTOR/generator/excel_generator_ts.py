@@ -56,16 +56,22 @@ const REGISTRY_PATHS = {registry_paths_list_str};
 const REGISTRIES_BY_PATH: {{ [key: string]: any }} = {{}};  // registry_path -> registryData
 let loadedCount = 0;
 
+// Resolve project root: go up 3 levels from test file (storage/excel_tests -> storage -> project root)
+const projectRoot = path.join(__dirname, '../../..');
+
 for (const registryPathStr of REGISTRY_PATHS) {{
     try {{
-        if (fs.existsSync(registryPathStr)) {{
-            const registryData = JSON.parse(fs.readFileSync(registryPathStr, 'utf-8'));
+        // Resolve registry path relative to project root (not test file directory)
+        const registryPath = path.join(projectRoot, registryPathStr);
+        
+        if (fs.existsSync(registryPath)) {{
+            const registryData = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
             // Store per-path for dynamic loading (NO MERGE - prevents conflicts)
             REGISTRIES_BY_PATH[registryPathStr] = registryData;
             loadedCount++;
             console.log(`✅ Loaded registry: ${{Object.keys(registryData.elements || {{}}).length}} elements from ${{path.basename(registryPathStr)}}`);
         }} else {{
-            console.log(`⚠️  Registry file not found: ${{registryPathStr}}`);
+            console.log(`⚠️  Registry file not found: ${{registryPath}} (resolved from ${{registryPathStr}})`);
         }}
     }} catch (e) {{
         console.log(`⚠️  Failed to load registry ${{registryPathStr}}: ${{e}}`);
