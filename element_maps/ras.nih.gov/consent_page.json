@@ -1,0 +1,48 @@
+{
+  "page": "consent",
+  "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
+  "version": "1.0",
+  "timestamp": "2026-01-20T17:30:00.000000Z",
+  "elements": {
+    "grant_button": {
+      "xpath": "//input[@name='action' and @value='Grant']",
+      "selector": "//input[@name='action' and @value='Grant']",
+      "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
+      "element_id": "ID_grant_button_consent",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "input",
+      "action": "click",
+      "discovered_at": "2026-01-20T17:30:00.000000Z",
+      "last_updated": "2026-01-20T17:30:00.000000Z",
+      "description": "Grant button on OAuth consent page",
+      "alternative_xpath": "/html/body/div[2]/div/div/main/div/div/div/form/center/table/tbody/tr/td[1]/input"
+    },
+    "deny_button": {
+      "xpath": "//input[@name='action' and @value='Deny']",
+      "selector": "//input[@name='action' and @value='Deny']",
+      "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
+      "element_id": "ID_deny_button_consent",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "input",
+      "action": "click",
+      "discovered_at": "2026-01-20T17:30:00.000000Z",
+      "last_updated": "2026-01-20T17:30:00.000000Z",
+      "description": "Deny button on OAuth consent page"
+    }
+  },
+  "id_index": {
+    "ID_grant_button_consent": "grant_button",
+    "ID_deny_button_consent": "deny_button"
+  },
+  "statistics": {
+    "total_elements": 2,
+    "parsed_elements": 0,
+    "discovered_elements": 2
+  },
+  "last_updated": "2026-01-20T17:30:00.000000Z"
+}
+

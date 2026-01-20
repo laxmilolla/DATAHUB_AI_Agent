@@ -125,35 +125,7 @@ class TypeScriptTestRunner:
             assertions_failed = stdout.count('❌') + stdout.count('failed')
             
             # Extract Playwright screenshots from disk (same as Python runner)
-            screenshots_dir = self.project_root / 'storage' / 'screenshots'
-            screenshots = []
-            
-            if screenshots_dir.exists():
-                # Get test start time (subtract duration to get start)
-                test_start_time = start_time - duration
-                
-                # Find all pw_* screenshot files created/modified during test
-                for screenshot_file in screenshots_dir.glob('pw_*.png'):
-                    try:
-                        # Check if file was modified during test execution window
-                        file_mtime = screenshot_file.stat().st_mtime
-                        # Include files created/modified during test execution (within 10 minutes of test start)
-                        if file_mtime >= test_start_time - 120:  # 2 minute buffer before test start
-                            screenshot_name = screenshot_file.name
-                            screenshot_path = f"storage/screenshots/{screenshot_name}"
-                            
-                            screenshots.append({
-                                'filename': screenshot_name,
-                                'path': screenshot_path,
-                                'full_path': str(screenshot_file),
-                                'source': 'disk'
-                            })
-                    except Exception as e:
-                        # Skip files that can't be accessed
-                        continue
-            
-            # Sort by filename to maintain step order (pw_step1_*, pw_step2_*, etc.)
-            screenshots.sort(key=lambda x: x['filename'])
+            screenshots = self._collect_screenshots(start_time, duration)
             
             test_result = {
                 'status': 'passed' if passed else 'failed',
@@ -182,6 +154,8 @@ class TypeScriptTestRunner:
             
         except subprocess.TimeoutExpired:
             duration = time.time() - start_time
+            # Collect screenshots even on timeout (test may have generated some before timing out)
+            screenshots = self._collect_screenshots(start_time, duration)
             return {
                 'status': 'timeout',
                 'exit_code': -1,
@@ -190,13 +164,15 @@ class TypeScriptTestRunner:
                 'stderr': 'Test execution timeout (600s exceeded)',
                 'assertions_passed': 0,
                 'assertions_failed': 0,
-                'screenshots': [],
+                'screenshots': screenshots,
                 'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'test_file': str(test_path.relative_to(self.project_root)),
                 'execution_id': execution_id
             }
         
         except Exception as e:
+            # Collect screenshots even on error (test may have generated some before error)
+            screenshots = self._collect_screenshots(start_time, 0)
             return {
                 'status': 'error',
                 'exit_code': -1,
@@ -205,11 +181,73 @@ class TypeScriptTestRunner:
                 'stderr': str(e),
                 'assertions_passed': 0,
                 'assertions_failed': 0,
-                'screenshots': [],
+                'screenshots': screenshots,
                 'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'test_file': str(test_path.relative_to(self.project_root)),
                 'execution_id': execution_id
             }
+    
+    def _collect_screenshots(self, start_time: float, duration: float) -> list:
+        """
+        Collect screenshots from disk that were created during test execution
+        
+        Args:
+            start_time: Test start time
+            duration: Test duration (0 if unknown)
+            
+        Returns:
+            List of screenshot dictionaries
+        """
+        screenshots = []
+        
+        # Get test start time (subtract duration to get start)
+        test_start_time = start_time - duration if duration > 0 else start_time - 600  # Default to 10 min window if duration unknown
+        
+        # Check main screenshots directory
+        screenshots_dir = self.project_root / 'storage' / 'screenshots'
+        if screenshots_dir.exists():
+            for screenshot_file in screenshots_dir.glob('pw_*.png'):
+                try:
+                    # Check if file was modified during test execution window
+                    file_mtime = screenshot_file.stat().st_mtime
+                    # Include files created/modified during test execution (within 10 minutes of test start)
+                    if file_mtime >= test_start_time - 120:  # 2 minute buffer before test start
+                        screenshot_name = screenshot_file.name
+                        screenshot_path = f"storage/screenshots/{screenshot_name}"
+                        
+                        screenshots.append({
+                            'filename': screenshot_name,
+                            'path': screenshot_path,
+                            'full_path': str(screenshot_file),
+                            'source': 'disk'
+                        })
+                except Exception as e:
+                    # Skip files that can't be accessed
+                    continue
+        
+        # Also check test directory's screenshots folder (some tests save there)
+        test_screenshots_dir = self.excel_tests_dir / 'storage' / 'screenshots'
+        if test_screenshots_dir.exists():
+            for screenshot_file in test_screenshots_dir.glob('pw_*.png'):
+                try:
+                    file_mtime = screenshot_file.stat().st_mtime
+                    if file_mtime >= test_start_time - 120:
+                        screenshot_name = screenshot_file.name
+                        # Use relative path from project root
+                        screenshot_path = f"storage/excel_tests/storage/screenshots/{screenshot_name}"
+                        
+                        screenshots.append({
+                            'filename': screenshot_name,
+                            'path': screenshot_path,
+                            'full_path': str(screenshot_file),
+                            'source': 'disk'
+                        })
+                except Exception as e:
+                    continue
+        
+        # Sort by filename to maintain step order (pw_step1_*, pw_step2_*, etc.)
+        screenshots.sort(key=lambda x: x['filename'])
+        return screenshots
 
 
 # Example usage

@@ -213,9 +213,17 @@ def list_executions():
 @bp.route('/screenshots/<path:filename>', methods=['GET'])
 def get_screenshot(filename):
     project_root = current_app.config['PROJECT_ROOT']
+    
+    # Try main screenshots directory first
     path = project_root / 'storage' / 'screenshots' / filename
     if path.exists():
         return send_file(path, mimetype='image/png')
+    
+    # Also check test directory screenshots (for Excel tests)
+    test_path = project_root / 'storage' / 'excel_tests' / 'storage' / 'screenshots' / filename
+    if test_path.exists():
+        return send_file(test_path, mimetype='image/png')
+    
     return jsonify({'error': 'Not found'}), 404
 
 

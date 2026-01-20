@@ -672,6 +672,30 @@ def generate_ts_from_excel():
                     print(f"Error running TypeScript test in background: {e}")
                     import traceback
                     traceback.print_exc()
+                    
+                    # Even on error, try to collect any screenshots that were created
+                    execution_file = executions_dir / f'{execution_id}.json'
+                    if execution_file.exists():
+                        try:
+                            from validator.typescript_test_runner import TypeScriptTestRunner
+                            runner = TypeScriptTestRunner(project_root)
+                            # Collect screenshots from disk (test may have generated some before error)
+                            screenshots = runner._collect_screenshots(time.time(), 0)
+                            
+                            with open(execution_file, 'r') as f:
+                                exec_data = json.load(f)
+                            
+                            exec_data['playwright_screenshots'] = screenshots
+                            exec_data['status'] = 'error'
+                            exec_data['error'] = str(e)
+                            exec_data['completed_at'] = datetime.now().isoformat()
+                            
+                            with open(execution_file, 'w') as f:
+                                json.dump(exec_data, f, indent=2)
+                            
+                            print(f"✅ Collected {len(screenshots)} screenshots despite error")
+                        except Exception as collect_error:
+                            print(f"⚠️  Could not collect screenshots: {collect_error}")
             
             thread = threading.Thread(target=run_test_background)
             thread.daemon = True
