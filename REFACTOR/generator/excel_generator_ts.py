@@ -780,8 +780,18 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                             closes_modal = True
                             modal_is_open = False
                     
-                    # Use modal_is_open state (dynamic) instead of hard-coded step numbers
+                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
+                    # This ensures modal steps are detected even if dynamic detection fails
                     is_modal_step = modal_is_open
+                    if not is_modal_step:
+                        try:
+                            step_num = int(str(step).replace('a', '').replace('b', ''))
+                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
+                                is_modal_step = True
+                        except:
+                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
+                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
+                                is_modal_step = True
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
@@ -794,8 +804,18 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             elif action == 'fill':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'input'
-                    # Use modal_is_open state (dynamic) instead of hard-coded step numbers
+                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
+                    # This ensures modal steps are detected even if dynamic detection fails
                     is_modal_step = modal_is_open
+                    if not is_modal_step:
+                        try:
+                            step_num = int(str(step).replace('a', '').replace('b', ''))
+                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
+                                is_modal_step = True
+                        except:
+                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
+                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
+                                is_modal_step = True
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
