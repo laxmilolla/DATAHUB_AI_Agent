@@ -838,6 +838,9 @@ try {{
 
 test('{test_name}', async ({{ page }}) => {{
     /* Auto-generated test from Excel file */
+    // Set test timeout to 5 minutes (300000ms) to allow for multiple steps with waits
+    test.setTimeout(300000);
+    
     const criticalFailures: string[] = [];
     
     // Set viewport to match AI agent (tabs visible, not hidden in "More" dropdown)
