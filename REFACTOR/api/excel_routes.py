@@ -551,6 +551,17 @@ def generate_ts_from_excel():
         # Generate TypeScript code
         try:
             generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
+            
+            # Check if file was actually created (validation warnings are OK)
+            if not output_file.exists():
+                error_msg = generation_result.get('error', 'Unknown error')
+                if generation_result.get('errors'):
+                    error_msg += ': ' + '; '.join(generation_result['errors'][:3])
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'excel_id': excel_id
+                }), 500
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -781,34 +792,31 @@ def download_ts_test_zip(excel_id):
   },
   "dependencies": {
     "@playwright/test": "^1.40.0",
-    "dotenv": "^16.0.0",
-    "otplib": "^12.0.0"
+    "dotenv": "^16.0.0"
   }
 }'''
         
         # Create README content
-        readme_content = f'''# Playwright TypeScript Test Setup
-
-## Prerequisites
-- Node.js (v16 or higher)
-- npm
+        readme_content = f'''# {test_name} - Playwright TypeScript Test
 
 ## Setup Instructions
 
-1. Extract all files from this zip
-2. Create a `.env` file with your environment variables (e.g., `TOTP_SECRET_KEY=your_secret_key`)
+1. Extract this zip file
+2. The `.env` file is already included with credentials
 3. Run: `npm install`
 4. Run: `npx playwright install chromium`
-5. Run: `npx playwright test {test_name}.spec.ts`
+5. Run: `npx playwright test {test_name}.spec.ts --headed`
 
 ## Files Included
 - `{test_name}.spec.ts` - Main test file
 - `package.json` - Dependencies
+- `generate_totp.py` - Python script for TOTP generation (called from TypeScript)
 - `element_maps/` - JSON registry files with element XPath mappings
 
 ## Important
-- **`.env` file is NOT included** for security reasons. You must create your own `.env` file with appropriate credentials.
+- **`.env` file is included** with the package (contains TOTP secrets and credentials)
 - Registry JSON files are included in the `element_maps/` directory structure
+- The test uses `pyotp` via Python script for TOTP generation to ensure consistency with Python tests
 
 ## Notes
 - Screenshots saved to `storage/screenshots/`
@@ -832,6 +840,22 @@ def download_ts_test_zip(excel_id):
             # Add README.md
             zip_file.writestr('README.md', readme_content)
             print(f"✅ Added README.md to zip")
+            
+            # Add generate_totp.py script (required for TOTP generation in TypeScript tests)
+            totp_script_path = project_root / 'Test' / 'generate_totp.py'
+            if totp_script_path.exists():
+                zip_file.write(totp_script_path, 'generate_totp.py')
+                print(f"✅ Added generate_totp.py to zip")
+            else:
+                print(f"⚠️  generate_totp.py not found at {totp_script_path}")
+            
+            # Add .env file from Test directory
+            env_file_path = project_root / 'Test' / '.env'
+            if env_file_path.exists():
+                zip_file.write(env_file_path, '.env')
+                print(f"✅ Added .env file")
+            else:
+                print(f"⚠️  .env file not found at {env_file_path}")
             
             # Add all registry JSON files with proper directory structure
             for registry_path in registry_paths:

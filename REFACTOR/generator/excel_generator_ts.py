@@ -57,27 +57,28 @@ const REGISTRIES_BY_PATH: {{ [key: string]: any }} = {{}};  // registry_path -> 
 let loadedCount = 0;
 
 // Resolve registry paths: try multiple locations for flexibility
-// 1. Relative to test file directory (for local execution with zip package)
-// 2. Relative to project root (for server execution: storage/excel_tests -> project root)
-//    Test file: /home/ubuntu/DATAHUB_AI_Agent/storage/excel_tests/test.spec.ts
-//    2 levels up: /home/ubuntu/DATAHUB_AI_Agent/ (correct)
-//    3 levels up: /home/ubuntu/ (wrong - registry files not there)
+// 1. Relative to test file directory (for local zip package)
+// 2. One level up from test file (for Test/ directory: Test/ -> project root)
+// 3. Two levels up from test file (for server: storage/excel_tests/ -> project root)
 const testFileDir = __dirname;
-const projectRoot = path.join(__dirname, '../..');
+const possibleRoots = [
+    testFileDir,  // Same directory (for zip package with element_maps/)
+    path.join(__dirname, '..'),  // One level up (Test/ -> project root)
+    path.join(__dirname, '../..'),  // Two levels up (storage/excel_tests/ -> project root)
+];
 
 for (const registryPathStr of REGISTRY_PATHS) {{
     try {{
         let registryPath: string | null = null;
+        const checkedPaths: string[] = [];
         
-        // Try 1: Relative to test file directory (for local zip package)
-        const localPath = path.join(testFileDir, registryPathStr);
-        if (fs.existsSync(localPath)) {{
-            registryPath = localPath;
-        }} else {{
-            // Try 2: Relative to project root (for server execution)
-            const serverPath = path.join(projectRoot, registryPathStr);
-            if (fs.existsSync(serverPath)) {{
-                registryPath = serverPath;
+        // Try each possible root location
+        for (const root of possibleRoots) {{
+            const candidatePath = path.join(root, registryPathStr);
+            checkedPaths.push(candidatePath);
+            if (fs.existsSync(candidatePath)) {{
+                registryPath = candidatePath;
+                break;
             }}
         }}
         
@@ -88,7 +89,7 @@ for (const registryPathStr of REGISTRY_PATHS) {{
             loadedCount++;
             console.log(`✅ Loaded registry: ${{Object.keys(registryData.elements || {{}}).length}} elements from ${{path.basename(registryPathStr)}}`);
         }} else {{
-            console.log(`⚠️  Registry file not found: ${{registryPathStr}} (checked: ${{path.join(testFileDir, registryPathStr)}} and ${{path.join(projectRoot, registryPathStr)}})`);
+            console.log(`⚠️  Registry file not found: ${{registryPathStr}} (checked: ${{checkedPaths.join(', ')}})`);
         }}
     }} catch (e) {{
         console.log(`⚠️  Failed to load registry ${{registryPathStr}}: ${{e}}`);
@@ -307,36 +308,14 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, next_url: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
     
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
-    # Check if previous step was TOTP - reduce wait to prevent expiration
-    # Note: We'll pass previous_was_totp as a parameter in the future if needed
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
-    
-    # Check if we're on the correct page (Excel URL) - navigate if needed
-    if url and url != 'N/A':
-        url_escaped = url.replace("'", "\\'")
-        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    const currentPageUrl = page.url();\n"
-        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
-        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
-        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
-        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
-        code += f"{ind}        await page.goto(expectedUrl);\n"
-        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
-        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
-        code += f"{ind}    }}\n"
-        code += f"{ind}}} catch (nav_error) {{\n"
-        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
-        code += f"{ind}}}\n"
     
     # Scope XPath to modal if needed
     if is_modal_step:
@@ -362,14 +341,18 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use Excel URL (from row) for registry lookup - this is the page where the element should be
-        # Fallback to page.url() if Excel URL is not available
+        # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
+        # This works even if page.url() hasn't updated yet after redirects
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
-        url_escaped = url.replace("'", "\\'") if url else ''
-        code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
+        if url_escaped:
+            code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
+            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        else:
+            code += f"{ind}        // No Excel URL, use current page URL\n"
+            code += f"{ind}        const lookupUrl = page.url();\n"
         code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
@@ -445,7 +428,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}        }}\n"
         code += f"{ind}    }}\n"
     else:
-        # Robust click with fallbacks for all non-Create button clicks
+        # Scroll into view if needed
         code += f"{ind}    // Scroll into view if needed\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
@@ -454,28 +437,62 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    }}\n"
         code += f"{ind}    await page.waitForTimeout(500);  // Wait after scroll\n"
         code += f"{ind}    // Robust click with fallbacks (JavaScript + force)\n"
+        code += f"{ind}    let clickSucceeded = false;\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        await element.click();\n"
+        code += f"{ind}        clickSucceeded = true;\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Click succeeded`);\n"
         code += f"{ind}    }} catch (click_error) {{\n"
         code += f"{ind}        if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
         code += f"{ind}            console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
         code += f"{ind}            try {{\n"
         code += f"{ind}                await element.evaluate('el => el.click()');\n"
+        code += f"{ind}                clickSucceeded = true;\n"
         code += f"{ind}                console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
         code += f"{ind}            }} catch (js_error) {{\n"
         code += f"{ind}                console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
         code += f"{ind}                await element.click({{ force: true }});\n"
+        code += f"{ind}                clickSucceeded = true;\n"
         code += f"{ind}                console.log(`✅ Step {step}: Force click succeeded`);\n"
         code += f"{ind}            }}\n"
         code += f"{ind}        }} else {{\n"
         code += f"{ind}            console.log(`⚠️  Step {step}: Click failed, trying force click...`);\n"
         code += f"{ind}            await element.click({{ force: true }});\n"
+        code += f"{ind}            clickSucceeded = true;\n"
         code += f"{ind}            console.log(`✅ Step {step}: Force click succeeded`);\n"
         code += f"{ind}        }}\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    if (!clickSucceeded) {{\n"
+        code += f"{ind}        throw new Error(`Step {step}: All click methods failed`);\n"
         code += f"{ind}    }}\n"
     code += f"{ind}    await page.waitForTimeout(1000);  // Wait after click\n"
     element_display = element_name or 'element'
     code += f"{ind}    console.log(`✅ Step {step}: Clicked {element_display}`);\n"
+    
+    # If next step is on a different URL, wait for navigation to complete
+    # This handles redirects after form submissions (e.g., TOTP submit → data-submissions page)
+    if next_url and next_url != 'N/A' and url and url != 'N/A':
+        # Normalize URLs for comparison (remove trailing slashes, query params, fragments)
+        try:
+            current_parsed = urlparse(url)
+            next_parsed = urlparse(next_url)
+            current_base = f"{current_parsed.scheme}://{current_parsed.netloc}{current_parsed.path.rstrip('/')}"
+            next_base = f"{next_parsed.scheme}://{next_parsed.netloc}{next_parsed.path.rstrip('/')}"
+            
+            if current_base != next_base:
+                # URLs are different - wait for navigation
+                code += f"{ind}    // Next step is on different URL - wait for navigation to complete\n"
+                code += f"{ind}    try {{\n"
+                code += f"{ind}        await page.waitForLoadState('networkidle', {{ timeout: 15000 }});\n"
+                code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
+                code += f"{ind}        console.log(`✅ Step {step}: Navigation completed to ${{page.url()}}`);\n"
+                code += f"{ind}    }} catch (nav_error) {{\n"
+                code += f"{ind}        console.log(`⚠️  Step {step}: Navigation wait timeout (page may have already navigated): ${{nav_error}}`);\n"
+                code += f"{ind}    }}\n"
+        except Exception:
+            # If URL parsing fails, skip navigation wait
+            pass
+    
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     if is_optional:
@@ -494,7 +511,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     return code
 
 
-def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None) -> str:
+def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, user_email: Optional[str] = None) -> str:
     """Generate TypeScript fill code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -513,26 +530,6 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
-    
-    # Check if we're on the correct page (Excel URL) - navigate if needed
-    if url and url != 'N/A':
-        url_escaped = url.replace("'", "\\'")
-        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    const currentPageUrl = page.url();\n"
-        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
-        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
-        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
-        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
-        code += f"{ind}        await page.goto(expectedUrl);\n"
-        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
-        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
-        code += f"{ind}    }}\n"
-        code += f"{ind}}} catch (nav_error) {{\n"
-        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
-        code += f"{ind}}}\n"
     
     if is_modal_step:
         code += f"{ind}// Modal step - wait for modal\n"
@@ -589,69 +586,82 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`⚠️  Step {step}: TOTP field not found with fallback selectors, using original selector`);\n"
         code += f"{ind}    }}\n"
-        code += f"{ind}    // Generate TOTP code\n"
+        code += f"{ind}    // Generate TOTP code using Python script (pyotp) - same as Python tests\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const totp = require('otplib').totp;\n"
-        code += f"{ind}        const secretKey = process.env.TOTP_SECRET_KEY;\n"
-        code += f"{ind}        if (!secretKey) {{\n"
-        code += f"{ind}            throw new Error('TOTP_SECRET_KEY not found in environment variables');\n"
-        code += f"{ind}        }}\n"
-        code += f"{ind}        const totpCode = totp.generate(secretKey);\n"
-        code += f"{ind}        console.log(`🔐 Step {step}: Generated TOTP code: ${{totpCode.substring(0, 2)}}****`);\n"
+        code += f"{ind}        const {{ execSync }} = require('child_process');\n"
+        code += f"{ind}        const path = require('path');\n"
+        code += f"{ind}        const fs = require('fs');\n"
         code += f"{ind}        \n"
-        code += f"{ind}        // For TOTP: focus, clear, then type with delay (most reliable method)\n"
-        code += f"{ind}        // CRITICAL: Minimize wait times - TOTP codes expire quickly!\n"
-        code += f"{ind}        await element.focus();\n"
-        code += f"{ind}        await page.waitForTimeout(50);  // Reduced - TOTP expires!\n"
-        code += f"{ind}        await element.fill('');\n"
-        code += f"{ind}        await page.waitForTimeout(50);  // Reduced - TOTP expires!\n"
-        code += f"{ind}        await element.type(totpCode, {{ delay: 30 }});  // Reduced delay - TOTP expires!\n"
-        code += f"{ind}        await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
-        code += f"{ind}        // CRITICAL: Keep focus on element to prevent auto-clear - don't take screenshot yet!\n"
-        code += f"{ind}        await element.focus();  // Re-focus to prevent field from being cleared\n"
-        code += f"{ind}        // Verify TOTP code is still in the field\n"
-        code += f"{ind}        const currentValue = await element.inputValue();\n"
-        code += f"{ind}        if (currentValue !== totpCode) {{\n"
-        code += f"{ind}            console.log(`⚠️  Step {step}: TOTP code was cleared! Re-entering...`);\n"
-        code += f"{ind}            await element.fill('');\n"
-        code += f"{ind}            await element.type(totpCode, {{ delay: 20 }});\n"
-        code += f"{ind}            await element.focus();\n"
+        code += f"{ind}        // Find generate_totp.py script (check multiple locations)\n"
+        code += f"{ind}        const testFileDir = __dirname;\n"
+        code += f"{ind}        const possibleScriptLocations = [\n"
+        code += f"{ind}            path.join(testFileDir, 'generate_totp.py'),  // Same directory as test file\n"
+        code += f"{ind}            path.join(path.dirname(testFileDir), 'generate_totp.py'),  // Parent directory\n"
+        code += f"{ind}            path.join(testFileDir, '..', '..', 'Test', 'generate_totp.py'),  // Test directory\n"
+        code += f"{ind}        ];\n"
+        code += f"{ind}        \n"
+        code += f"{ind}        let scriptPath = null;\n"
+        code += f"{ind}        for (const loc of possibleScriptLocations) {{\n"
+        code += f"{ind}            if (fs.existsSync(loc)) {{\n"
+        code += f"{ind}                scriptPath = loc;\n"
+        code += f"{ind}                break;\n"
+        code += f"{ind}            }}\n"
         code += f"{ind}        }}\n"
+        code += f"{ind}        \n"
+        code += f"{ind}        if (!scriptPath) {{\n"
+        code += f"{ind}            throw new Error('generate_totp.py script not found. Checked: ' + possibleScriptLocations.join(', '));\n"
+        code += f"{ind}        }}\n"
+        code += f"{ind}        \n"
+        if user_email:
+            # Sanitize email for environment variable name (replace @ with _, . with _)
+            email_sanitized = user_email.replace('@', '_').replace('.', '_').upper()
+            code += f"{ind}        // TOTP key is unique per user - lookup key for this email/username\n"
+            code += f"{ind}        const userEmail = '{user_email}';\n"
+            code += f"{ind}        const emailSanitized = userEmail.replace(/[@.]/g, '_').toUpperCase();\n"
+            code += f"{ind}        // Try user-specific key first: TOTP_SECRET_KEY_TS_<EMAIL>, then fallback to generic keys\n"
+            code += f"{ind}        const secretKey = process.env[`TOTP_SECRET_KEY_TS_${{emailSanitized}}`] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
+            code += f"{ind}        if (!secretKey) {{\n"
+            code += f"{ind}            throw new Error(`TOTP_SECRET_KEY_TS_${{emailSanitized}} (or TOTP_SECRET_KEY_TS or TOTP_SECRET_KEY) not found in environment variables for user: ${{userEmail}}`);\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}        console.log(`🔐 Step {step}: Using TOTP key for user: ${{userEmail}}`);\n"
+            code += f"{ind}        // Pass secret key to Python script\n"
+            code += f"{ind}        const totpCode = execSync(`python3 ${{scriptPath}} ${{secretKey}}`, {{ encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }}).trim();\n"
+        else:
+            code += f"{ind}        // Get secret key from environment (same as Python tests)\n"
+            code += f"{ind}        const secretKey = process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
+            code += f"{ind}        if (!secretKey) {{\n"
+            code += f"{ind}            throw new Error('TOTP_SECRET_KEY_TS (or TOTP_SECRET_KEY) not found in environment variables');\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}        // Pass secret key to Python script\n"
+            code += f"{ind}        const totpCode = execSync(`python3 ${{scriptPath}} ${{secretKey}}`, {{ encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }}).trim();\n"
+        code += f"{ind}        console.log(`🔐 Step {step}: Generated TOTP code using pyotp (Python): ${{totpCode.substring(0, 2)}}****`);\n"
+        code += f"{ind}        \n"
+        code += f"{ind}        // For TOTP: clear field first, then use type() with delay (more reliable than fill())\n"
+        code += f"{ind}        await element.fill('');\n"
+        code += f"{ind}        await element.type(totpCode, {{ delay: 10 }});\n"
+        code += f"{ind}        await page.waitForTimeout(200);\n"
         code += f"{ind}        console.log(`✅ Step {step}: Filled TOTP code using type() method`);\n"
         code += f"{ind}    }} catch (e) {{\n"
         code += f"{ind}        console.log(`❌ Step {step}: Failed to generate/fill TOTP code: ${{e}}`);\n"
-        code += f"{ind}        // Try fallback fill() method\n"
-        code += f"{ind}        try {{\n"
-        code += f"{ind}            await element.focus();\n"
-        code += f"{ind}            await element.fill('');\n"
-        code += f"{ind}            await element.fill(totpCode);\n"
-        code += f"{ind}            await element.focus();  // Keep focus to prevent clear\n"
-        code += f"{ind}            await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
-        code += f"{ind}            // Verify value is still there\n"
-        code += f"{ind}            const currentValue = await element.inputValue();\n"
-        code += f"{ind}            if (currentValue !== totpCode) {{\n"
-        code += f"{ind}                console.log(`⚠️  Step {step}: TOTP cleared in fallback! Re-entering...`);\n"
-        code += f"{ind}                await element.fill(totpCode);\n"
-        code += f"{ind}                await element.focus();\n"
-        code += f"{ind}            }}\n"
-        code += f"{ind}            console.log(`✅ Step {step}: Filled TOTP code using fill() fallback`);\n"
-        code += f"{ind}        }} catch (fill_error) {{\n"
-        code += f"{ind}            console.log(`❌ Step {step}: fill() fallback also failed: ${{fill_error}}`);\n"
-        code += f"{ind}            throw fill_error;\n"
-        code += f"{ind}        }}\n"
+        code += f"{ind}        throw e;\n"
         code += f"{ind}    }}\n"
     else:
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
-            # Use Excel URL (from row) for registry lookup - this is the page where the element should be
+            # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
+            # This works even if page.url() hasn't updated yet after redirects
             # Declare element variable outside try block so it's in scope for fill handling
             code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
-            url_escaped = url.replace("'", "\\'") if url else ''
-            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+            url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
+            if url_escaped:
+                code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
+                code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+            else:
+                code += f"{ind}        // No Excel URL, use current page URL\n"
+                code += f"{ind}        const lookupUrl = page.url();\n"
             code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        element = page.locator(selector).nth(0);\n"
@@ -680,11 +690,10 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_display = element_name or 'input'
             code += f"{ind}    console.log(`✅ Step {step}: Filled {element_display} with {text_escaped}`);\n"
     
-    # If this is a TOTP step, minimize wait after fill - TOTP expires quickly!
+    # If this is a TOTP step, use same wait pattern as Python (200ms already done above, now add 500ms)
     if is_totp:
-        code += f"{ind}    // CRITICAL: Don't take screenshot immediately after TOTP - field might be cleared on focus loss\n"
-        code += f"{ind}    // Screenshot will be taken in next step if needed\n"
-        code += f"{ind}    await page.waitForTimeout(50);  // Minimal wait - TOTP expires quickly!\n"
+        code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     else:
         code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
@@ -713,40 +722,24 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     
     code = f"{ind}// Step {step}: Verify {element_name or 'element'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
-    
-    # Check if we're on the correct page (Excel URL) - navigate if needed
-    if url and url != 'N/A':
-        url_escaped = url.replace("'", "\\'")
-        code += f"{ind}// Ensure we're on the correct page before interacting with elements\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    const currentPageUrl = page.url();\n"
-        code += f"{ind}    const expectedUrl = '{url_escaped}';\n"
-        code += f"{ind}    // Normalize URLs for comparison (remove trailing slashes, query params)\n"
-        code += f"{ind}    const normalizeUrl = (u: string) => u.split('?')[0].split('#')[0].replace(/\\/$/, '');\n"
-        code += f"{ind}    if (normalizeUrl(currentPageUrl) !== normalizeUrl(expectedUrl)) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Not on expected page. Current: ${{currentPageUrl}}, Expected: ${{expectedUrl}}. Navigating...`);\n"
-        code += f"{ind}        await page.goto(expectedUrl);\n"
-        code += f"{ind}        await page.waitForLoadState('networkidle');\n"
-        code += f"{ind}        await page.waitForLoadState('domcontentloaded');\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Navigated to expected page: ${{expectedUrl}}`);\n"
-        code += f"{ind}    }}\n"
-        code += f"{ind}}} catch (nav_error) {{\n"
-        code += f"{ind}    console.log(`⚠️  Step {step}: Navigation check failed, continuing anyway: ${{nav_error}}`);\n"
-        code += f"{ind}}}\n"
-    
     code += f"{ind}try {{\n"
     
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use Excel URL (from row) for registry lookup - this is the page where the element should be
+        # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
+        # This works even if page.url() hasn't updated yet after redirects
         # Declare element variable outside try block so it's in scope
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        // Use Excel URL (from row) for registry lookup - this is the page where element should be\n"
-        url_escaped = url.replace("'", "\\'") if url else ''
-        code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
+        if url_escaped:
+            code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
+            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+        else:
+            code += f"{ind}        // No Excel URL, use current page URL\n"
+            code += f"{ind}        const lookupUrl = page.url();\n"
         code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
@@ -821,7 +814,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         errors = []
         current_url = None
         previous_action = None  # Track previous action to detect if wait should wait for page load
+        previous_was_totp = False  # Track if previous step was TOTP fill
         modal_is_open = False  # Track if a modal is currently open (dynamic detection)
+        user_email = None  # Track email/username from fill steps (for TOTP key lookup)
         
         for idx, row in df.iterrows():
             step = str(row.get('step', idx + 1)).strip()
@@ -897,14 +892,34 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    
+                    # Check if next step is on a different URL (for navigation wait after click)
+                    next_url_for_wait = None
+                    if idx + 1 < len(df):
+                        next_row = df.iloc[idx + 1]
+                        next_step_url = str(next_row.get('url', '')).strip() if pd.notna(next_row.get('url')) else None
+                        if next_step_url and next_step_url != 'N/A':
+                            next_url_for_wait = next_step_url
+                    
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id, next_url=next_url_for_wait)
                     previous_action = 'click'
+                    previous_was_totp = False  # Reset after click
                 else:
                     errors.append(f"Step {step}: Click action requires XPath")
             
             elif action == 'fill':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'input'
+                    # Check if this is a TOTP fill
+                    is_totp = 'TOTP' in str(functions).upper() if functions else False
+                    
+                    # Track email/username from fill steps (for TOTP key lookup)
+                    # Detect if this is an email/username field (contains @ or is likely a username field)
+                    if text_value and '@' in text_value:
+                        user_email = text_value  # Store email for TOTP key lookup
+                    elif text_value and ('email' in element_name.lower() or 'user' in element_name.lower() or 'username' in element_name.lower()):
+                        user_email = text_value  # Store username for TOTP key lookup
+                    
                     # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
                     # This ensures modal steps are detected even if dynamic detection fails
                     is_modal_step = modal_is_open
@@ -921,8 +936,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id)
+                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id, user_email=user_email)
                     previous_action = 'fill'
+                    previous_was_totp = is_totp  # Track if this was TOTP
                 else:
                     errors.append(f"Step {step}: Fill action requires XPath")
             
@@ -978,7 +994,7 @@ try {{
     for (const loc of possibleEnvLocations) {{
       console.log(`   - ${{loc}}`);
     }}
-    console.log(`   Please create a .env file with TOTP_SECRET_KEY=your_secret_key`);
+    console.log(`   Please create a .env file with TOTP_SECRET_KEY_TS=your_secret_key (TypeScript tests use TOTP_SECRET_KEY_TS, different from Python's TOTP_SECRET_KEY)`);
   }}
 }} catch (e) {{
   if (e.code === 'MODULE_NOT_FOUND') {{
