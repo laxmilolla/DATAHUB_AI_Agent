@@ -661,7 +661,12 @@ def generate_ts_from_excel():
                             'exit_code': test_result.get('exit_code', 0)
                         }
                         exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
-                        exec_data['status'] = 'completed'
+                        # Set status based on test result: 'failed' if test failed, 'completed' if passed
+                        test_status = test_result.get('status', 'unknown')
+                        if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                            exec_data['status'] = 'failed'
+                        else:
+                            exec_data['status'] = 'completed'
                         exec_data['completed_at'] = datetime.now().isoformat()
                         
                         with open(execution_file, 'w') as f:

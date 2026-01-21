@@ -474,7 +474,7 @@
                 statusIcon = '⏳';
                 statusTitle = 'Test Execution In Progress';
                 statusClass = 'status-running';
-            } else if (status === 'error' || status === 'timeout') {
+            } else if (status === 'error' || status === 'timeout' || status === 'failed') {
                 overallStatus = 'error';
                 statusIcon = '❌';
                 statusTitle = 'Test Execution Failed';
