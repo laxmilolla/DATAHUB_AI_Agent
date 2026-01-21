@@ -320,7 +320,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Scope XPath to modal if needed
     if is_modal_step:
         if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_escaped.lstrip("/")}'
+            # Remove all leading slashes to avoid triple slashes (// or ///)
+            xpath_without_leading = xpath_escaped.lstrip("/")
+            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_without_leading}'
         
         code += f"{ind}// Modal step - wait for modal and scope selector\n"
         code += f"{ind}// Wait for modal to be visible\n"
@@ -358,7 +360,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         if is_modal_step:
             code += f"{ind}        // Modal step - scope XPath to modal dialog (from Excel 'Modal' column)\n"
             code += f"{ind}        if (!xpath.startsWith('(//*[@data-testid=\"create-submission-dialog\"])')) {{\n"
-            code += f"{ind}            xpath = `(//*[@data-testid=\"create-submission-dialog\"])//${{xpath.replace(/^\\//, '')}}`;\n"
+            code += f"{ind}            // Remove all leading slashes to avoid triple slashes (// or ///)\n"
+            code += f"{ind}            const xpathWithoutLeadingSlashes = xpath.replace(/^\\/+/, '');\n"
+            code += f"{ind}            xpath = `(//*[@data-testid=\"create-submission-dialog\"])//${{xpathWithoutLeadingSlashes}}`;\n"
             code += f"{ind}        }}\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
@@ -534,7 +538,9 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     # Scope XPath to modal if needed
     if is_modal_step:
         if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_escaped.lstrip("/")}'
+            # Remove all leading slashes to avoid triple slashes (// or ///)
+            xpath_without_leading = xpath_escaped.lstrip("/")
+            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_without_leading}'
     
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
