@@ -545,18 +545,20 @@
                         </div>
                         
                         <!-- Action Buttons -->
-                        ${status === 'completed' ? `
+                        ${status === 'completed' || status === 'failed' ? `
                         <div class="status-actions">
                             ${isExcelExecution ? `
                             <button class="btn-primary" onclick="downloadExcelTestZip('${excelId}')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin-right: 10px; font-weight: 600;">
                                 📦 Download Test (ZIP with .env)
                             </button>
+                            ${status === 'completed' ? `
                             <button class="btn-primary" onclick="markTestPassed('${executionId}')" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-right: 10px;">
                                 ✅ Mark Test as Passed & Update Registry
                             </button>
                             <button class="btn-primary" onclick="updateRegistryFromExcel('${excelId}')" style="background: linear-gradient(135deg, #8B6F47 0%, #6B5B3D 100%);">
                                 💾 Update Elements to Registry
                             </button>
+                            ` : ''}
                             ` : ''}
                             ${discoveries.length > 0 ? `
                             <button class="btn-primary" onclick="approveDiscoveries(this)">
