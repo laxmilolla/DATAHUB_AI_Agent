@@ -353,7 +353,13 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         else:
             code += f"{ind}        // No Excel URL, use current page URL\n"
             code += f"{ind}        const lookupUrl = page.url();\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+        code += f"{ind}        let xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+        # If this is a modal step, scope the XPath to the modal (from Excel "Modal" column)
+        if is_modal_step:
+            code += f"{ind}        // Modal step - scope XPath to modal dialog (from Excel 'Modal' column)\n"
+            code += f"{ind}        if (!xpath.startsWith('(//*[@data-testid=\"create-submission-dialog\"])')) {{\n"
+            code += f"{ind}            xpath = `(//*[@data-testid=\"create-submission-dialog\"])//${{xpath.replace(/^\\//, '')}}`;\n"
+            code += f"{ind}        }}\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -902,21 +908,30 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                                 closes_modal = True
                                 modal_is_open = False
                     
-                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
+                    # Use Excel "Modal" column first (explicit user control), then dynamic detection, then step numbers as fallback
                     # This ensures modal steps are detected even if dynamic detection fails
                     is_modal_step = modal_is_open
-                    if not is_modal_step:
-                        try:
-                            step_num = int(str(step).replace('a', '').replace('b', ''))
-                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
-                                is_modal_step = True
-                        except:
-                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                                is_modal_step = True
+                    
+                    # Excel "Modal" column takes precedence (explicit user control)
+                    if is_modal_from_excel is not None:
+                        is_modal_step = is_modal_from_excel
+                        if is_modal_step:
+                            print(f"🔔 Step {step}: Marked as modal step from Excel 'Modal' column")
+                    
+                    # If Excel didn't specify, use dynamic detection or step numbers
+                    if is_modal_from_excel is None:
+                        if not is_modal_step:
+                            try:
+                                step_num = int(str(step).replace('a', '').replace('b', ''))
+                                if step_num >= 16:  # Steps 16+ are in the modal (fallback)
+                                    is_modal_step = True
+                            except:
+                                # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
+                                if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
+                                    is_modal_step = True
                     
                     if is_modal_step:
-                        print(f"🔔 Step {step}: Marked as modal step (modal_is_open: {modal_is_open})")
+                        print(f"🔔 Step {step}: Marked as modal step (modal_is_open: {modal_is_open}, from_excel: {is_modal_from_excel})")
                     
                     # Check if next step is on a different URL (for navigation wait after click)
                     next_url_for_wait = None
