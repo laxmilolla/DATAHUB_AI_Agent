@@ -9,7 +9,7 @@ import threading
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from agent.core.agent import Agent
-from utils.html_parser import parse_html_to_element_map
+# from utils.html_parser import parse_html_to_element_map  # MOVED TO TO_BE_DELETED - not used
 from utils.element_registry import get_registry
 
 bp = Blueprint('api', __name__)
