@@ -506,6 +506,14 @@
                             <span class="meta-item">${new Date().toLocaleString()}</span>
                         </div>
                         
+                        <!-- Step Details (for Excel executions) -->
+                        <div id="step-details-container" style="margin: 20px 0; display: none;">
+                            <h3 style="color: #6B5B3D; font-size: 1.1em; margin-bottom: 15px;">📋 Test Steps</h3>
+                            <div id="step-details-list" style="max-height: 400px; overflow-y: auto; background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <p style="color: #6c757d; text-align: center;">Loading steps...</p>
+                            </div>
+                        </div>
+                        
                         <!-- Progress Bar -->
                         <div class="progress-bar-container">
                             <div class="progress-bar">
@@ -645,8 +653,111 @@
             
             container.innerHTML = html;
             
+            // Load step details under execution ID (for Excel executions)
+            if (isExcelExecution) {
+                loadStepDetailsUnderId(executionId);
+            }
+            
             // Load steps tab content asynchronously (for Excel executions)
             loadStepsTab(results);
+        }
+        
+        async function loadStepDetailsUnderId(executionId) {
+            const container = document.getElementById('step-details-container');
+            const listDiv = document.getElementById('step-details-list');
+            if (!container || !listDiv) return;
+            
+            try {
+                // Try to get steps with status
+                const response = await fetch(`/api/excel-execution/${executionId}/steps`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const steps = data.steps || [];
+                    
+                    if (steps.length > 0) {
+                        container.style.display = 'block';
+                        
+                        let stepsHtml = '<div style="display: grid; gap: 10px;">';
+                        steps.forEach((step, index) => {
+                            const stepNum = step.step || (index + 1);
+                            const action = step.action || 'unknown';
+                            const status = step.status || 'pending';
+                            const statusIcon = step.status_icon || '⏳';
+                            const hasDetails = step.has_details || false;
+                            
+                            // Status colors
+                            let statusColor = '#6c757d';
+                            let statusBg = '#f8f9fa';
+                            if (status === 'passed') {
+                                statusColor = '#28a745';
+                                statusBg = '#d4edda';
+                            } else if (status === 'failed') {
+                                statusColor = '#dc3545';
+                                statusBg = '#f8d7da';
+                            } else if (status === 'warning') {
+                                statusColor = '#ffc107';
+                                statusBg = '#fff3cd';
+                            }
+                            
+                            // Action icons
+                            let actionIcon = '⚙️';
+                            if (action === 'navigate') actionIcon = '🌐';
+                            else if (action === 'click') actionIcon = '👆';
+                            else if (action === 'fill') actionIcon = '✍️';
+                            else if (action === 'wait') actionIcon = '⏱️';
+                            else if (action === 'verify') actionIcon = '✓';
+                            
+                            stepsHtml += `
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; background: ${statusBg}; border-radius: 6px; border-left: 3px solid ${statusColor};">
+                                    <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                                        <span style="background: ${statusColor}; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85em;">${stepNum}</span>
+                                        <span style="font-size: 1.1em;">${actionIcon}</span>
+                                        <span style="font-weight: 600; color: #2c3e50; text-transform: uppercase; font-size: 0.9em;">${action}</span>
+                                        <span style="background: ${statusBg}; color: ${statusColor}; padding: 3px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; border: 1px solid ${statusColor};">
+                                            ${statusIcon} ${status}
+                                        </span>
+                                    </div>
+                                    ${hasDetails ? `
+                                    <button onclick="toggleStepDetails('step-main-${stepNum}')" style="background: #667eea; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 0.8em; font-weight: 600;">
+                                        Details
+                                    </button>
+                                    ` : ''}
+                                </div>
+                                ${hasDetails ? `
+                                <div id="step-main-${stepNum}-details" style="display: none; margin-left: 40px; padding: 10px; background: white; border-radius: 6px; border-left: 3px solid ${statusColor}; font-size: 0.85em; color: #495057;">
+                                    <strong style="color: ${statusColor};">Status Messages:</strong>
+                                    <ul style="margin: 5px 0 0 20px; padding: 0;">
+                                        ${(step.status_messages || []).map(msg => `<li style="margin: 3px 0;">${msg}</li>`).join('')}
+                                    </ul>
+                                </div>
+                                ` : ''}
+                            `;
+                        });
+                        stepsHtml += '</div>';
+                        
+                        listDiv.innerHTML = stepsHtml;
+                    } else {
+                        container.style.display = 'none';
+                    }
+                } else {
+                    // If endpoint doesn't exist or fails, try Excel steps without status
+                    const excelId = executionId.split('_').slice(2).join('_').split('_')[0];
+                    if (excelId) {
+                        const excelResponse = await fetch(`/api/excel/${excelId}/steps`);
+                        if (excelResponse.ok) {
+                            const excelData = await excelResponse.json();
+                            const steps = excelData.steps || [];
+                            if (steps.length > 0) {
+                                container.style.display = 'block';
+                                listDiv.innerHTML = `<p style="color: #6c757d;">${steps.length} steps found (status not available yet)</p>`;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading step details:', error);
+                container.style.display = 'none';
+            }
         }
         
         async function loadStepsTab(results) {
