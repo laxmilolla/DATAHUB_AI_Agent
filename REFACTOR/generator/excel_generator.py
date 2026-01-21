@@ -190,28 +190,7 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
             
             # Process each row for this URL
             for idx, row in url_rows.iterrows():
-                # Prefer Functions column (modal-scoped XPath) if available, otherwise use XPath column
-                functions_xpath = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else None
-                xpath_col = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
-                
-                # Use Functions column if it contains a modal-scoped XPath (detected by modal/dialog context patterns)
-                # Check for generic modal patterns: starts with (//*[@data-testid= or contains modal/dialog keywords
-                # Otherwise fall back to XPath column
-                is_modal_scoped = False
-                if functions_xpath and functions_xpath != 'N/A':
-                    # Check for modal scoping patterns (generic detection, not application-specific)
-                    functions_lower = functions_xpath.lower()
-                    # Pattern 1: XPath starts with modal scoping pattern (//*[@data-testid=...])
-                    if functions_xpath.startswith('(//*[@') and '])//' in functions_xpath:
-                        is_modal_scoped = True
-                    # Pattern 2: Contains generic modal/dialog keywords
-                    elif 'modal' in functions_lower or 'dialog' in functions_lower:
-                        is_modal_scoped = True
-                
-                if is_modal_scoped:
-                    xpath = functions_xpath
-                else:
-                    xpath = xpath_col
+                xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
                 
                 action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
                 object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
