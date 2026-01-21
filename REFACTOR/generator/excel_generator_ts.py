@@ -308,7 +308,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, next_url: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None) -> str:
     """Generate TypeScript click code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -465,7 +465,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    if (!clickSucceeded) {{\n"
         code += f"{ind}        throw new Error(`Step {step}: All click methods failed`);\n"
         code += f"{ind}    }}\n"
-    code += f"{ind}    await page.waitForTimeout(1000);  // Wait after click\n"
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms = int(wait_time) if wait_time else 1000
+    code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after click (from Excel: {wait_time if wait_time else 'default 1000ms'})\n"
     element_display = element_name or 'element'
     code += f"{ind}    console.log(`✅ Step {step}: Clicked {element_display}`);\n"
     
@@ -924,7 +926,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                         if next_step_url and next_step_url != 'N/A':
                             next_url_for_wait = next_step_url
                     
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id, next_url=next_url_for_wait)
+                    # Pass wait_time from Excel to click code generator
+                    wait_time_for_click = int(wait_time) if wait_time and pd.notna(wait_time) else None
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_time_for_click)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
