@@ -1,0 +1,86 @@
+{
+  "page": "home",
+  "url": "https://secure.login.gov",
+  "version": "1.0",
+  "timestamp": "2026-01-20T12:08:32.000946Z",
+  "elements": {
+    "button_4": {
+      "xpath": "(//*[normalize-space(.)='Login.gov'])[1]",
+      "selector": "(//*[normalize-space(.)='Login.gov'])[1]",
+      "url": "https://secure.login.gov",
+      "element_id": "ID_bee97879",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "button",
+      "action": "click",
+      "discovered_at": "2026-01-20T12:08:32.001007Z",
+      "last_updated": "2026-01-20T12:43:07.728994Z"
+    },
+    "input_5": {
+      "xpath": "//input[@type='email']",
+      "selector": "//input[@type='email']",
+      "url": "https://secure.login.gov",
+      "element_id": "ID_b92fade3",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "input",
+      "action": "fill",
+      "discovered_at": "2026-01-20T12:08:32.001034Z",
+      "last_updated": "2026-01-20T12:43:07.729016Z"
+    },
+    "input_6": {
+      "xpath": "//input[@type='password']",
+      "selector": "//input[@type='password']",
+      "url": "https://secure.login.gov",
+      "element_id": "ID_096dd456",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "input",
+      "action": "fill",
+      "discovered_at": "2026-01-20T12:08:32.001058Z",
+      "last_updated": "2026-01-20T12:43:07.729035Z"
+    },
+    "button_7": {
+      "xpath": "(//*[normalize-space(.)='Submit'])[1]",
+      "selector": "(//*[normalize-space(.)='Submit'])[1]",
+      "url": "https://secure.login.gov",
+      "element_id": "ID_33b5218d",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "button",
+      "action": "click",
+      "discovered_at": "2026-01-20T12:08:32.001081Z",
+      "last_updated": "2026-01-20T12:43:07.729089Z"
+    },
+    "input_8": {
+      "xpath": "//input[@class='one-time-code-input__input']",
+      "selector": "//input[@class='one-time-code-input__input']",
+      "url": "https://secure.login.gov",
+      "element_id": "ID_7a01fb49",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "input",
+      "action": "fill",
+      "discovered_at": "2026-01-20T12:08:32.001103Z",
+      "last_updated": "2026-01-20T12:43:07.729072Z"
+    }
+  },
+  "id_index": {
+    "ID_bee97879": "button_4",
+    "ID_b92fade3": "input_5",
+    "ID_096dd456": "input_6",
+    "ID_33b5218d": "button_7",
+    "ID_7a01fb49": "input_8"
+  },
+  "statistics": {
+    "total_elements": 5,
+    "parsed_elements": 0,
+    "discovered_elements": 0
+  },
+  "last_updated": "2026-01-20T17:43:07.729111Z"
+}

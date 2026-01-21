@@ -1,0 +1,30 @@
+{
+  "page": "LoginMFA",
+  "url": "https://auth.nih.gov/CertAuthV3/forms/nihl/LoginMFA.aspx",
+  "version": "1.0",
+  "timestamp": "2026-01-20T13:06:18.385510Z",
+  "elements": {
+    "button_4": {
+      "xpath": "(//*[normalize-space(.)='Login.gov'])[1]",
+      "selector": "(//*[normalize-space(.)='Login.gov'])[1]",
+      "url": "https://auth.nih.gov/CertAuthV3/forms/nihl/LoginMFA.aspx",
+      "element_id": "ID_c20d27bc",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "button",
+      "action": "click",
+      "discovered_at": "2026-01-20T13:06:18.385592Z",
+      "last_updated": "2026-01-20T17:00:31.855623Z"
+    }
+  },
+  "id_index": {
+    "ID_c20d27bc": "button_4"
+  },
+  "statistics": {
+    "total_elements": 1,
+    "parsed_elements": 0,
+    "discovered_elements": 0
+  },
+  "last_updated": "2026-01-20T22:00:31.855646Z"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "playwright-test-package",
+  "version": "1.0.0",
+  "description": "Playwright test generated from Excel",
+  "scripts": {
+    "test": "playwright test test_case_experiment.spec.ts --headed",
+    "test:headless": "playwright test test_case_experiment.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.3.1",
+    "otplib": "^12.0.1"
+  }
+}

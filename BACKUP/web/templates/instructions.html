@@ -411,21 +411,6 @@
                                 }
                             }
                         }
-                    } else if (response.status === 404) {
-                        // Execution not found - stop polling and show error
-                        clearInterval(statusPollInterval);
-                        statusPollInterval = null;
-                        
-                        const statusText = document.getElementById('status-text');
-                        statusText.textContent = '❌ Execution not found. Please refresh the page and start a new execution.';
-                        
-                        const btn = document.getElementById('execute-btn');
-                        btn.disabled = false;
-                        btn.innerHTML = '▶ Execute & Generate Test Cases';
-                        
-                        // Clear execution IDs
-                        currentExecutionId = null;
-                        currentSessionId = null;
                     }
                 } catch (error) {
                     console.error('Error polling status:', error);
@@ -435,16 +420,10 @@
         
         function updateStatus(data) {
             const statusText = document.getElementById('status-text');
-            if (data.phase) {
-                statusText.textContent = data.phase;
-            } else if (data.status === 'phase1_login') {
-                statusText.textContent = '🔐 Phase 1: Running login steps...';
-            } else if (data.status === 'phase2_instructions') {
-                statusText.textContent = `📝 Phase 2: Executing your instructions... (${data.steps.length} steps completed)`;
-            } else if (data.status === 'running') {
+            if (data.status === 'running') {
                 statusText.textContent = `Executing... (${data.steps.length} steps completed)`;
             } else if (data.status === 'completed') {
-                statusText.textContent = `✅ Completed! ${data.steps.length} steps executed (Login + Your Instructions)`;
+                statusText.textContent = `✅ Completed! ${data.steps.length} steps executed`;
             } else if (data.status === 'failed') {
                 statusText.textContent = `❌ Failed: ${data.error || 'Unknown error'}`;
             }

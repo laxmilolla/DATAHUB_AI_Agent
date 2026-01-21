@@ -1,0 +1,30 @@
+{
+  "page": "sms",
+  "url": "https://secure.login.gov/login/two_factor/sms",
+  "version": "1.0",
+  "timestamp": "2026-01-20T13:01:50.919883Z",
+  "elements": {
+    "button_9": {
+      "xpath": "(//*[normalize-space(.)='Submit'])[1]",
+      "selector": "(//*[normalize-space(.)='Submit'])[1]",
+      "url": "https://secure.login.gov/login/two_factor/sms",
+      "element_id": "ID_fcabe4f4",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "excel",
+      "object_type": "button",
+      "action": "click",
+      "discovered_at": "2026-01-20T13:01:50.919951Z",
+      "last_updated": "2026-01-20T17:00:31.857589Z"
+    }
+  },
+  "id_index": {
+    "ID_fcabe4f4": "button_9"
+  },
+  "statistics": {
+    "total_elements": 1,
+    "parsed_elements": 0,
+    "discovered_elements": 0
+  },
+  "last_updated": "2026-01-20T22:00:31.857608Z"
+}
