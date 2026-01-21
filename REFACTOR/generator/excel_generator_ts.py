@@ -319,10 +319,20 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     
     # Scope XPath to modal if needed
     if is_modal_step:
-        if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
+        # Detect which modal from XPath (system-use-warning-dialog, create-submission-dialog, etc.)
+        if 'system-use-warning-dialog' in xpath_escaped:
+            modal_selector = '[data-testid="system-use-warning-dialog"]'
+        elif 'create-submission-dialog' in xpath_escaped:
+            modal_selector = '[data-testid="create-submission-dialog"]'
+        else:
+            # Default to create-submission-dialog for modal steps without specific modal in XPath
+            modal_selector = '[data-testid="create-submission-dialog"]'
+        
+        # Only scope if XPath doesn't already start with this modal selector
+        if not xpath_escaped.startswith(f'(//*{modal_selector})'):
             # Remove all leading slashes to avoid triple slashes (// or ///)
             xpath_without_leading = xpath_escaped.lstrip("/")
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_without_leading}'
+            xpath_escaped = f'(//*{modal_selector})//{xpath_without_leading}'
         
         code += f"{ind}// Modal step - wait for modal and scope selector\n"
         code += f"{ind}// Wait for modal to be visible\n"
@@ -359,10 +369,21 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         # If this is a modal step, scope the XPath to the modal (from Excel "Modal" column)
         if is_modal_step:
             code += f"{ind}        // Modal step - scope XPath to modal dialog (from Excel 'Modal' column)\n"
-            code += f"{ind}        if (!xpath.startsWith('(//*[@data-testid=\"create-submission-dialog\"])')) {{\n"
+            code += f"{ind}        // Detect which modal from XPath (system-use-warning-dialog, create-submission-dialog, etc.)\n"
+            code += f"{ind}        let modalSelector = '[role=\"dialog\"]';  // Default to generic dialog\n"
+            code += f"{ind}        if (xpath.includes('system-use-warning-dialog')) {{\n"
+            code += f"{ind}            modalSelector = '[data-testid=\"system-use-warning-dialog\"]';\n"
+            code += f"{ind}        }} else if (xpath.includes('create-submission-dialog')) {{\n"
+            code += f"{ind}            modalSelector = '[data-testid=\"create-submission-dialog\"]';\n"
+            code += f"{ind}        }} else {{\n"
+            code += f"{ind}            // Default to create-submission-dialog for modal steps without specific modal in XPath\n"
+            code += f"{ind}            modalSelector = '[data-testid=\"create-submission-dialog\"]';\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}        // Only scope if XPath doesn't already start with this modal selector\n"
+            code += f"{ind}        if (!xpath.startsWith(`(//*${{modalSelector}})`)) {{\n"
             code += f"{ind}            // Remove all leading slashes to avoid triple slashes (// or ///)\n"
             code += f"{ind}            const xpathWithoutLeadingSlashes = xpath.replace(/^\\/+/, '');\n"
-            code += f"{ind}            xpath = `(//*[@data-testid=\"create-submission-dialog\"])//${{xpathWithoutLeadingSlashes}}`;\n"
+            code += f"{ind}            xpath = `(//*${{modalSelector}})//${{xpathWithoutLeadingSlashes}}`;\n"
             code += f"{ind}        }}\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
@@ -537,10 +558,20 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     
     # Scope XPath to modal if needed
     if is_modal_step:
-        if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
+        # Detect which modal from XPath (system-use-warning-dialog, create-submission-dialog, etc.)
+        if 'system-use-warning-dialog' in xpath_escaped:
+            modal_selector = '[data-testid="system-use-warning-dialog"]'
+        elif 'create-submission-dialog' in xpath_escaped:
+            modal_selector = '[data-testid="create-submission-dialog"]'
+        else:
+            # Default to create-submission-dialog for modal steps without specific modal in XPath
+            modal_selector = '[data-testid="create-submission-dialog"]'
+        
+        # Only scope if XPath doesn't already start with this modal selector
+        if not xpath_escaped.startswith(f'(//*{modal_selector})'):
             # Remove all leading slashes to avoid triple slashes (// or ///)
             xpath_without_leading = xpath_escaped.lstrip("/")
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_without_leading}'
+            xpath_escaped = f'(//*{modal_selector})//{xpath_without_leading}'
     
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
