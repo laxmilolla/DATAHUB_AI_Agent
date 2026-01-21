@@ -190,7 +190,17 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
             
             # Process each row for this URL
             for idx, row in url_rows.iterrows():
-                xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
+                # Prefer Functions column (modal-scoped XPath) if available, otherwise use XPath column
+                functions_xpath = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else None
+                xpath_col = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
+                
+                # Use Functions column if it contains a modal-scoped XPath (has create-submission-dialog or other modal context)
+                # Otherwise fall back to XPath column
+                if functions_xpath and functions_xpath != 'N/A' and ('create-submission-dialog' in functions_xpath or 'modal' in functions_xpath.lower() or 'dialog' in functions_xpath.lower()):
+                    xpath = functions_xpath
+                else:
+                    xpath = xpath_col
+                
                 action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
                 object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
                 step = str(row.get('step', idx + 1)).strip()
