@@ -548,6 +548,9 @@
                         ${status === 'completed' ? `
                         <div class="status-actions">
                             ${isExcelExecution ? `
+                            <button class="btn-primary" onclick="downloadExcelTestZip('${excelId}')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin-right: 10px; font-weight: 600;">
+                                📦 Download Test (ZIP with .env)
+                            </button>
                             <button class="btn-primary" onclick="markTestPassed('${executionId}')" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-right: 10px;">
                                 ✅ Mark Test as Passed & Update Registry
                             </button>
@@ -1943,6 +1946,63 @@
                 .catch(error => {
                     console.error('❌ TypeScript download error:', error);
                     showActionMessage('❌ TypeScript download failed: ' + error.message, 'error');
+                });
+        }
+        
+        function downloadExcelTestZip(excelId) {
+            console.log('🔵 downloadExcelTestZip called with excelId:', excelId);
+            showActionMessage('⏳ Starting download...', 'info');
+            
+            if (!excelId) {
+                showActionMessage('❌ Excel ID not found', 'error');
+                return;
+            }
+            
+            // Get test name from metadata to construct zip filename
+            fetch(`/api/excel/${excelId}/metadata`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch metadata: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(metadata => {
+                    const testName = metadata.generated_test_ts?.test_name || 'test_excel';
+                    const zipFilename = `${testName}_typescript_complete.zip`;
+                    const downloadUrl = `/api/excel/${excelId}/test-ts-zip`;
+                    
+                    console.log('📦 Downloading zip:', downloadUrl);
+                    
+                    const linkElement = document.createElement('a');
+                    linkElement.style.display = 'none';
+                    linkElement.href = downloadUrl;
+                    linkElement.download = zipFilename;
+                    linkElement.setAttribute('download', zipFilename);
+                    linkElement.setAttribute('target', '_blank');
+                    document.body.appendChild(linkElement);
+                    
+                    linkElement.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(linkElement);
+                    }, 1000);
+                    
+                    showActionMessage(`📥 Download started: ${zipFilename}`, 'success');
+                })
+                .catch(error => {
+                    console.error('❌ Download error:', error);
+                    // Try direct download even if metadata fetch fails
+                    const downloadUrl = `/api/excel/${excelId}/test-ts-zip`;
+                    const linkElement = document.createElement('a');
+                    linkElement.style.display = 'none';
+                    linkElement.href = downloadUrl;
+                    linkElement.download = 'test_typescript_complete.zip';
+                    document.body.appendChild(linkElement);
+                    linkElement.click();
+                    setTimeout(() => {
+                        document.body.removeChild(linkElement);
+                    }, 1000);
+                    showActionMessage('📥 Download started', 'success');
                 });
         }
         
