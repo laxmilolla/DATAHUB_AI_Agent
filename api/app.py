@@ -28,7 +28,14 @@ except ImportError as e:
     print(f"⚠️ Excel routes not available: {e}")
     EXCEL_ROUTES_AVAILABLE = False
 
-# Instructions routes moved to Experimented folder - no longer used
+# Import Instructions routes
+try:
+    from REFACTOR.api.instructions_routes import bp_instructions
+    INSTRUCTIONS_ROUTES_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Instructions routes not available: {e}")
+    INSTRUCTIONS_ROUTES_AVAILABLE = False
+
 # Excel Execution routes moved to Experimented folder - no longer used
 
 def create_app():
@@ -58,7 +65,11 @@ def create_app():
         app.register_blueprint(bp_excel)
         print("✅ Excel API routes registered")
     
-    # Instructions blueprint moved to Experimented folder - no longer registered
+    # Register Instructions blueprint if available
+    if INSTRUCTIONS_ROUTES_AVAILABLE:
+        app.register_blueprint(bp_instructions)
+        print("✅ Instructions API routes registered")
+    
     # Excel Execution blueprint moved to Experimented folder - no longer registered
     
     # Home route - render UI
@@ -66,7 +77,13 @@ def create_app():
     def index():
         return render_template('index.html', timestamp=int(time.time()))
     
-    # Parser, element-maps, and instructions routes moved to BACKUP/Experiment - no longer available
+    @app.route('/parser')
+    def parser_page():
+        return render_template('parser.html')
+    
+    @app.route('/element-maps')
+    def element_maps_page():
+        return render_template('element_maps.html')
     
     @app.route('/results/<execution_id>')
     def results(execution_id):
@@ -81,7 +98,9 @@ def create_app():
     def excel_upload_page():
         return render_template('excel_upload.html', timestamp=int(time.time()))
     
-    # Instructions route moved to BACKUP - no longer available
+    @app.route('/instructions')
+    def instructions_page():
+        return render_template('instructions.html', timestamp=int(time.time()))
     
     return app
 
