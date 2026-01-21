@@ -308,7 +308,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, next_url: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -316,21 +316,6 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
-    
-    # Scope XPath to modal if needed
-    if is_modal_step:
-        if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_escaped.lstrip("/")}'
-        
-        code += f"{ind}// Modal step - wait for modal and scope selector\n"
-        code += f"{ind}// Wait for modal to be visible\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    const modal = page.locator('[role=\"dialog\"], [data-testid=\"create-submission-dialog\"]').first();\n"
-        code += f"{ind}    await modal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}    console.log(`✅ Step {step}: Modal is visible`);\n"
-        code += f"{ind}}} catch (modal_error) {{\n"
-        code += f"{ind}    console.log(`⚠️  Step {step}: Modal not found, continuing anyway: ${{modal_error}}`);\n"
-        code += f"{ind}}}\n"
     
     if is_optional:
         code += f"{ind}// Optional step - continue if element not found\n"
@@ -369,9 +354,8 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    // Element not found in registry - test must fail\n"
         code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
     
-    # For Create button in modal (Step 19), wait for it to be enabled and scroll into view
-    is_create_button = ('create-data-submission-dialog-create-button' in xpath_escaped or 
-                       ('create' in str(step).lower() and is_modal_step))
+    # For Create button, wait for it to be enabled and scroll into view
+    is_create_button = 'create-data-submission-dialog-create-button' in xpath_escaped
     if is_create_button:
         code += f"{ind}    // Wait for Create button to be enabled (form validation may disable it)\n"
         code += f"{ind}    // Wait up to 10 seconds for button to become enabled\n"
@@ -511,7 +495,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     return code
 
 
-def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, is_modal_step: bool = False, element_id: Optional[str] = None, user_email: Optional[str] = None) -> str:
+def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, user_email: Optional[str] = None) -> str:
     """Generate TypeScript fill code - registry-aware"""
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -523,23 +507,8 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     if is_totp:
         text_escaped = "${TOTP_CODE}"  # Will be replaced at runtime
     
-    # Scope XPath to modal if needed
-    if is_modal_step:
-        if not xpath_escaped.startswith('(//*[@data-testid="create-submission-dialog"])'):
-            xpath_escaped = f'(//*[@data-testid="create-submission-dialog"])//{xpath_escaped.lstrip("/")}'
-    
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
-    
-    if is_modal_step:
-        code += f"{ind}// Modal step - wait for modal\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    const modal = page.locator('[role=\"dialog\"], [data-testid=\"create-submission-dialog\"]').first();\n"
-        code += f"{ind}    await modal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}    console.log(`✅ Step {step}: Modal is visible`);\n"
-        code += f"{ind}}} catch (modal_error) {{\n"
-        code += f"{ind}    console.log(`⚠️  Step {step}: Modal not found, continuing anyway: ${{modal_error}}`);\n"
-        code += f"{ind}}}\n"
     
     if is_totp:
         code += f"{ind}// TOTP field - code will be generated automatically\n"
@@ -815,7 +784,6 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         current_url = None
         previous_action = None  # Track previous action to detect if wait should wait for page load
         previous_was_totp = False  # Track if previous step was TOTP fill
-        modal_is_open = False  # Track if a modal is currently open (dynamic detection)
         user_email = None  # Track email/username from fill steps (for TOTP key lookup)
         
         for idx, row in df.iterrows():
@@ -840,7 +808,6 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                 else:
                     errors.append(f"Step {step}: Navigate action requires URL")
                 previous_action = 'navigate'
-                modal_is_open = False  # Navigation closes any open modal
             
             elif action == 'wait':
                 # If previous action was a click, wait for page load (handles redirects)
@@ -852,42 +819,6 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             elif action == 'click':
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
-                    # Dynamically detect if this click opens a modal (check element name/type)
-                    # Common patterns: button with "create", "add", "new", "open" in name
-                    opens_modal = False
-                    if element_name:
-                        modal_keywords = ['create', 'add', 'new', 'open', 'submit']
-                        element_lower = element_name.lower()
-                        if any(keyword in element_lower for keyword in modal_keywords):
-                            # Check if it's a button (likely opens modal)
-                            if 'button' in element_lower or object_type.lower() == 'button':
-                                opens_modal = True
-                    
-                    # If this click opens a modal, mark modal as open
-                    if opens_modal:
-                        modal_is_open = True
-                    
-                    # Check if this click closes a modal (e.g., "Cancel", "Close", "Save")
-                    closes_modal = False
-                    if element_name:
-                        close_keywords = ['cancel', 'close', 'save', 'submit', 'done']
-                        element_lower = element_name.lower()
-                        if any(keyword in element_lower for keyword in close_keywords):
-                            closes_modal = True
-                            modal_is_open = False
-                    
-                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
-                    # This ensures modal steps are detected even if dynamic detection fails
-                    is_modal_step = modal_is_open
-                    if not is_modal_step:
-                        try:
-                            step_num = int(str(step).replace('a', '').replace('b', ''))
-                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
-                                is_modal_step = True
-                        except:
-                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                                is_modal_step = True
                     
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
@@ -901,7 +832,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                         if next_step_url and next_step_url != 'N/A':
                             next_url_for_wait = next_step_url
                     
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, is_modal_step=is_modal_step, element_id=element_id, next_url=next_url_for_wait)
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
@@ -920,23 +851,10 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     elif text_value and ('email' in element_name.lower() or 'user' in element_name.lower() or 'username' in element_name.lower()):
                         user_email = text_value  # Store username for TOTP key lookup
                     
-                    # Use step numbers as fallback (like Python) - steps 16-19 are modal steps
-                    # This ensures modal steps are detected even if dynamic detection fails
-                    is_modal_step = modal_is_open
-                    if not is_modal_step:
-                        try:
-                            step_num = int(str(step).replace('a', '').replace('b', ''))
-                            if step_num >= 16:  # Steps 16+ are in the modal (fallback)
-                                is_modal_step = True
-                        except:
-                            # If step is not a number (e.g., '16b'), check if it contains '16' or '17' or '18' or '19'
-                            if '16' in str(step) or '17' in str(step) or '18' in str(step) or '19' in str(step):
-                                is_modal_step = True
-                    
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
                     element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, is_modal_step=is_modal_step, element_id=element_id, user_email=user_email)
+                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email)
                     previous_action = 'fill'
                     previous_was_totp = is_totp  # Track if this was TOTP
                 else:
