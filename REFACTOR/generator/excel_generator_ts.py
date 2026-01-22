@@ -683,53 +683,199 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     return code
 
 
-def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, indent: int = 12, element_id: Optional[str] = None) -> str:
-    """Generate TypeScript verify code - registry-aware"""
+def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, indent: int = 12, element_id: Optional[str] = None, functions: Optional[str] = None, text_value: Optional[str] = None) -> str:
+    """
+    Generate TypeScript verify code - registry-aware
+    Supports multiple verification types:
+    - visibility (default): Verify element is visible
+    - text: Verify element text content matches expected value
+    - table: Verify all rows in table column contain expected value
+    """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
     
-    code = f"{ind}// Step {step}: Verify {element_name or 'element'}\n"
+    # Determine verification type from functions column
+    verification_type = 'visibility'  # Default
+    if functions:
+        functions_upper = str(functions).strip().upper()
+        if 'TABLE' in functions_upper:
+            verification_type = 'table'
+        elif 'TEXT' in functions_upper:
+            verification_type = 'text'
+    
+    code = f"{ind}// Step {step}: Verify {element_name or 'element'}"
+    if verification_type == 'text':
+        code += f" (text verification)"
+    elif verification_type == 'table':
+        code += f" (table verification)"
+    code += f"\n"
     code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
     code += f"{ind}try {{\n"
     
-    # Use registry lookup if element_id is available
-    if element_id:
-        element_id_escaped = escape_xpath(element_id)
-        # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
-        # This works even if page.url() hasn't updated yet after redirects
-        # Declare element variable outside try block so it's in scope
-        code += f"{ind}    let element;\n"
-        code += f"{ind}    // Try registry lookup first\n"
-        code += f"{ind}    try {{\n"
-        url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
-        if url_escaped:
-            code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
-            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+    # TABLE VERIFICATION
+    if verification_type == 'table':
+        # Parse Text Value: "ColumnName=ExpectedValue"
+        if not text_value or '=' not in text_value:
+            code += f"{ind}    throw new Error(`Step {step}: Table verification requires Text Value in format 'ColumnName=ExpectedValue'`);\n"
         else:
-            code += f"{ind}        // No Excel URL, use current page URL\n"
-            code += f"{ind}        const lookupUrl = page.url();\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
-        code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-        code += f"{ind}        element = page.locator(selector).nth(0);\n"
-        code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
-        code += f"{ind}    }} catch (registry_error) {{\n"
-        code += f"{ind}        // Registry lookup failed - test must fail\n"
-        code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
-        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
-        code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
-        code += f"{ind}    }}\n"
+            parts = text_value.split('=', 1)
+            column_name = parts[0].strip()
+            expected_value = parts[1].strip()
+            column_name_escaped = column_name.replace("'", "\\'").replace('"', '\\"')
+            expected_value_escaped = expected_value.replace("'", "\\'").replace('"', '\\"')
+            
+            # Determine table selector from XPath
+            table_selector = xpath.strip() if xpath and xpath != 'N/A' else 'visible_table'
+            table_selector_escaped = table_selector.replace("'", "\\'").replace('"', '\\"')
+            
+            code += f"{ind}    // Table verification: Check all rows in '{column_name}' column contain '{expected_value}'\n"
+            code += f"{ind}    const columnName = '{column_name_escaped}';\n"
+            code += f"{ind}    const expectedValue = '{expected_value_escaped}';\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    // Find table\n"
+            if table_selector == 'visible_table':
+                code += f"{ind}    const table = page.locator('table').first();\n"
+            else:
+                # Check if XPath or CSS selector
+                if table_selector.startswith('//') or table_selector.startswith('('):
+                    code += f"{ind}    const table = page.locator(`xpath={table_selector_escaped}`).first();\n"
+                else:
+                    code += f"{ind}    const table = page.locator('{table_selector_escaped}').first();\n"
+            
+            code += f"{ind}    await table.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    // Find column index by header text\n"
+            code += f"{ind}    const headers = await table.locator('thead th, thead td').allTextContents();\n"
+            code += f"{ind}    let columnIndex = -1;\n"
+            code += f"{ind}    for (let i = 0; i < headers.length; i++) {{\n"
+            code += f"{ind}        if (headers[i].toLowerCase().includes(columnName.toLowerCase())) {{\n"
+            code += f"{ind}            columnIndex = i;\n"
+            code += f"{ind}            break;\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    if (columnIndex === -1) {{\n"
+            code += f"{ind}        throw new Error(`Step {step}: Column \\\"${{columnName}}\\\" not found. Available columns: ${{headers.join(', ')}}`);\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    // Verify all rows contain expected value\n"
+            code += f"{ind}    const rows = await table.locator('tbody tr').all();\n"
+            code += f"{ind}    const totalRows = rows.length;\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    if (totalRows === 0) {{\n"
+            code += f"{ind}        throw new Error(`Step {step}: Table has no rows to verify`);\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    let matchingRows = 0;\n"
+            code += f"{ind}    const mismatches = [];\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    for (let i = 0; i < totalRows; i++) {{\n"
+            code += f"{ind}        const cells = await rows[i].locator('td').all();\n"
+            code += f"{ind}        if (columnIndex < cells.length) {{\n"
+            code += f"{ind}            const cellText = (await cells[columnIndex].textContent() || '').trim();\n"
+            code += f"{ind}            if (cellText.toLowerCase().includes(expectedValue.toLowerCase())) {{\n"
+            code += f"{ind}                matchingRows++;\n"
+            code += f"{ind}            }} else {{\n"
+            code += f"{ind}                mismatches.push(`Row ${{i+1}}: \\\"${{cellText}}\\\"`);\n"
+            code += f"{ind}            }}\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    if (matchingRows !== totalRows) {{\n"
+            code += f"{ind}        const mismatchDetails = mismatches.slice(0, 5).join('; ');\n"
+            code += f"{ind}        throw new Error(`Step {step}: Table verification failed: ${{matchingRows}}/${{totalRows}} rows match. Mismatches: ${{mismatchDetails}}`);\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    console.log(`✅ Step {step}: Table verification passed: All ${{totalRows}} rows in \\\"${{columnName}}\\\" column contain \\\"${{expectedValue}}\\\"`);\n"
+            code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_table.png' }});\n"
+    
+    # TEXT VERIFICATION
+    elif verification_type == 'text':
+        if not text_value:
+            code += f"{ind}    throw new Error(`Step {step}: Text verification requires Text Value`);\n"
+        else:
+            expected_text = text_value.strip().strip('"').strip("'")
+            expected_text_escaped = expected_text.replace("'", "\\'").replace('"', '\\"')
+            
+            # Use registry lookup if element_id is available
+            if element_id:
+                element_id_escaped = escape_xpath(element_id)
+                code += f"{ind}    // Text verification: Check element text contains '{expected_text}'\n"
+                code += f"{ind}    let element;\n"
+                code += f"{ind}    // Try registry lookup first\n"
+                code += f"{ind}    try {{\n"
+                url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
+                if url_escaped:
+                    code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+                else:
+                    code += f"{ind}        const lookupUrl = page.url();\n"
+                code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+                code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
+                code += f"{ind}        element = page.locator(selector).nth(0);\n"
+                code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+                code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
+                code += f"{ind}    }} catch (registry_error) {{\n"
+                code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+                code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
+                code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    // Verify text content\n"
+                code += f"{ind}    const elementText = (await element.textContent() || '').trim();\n"
+                code += f"{ind}    const expectedText = '{expected_text_escaped}';\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    if (!elementText || !elementText.toLowerCase().includes(expectedText.toLowerCase())) {{\n"
+                code += f"{ind}        throw new Error(`Step {step}: Text verification failed: expected text containing \\\"${{expectedText}}\\\", got \\\"${{elementText || 'empty'}}\\\"`);\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    console.log(`✅ Step {step}: Text verification passed: \\\"${{elementText}}\\\" contains \\\"${{expectedText}}\\\"`);\n"
+                code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_text.png' }});\n"
+            else:
+                code += f"{ind}    // Element not found in registry - test must fail\n"
+                code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
+    
+    # VISIBILITY VERIFICATION (default)
     else:
-        # No element_id - test must fail (element not in registry)
-        code += f"{ind}    // Element not found in registry - test must fail\n"
-        code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
-    element_display = element_name or 'element'
-    code += f"{ind}    console.log(`✅ Step {step}: Verified {element_display} is visible`);\n"
-    code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
+        # Use registry lookup if element_id is available
+        if element_id:
+            element_id_escaped = escape_xpath(element_id)
+            # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
+            # This works even if page.url() hasn't updated yet after redirects
+            # Declare element variable outside try block so it's in scope
+            code += f"{ind}    let element;\n"
+            code += f"{ind}    // Try registry lookup first\n"
+            code += f"{ind}    try {{\n"
+            url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
+            if url_escaped:
+                code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
+                code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
+            else:
+                code += f"{ind}        // No Excel URL, use current page URL\n"
+                code += f"{ind}        const lookupUrl = page.url();\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+            code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
+            code += f"{ind}        element = page.locator(selector).nth(0);\n"
+            code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+            code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
+            code += f"{ind}    }} catch (registry_error) {{\n"
+            code += f"{ind}        // Registry lookup failed - test must fail\n"
+            code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+            code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
+            code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+            code += f"{ind}    }}\n"
+        else:
+            # No element_id - test must fail (element not in registry)
+            code += f"{ind}    // Element not found in registry - test must fail\n"
+            code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
+        element_display = element_name or 'element'
+        code += f"{ind}    console.log(`✅ Step {step}: Verified {element_display} is visible`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
+    
     code += f"{ind}}} catch (e) {{\n"
     element_display = element_name or 'element'
-    code += f"{ind}    console.log(`❌ Step {step}: Failed to verify {element_display}: ${{e}}`);\n"
+    verification_type_display = verification_type if verification_type != 'visibility' else ''
+    code += f"{ind}    console.log(`❌ Step {step}: Failed to verify {element_display}{' (' + verification_type_display + ')' if verification_type_display else ''}: ${{e}}`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
     code += f"{ind}    criticalFailures.push(`Step {step}: Verify failed`);\n"
     code += f"{ind}}}\n"
@@ -861,15 +1007,29 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     errors.append(f"Step {step}: Fill action requires XPath")
             
             elif action == 'verify':
-                if xpath and xpath != 'N/A':
+                # For table verification, XPath can be table selector (e.g., 'visible_table', '#data-table')
+                # For text/visibility verification, XPath is required
+                functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else None
+                text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else None
+                is_table_verification = functions and 'TABLE' in str(functions).upper()
+                
+                if not is_table_verification and (not xpath or xpath == 'N/A'):
+                    errors.append(f"Step {step}: Verify action requires XPath (unless Functions=table)")
+                else:
                     element_name = object_type or 'element'
                     # Lookup element_id from registry - use URL from this row (not current_url)
                     row_url = url if url and url != 'N/A' else current_url or ''
-                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_verify_code_ts(step, xpath, row_url, element_name, element_id=element_id)
+                    # For table verification, don't require element_id (table selector is in XPath)
+                    element_id = None
+                    if not is_table_verification:
+                        element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    test_body += generate_verify_code_ts(
+                        step, xpath, row_url, element_name, 
+                        element_id=element_id,
+                        functions=functions,
+                        text_value=text_value
+                    )
                     previous_action = 'verify'
-                else:
-                    errors.append(f"Step {step}: Verify action requires XPath")
             
             else:
                 errors.append(f"Step {step}: Unknown action '{action}'")
