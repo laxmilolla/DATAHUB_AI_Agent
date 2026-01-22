@@ -9,7 +9,6 @@ import threading
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from agent.core.agent import Agent
-# from utils.html_parser import parse_html_to_element_map  # MOVED TO TO_BE_DELETED - not used
 from utils.element_registry import get_registry
 
 bp = Blueprint('api', __name__)
@@ -1034,50 +1033,6 @@ def download_generated_test(exec_id):
         
     except Exception as e:
         print(f"Error downloading generated test: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@bp.route('/executions/<exec_id>/download-env', methods=['GET'])
-def download_env_file(exec_id):
-    """Download .env file with TOTP_SECRET_KEY for local test execution"""
-    try:
-        from flask import send_file
-        from io import BytesIO
-        import os
-        
-        project_root = current_app.config['PROJECT_ROOT']
-        env_file_path = project_root / '.env'
-        
-        if not env_file_path.exists():
-            return jsonify({'error': '.env file not found on server'}), 404
-        
-        # Read the .env file
-        with open(env_file_path, 'r') as f:
-            env_content = f.read()
-        
-        # Create a BytesIO object with the .env content
-        env_bytes = BytesIO(env_content.encode('utf-8'))
-        
-        # Send file with proper headers for download
-        response = send_file(
-            env_bytes,
-            as_attachment=True,
-            download_name='.env',
-            mimetype='text/plain'
-        )
-        
-        # Explicitly set Content-Disposition header
-        response.headers['Content-Disposition'] = 'attachment; filename=".env"'
-        
-        # Prevent browser caching
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        
-        return response
-        
-    except Exception as e:
-        print(f"Error downloading .env file: {e}")
         return jsonify({'error': str(e)}), 500
 
 
