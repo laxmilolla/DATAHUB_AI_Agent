@@ -18,15 +18,43 @@
       "unique_attributes": null,
       "context": "main-page",
       "element_id": "ID_d4e1aae2"
+    },
+    "organization_filter": {
+      "xpath": "//input[@id=\"organization-filter\"]",
+      "selector": "//input[@id=\"organization-filter\"]",
+      "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+      "element_id": "ID_org_filter_001",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "input",
+      "action": "fill",
+      "discovered_at": "2026-01-22T18:00:00.000000Z",
+      "last_updated": "2026-01-22T18:00:00.000000Z"
+    },
+    "submission_name_input": {
+      "xpath": "//input[@data-testid=\"submission-name-input\"]",
+      "selector": "//input[@data-testid=\"submission-name-input\"]",
+      "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+      "element_id": "ID_sub_name_001",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "input",
+      "action": "fill",
+      "discovered_at": "2026-01-22T18:00:00.000000Z",
+      "last_updated": "2026-01-22T18:00:00.000000Z"
     }
   },
   "id_index": {
-    "ID_d4e1aae2": "text"
+    "ID_d4e1aae2": "text",
+    "ID_org_filter_001": "organization_filter",
+    "ID_sub_name_001": "submission_name_input"
   },
   "statistics": {
-    "total_elements": 0,
+    "total_elements": 3,
     "parsed_elements": 0,
-    "discovered_elements": 0
+    "discovered_elements": 1
   },
-  "last_updated": "2026-01-16T00:37:44.429295Z"
+  "last_updated": "2026-01-22T18:00:00.000000Z"
 }
