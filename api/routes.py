@@ -1301,7 +1301,6 @@ def download_test_ts_zip(exec_id):
         
         # Check if this is an Excel execution
         execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
-        python_test_file = None
         ts_test_file = None
         test_name = None
         
@@ -1328,60 +1327,39 @@ def download_test_ts_zip(exec_id):
                             else:
                                 ts_test_file = None
                 
-                # Fallback to Python file if no TypeScript file found
-                if ts_test_file is None and exec_data.get('test_file'):
-                    python_test_file = project_root / exec_data['test_file']
-                    test_name = exec_data.get('test_name', 'excel_test')
-                    
-                    if not python_test_file.exists():
-                        return jsonify({
-                            'error': f'Excel test file not found: {python_test_file}',
-                            'test_file': exec_data.get('test_file'),
-                            'resolved_path': str(python_test_file.resolve())
-                        }), 404
+                # Excel executions must have TypeScript test file
+                if ts_test_file is None:
+                    return jsonify({
+                        'error': 'No TypeScript test file found for Excel execution. Please regenerate the test.',
+                        'excel_id': excel_id,
+                        'execution_id': exec_id
+                    }), 404
         
-        # Fallback to regular generated test metadata
-        if python_test_file is None and ts_test_file is None:
-            metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
-            
-            if not metadata_file.exists():
-                return jsonify({'error': 'No generated test found for this execution'}), 404
-            
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            
-            # Get the Python test file path
-            python_test_file = Path(metadata['filename'])
-            test_name = python_test_file.stem
-            
-            if not python_test_file.exists():
-                return jsonify({'error': 'Generated Python test file not found'}), 404
+        # Check if TypeScript file is available (required - no Python conversion)
+        if ts_test_file is None or not ts_test_file.exists():
+            return jsonify({
+                'error': 'No TypeScript test file found. Only TypeScript tests are supported.',
+                'execution_id': exec_id
+            }), 404
         
-        # Use pre-generated TypeScript file if available, otherwise convert Python
+        # Use pre-generated TypeScript file (required - no Python conversion)
         if ts_test_file and ts_test_file.exists():
-            # Read pre-generated TypeScript file (preferred - uses new generator)
+            # Read pre-generated TypeScript file
             with open(ts_test_file, 'r') as f:
                 ts_code = f.read()
             
             # Extract REGISTRY_PATHS from TypeScript file
             registry_paths = []
             match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_code, re.DOTALL)
+            if match:
+                paths_str = match.group(1)
+                path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+                registry_paths = [p.strip() for p in path_matches if p.strip()]
         else:
-            # Fallback: Convert Python to TypeScript (old method)
-            with open(python_test_file, 'r') as f:
-                python_code = f.read()
-            
-            # Convert Python to TypeScript
-            from generator.js_converter.py_to_ts_converter import convert_python_to_spec_ts
-            ts_code = convert_python_to_spec_ts(python_code)
-            
-            # Extract REGISTRY_PATHS from Python test file
-            registry_paths = []
-            match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", python_code, re.DOTALL)
-        if match:
-            paths_str = match.group(1)
-            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
-            registry_paths = [p.strip() for p in path_matches if p.strip()]
+            return jsonify({
+                'error': 'No TypeScript test file found. Only TypeScript tests are supported.',
+                'execution_id': exec_id
+            }), 404
         
         # Create package.json content
         package_json_content = '''{
