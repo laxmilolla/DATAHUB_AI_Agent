@@ -1279,10 +1279,6 @@
                                    class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                     👁️ View Code
                                 </a>
-                                <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                        class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
-                                    📦 Download .py (Complete Package)
-                                </button>
                                 ${(isExcelExecution && excelId) ? `
                                 <button onclick="generateTypeScriptFromExcel('${excelId || ''}')" 
                                         class="btn-primary" id="generateTsBtn_${excelId || ''}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
@@ -1755,10 +1751,6 @@
                                class="btn-secondary" style="display: inline-block; text-decoration: none;">
                                 👁️ View Code
                             </a>
-                            <button onclick="downloadPlaywrightTest('${executionId}')" 
-                                    class="btn-primary" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px;">
-                                📦 Download .py (Complete Package)
-                            </button>
                             ${(typeof isExcelExecution !== 'undefined' && isExcelExecution && excelId) ? `
                             <button onclick="generateTypeScriptFromExcel('${excelId}')" 
                                     class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
@@ -1839,68 +1831,6 @@
                 
                 showActionMessage('📥 Raw data downloaded successfully!', 'success');
             }
-        }
-        
-        function downloadPlaywrightTest(execId) {
-            console.log('🔵 downloadPlaywrightTest called with execId:', execId);
-            showActionMessage('⏳ Starting download...', 'info');
-            
-            // First, get the filename from metadata API
-            console.log('📡 Fetching metadata from /api/executions/' + execId + '/generated-test');
-            fetch(`/api/executions/${execId}/generated-test`)
-                .then(response => {
-                    console.log('📥 Metadata response status:', response.status);
-                    if (!response.ok) {
-                        throw new Error('Failed to fetch metadata: ' + response.status);
-                    }
-                    return response.json();
-                })
-                .then(metadata => {
-                    console.log('✅ Metadata received:', metadata);
-                    // Extract filename from metadata
-                    let filename = 'test.py'; // Default fallback
-                    if (metadata.filename) {
-                        // Extract just the filename from full path
-                        const pathParts = metadata.filename.split('/');
-                        filename = pathParts[pathParts.length - 1];
-                        console.log('📝 Extracted filename:', filename);
-                    } else if (metadata.test_name) {
-                        filename = `${metadata.test_name}.py`;
-                        console.log('📝 Using test_name:', filename);
-                    }
-                    
-                    // Use zip download that includes .py, .env, and all required JSON registry files
-                    const zipFilename = filename.replace('.py', '_complete.zip');
-                    const downloadUrl = `/api/executions/${execId}/download-test-zip`;
-                    console.log('🔗 Creating zip download link to:', downloadUrl);
-                    
-                    // Create a link to the zip endpoint
-                    const linkElement = document.createElement('a');
-                    linkElement.style.display = 'none';
-                    linkElement.href = downloadUrl;
-                    linkElement.download = zipFilename;
-                    linkElement.setAttribute('download', zipFilename);
-                    linkElement.setAttribute('target', '_blank');
-                    document.body.appendChild(linkElement);
-                    
-                    console.log('🖱️ Clicking zip download link...');
-                    console.log('📋 Link element:', {
-                        href: linkElement.href,
-                        download: linkElement.download
-                    });
-                    
-                    linkElement.click();
-                    
-                    setTimeout(() => {
-                        document.body.removeChild(linkElement);
-                    }, 1000);
-                    
-                    showActionMessage(`📥 Download started: ${zipFilename}`, 'success');
-                })
-                .catch(error => {
-                    console.error('❌ Download error:', error);
-                    showActionMessage('❌ Download failed: ' + error.message, 'error');
-                });
         }
         
         function downloadPlaywrightTestTS(execId) {

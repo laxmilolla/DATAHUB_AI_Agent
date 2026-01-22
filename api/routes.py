@@ -3,17 +3,25 @@ from flask import Blueprint, request, jsonify, current_app, send_file, render_te
 import json
 import sys
 import asyncio
+import time
 from pathlib import Path
 from datetime import datetime
 import threading
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from agent.core.agent import Agent
-# from utils.html_parser import parse_html_to_element_map  # MOVED TO TO_BE_DELETED - not used
 from utils.element_registry import get_registry
+
+# Excel generator imports
+from REFACTOR.generator.excel_generator_ts import generate_playwright_ts_from_excel
+from REFACTOR.generator.excel_validator import validate_excel_file, get_validation_summary
+from REFACTOR.generator.excel_template import generate_excel_template, get_template_path
+from REFACTOR.generator.excel_registry_helper import extract_elements_from_excel, compare_with_registry
+import uuid
 
 bp = Blueprint('api', __name__)
 active_executions = {}
+active_excel_generations = {}
 
 
 @bp.route('/execute', methods=['POST'])
@@ -360,7 +368,7 @@ def manual_register_element():
         element_registry = get_registry()
         
         # Register element
-        from REFACTOR.api.manual_registry_helper import ManualRegistryHelper
+        from api.manual_registry_helper import ManualRegistryHelper
         helper = ManualRegistryHelper(element_registry)
         
         # Debug: Log received HTML (first 200 chars)
@@ -633,10 +641,10 @@ def generate_and_validate(exec_id):
                         'execution_id': exec_id
                     }), 400
                 
-                # Import Excel generation function
+                # Import TypeScript Excel generation function
                 sys.path.insert(0, str(project_root))
-                from REFACTOR.generator.excel_generator import generate_playwright_from_excel
-                from validator.test_runner import TestRunner
+                from REFACTOR.generator.excel_generator_ts import generate_playwright_ts_from_excel
+                from validator.typescript_test_runner import TypeScriptTestRunner
                 from pathlib import Path
                 from datetime import datetime
                 import uuid
@@ -659,14 +667,14 @@ def generate_and_validate(exec_id):
                         'error': f'Excel file not found: {excel_path}'
                     }), 404
                 
-                # Generate new test file
+                # Generate new TypeScript test file
                 output_dir = project_root / 'storage' / 'excel_tests'
                 output_dir.mkdir(parents=True, exist_ok=True)
                 new_exec_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-                output_file = output_dir / f"test_excel_{excel_id}.py"
+                output_file = output_dir / f"test_excel_{excel_id}.spec.ts"
                 
-                # Generate test from Excel
-                generation_result = generate_playwright_from_excel(excel_path, output_file)
+                # Generate TypeScript test from Excel
+                generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
                 
                 if not generation_result.get('success'):
                     return jsonify({
@@ -680,11 +688,11 @@ def generate_and_validate(exec_id):
                 with open(execution_file, 'w') as f:
                     json.dump(exec_data, f, indent=2)
                 
-                # Run test in background
+                # Run TypeScript test in background
                 def run_test_background():
                     try:
-                        runner = TestRunner(project_root)
-                        test_result = runner.run(output_file.name, exec_id)
+                        runner = TypeScriptTestRunner(project_root)
+                        test_result = runner.run(str(output_file), exec_id)
                         
                         # Update execution with test results
                         exec_data['playwright_validation'] = {
@@ -699,6 +707,12 @@ def generate_and_validate(exec_id):
                             'exit_code': test_result.get('exit_code', 0)
                         }
                         exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                        # Update execution status based on test result
+                        test_status = test_result.get('status', 'unknown')
+                        if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                            exec_data['status'] = 'failed'
+                        else:
+                            exec_data['status'] = 'completed'
                         exec_data['completed_at'] = datetime.now().isoformat()
                         
                         with open(execution_file, 'w') as f:
@@ -875,33 +889,36 @@ def get_generated_test(exec_id):
 
 @bp.route('/executions/<exec_id>/run-test', methods=['POST'])
 def run_test(exec_id):
-    """Run generated Playwright test in background to generate screenshots"""
+    """Run generated TypeScript Playwright test in background to generate screenshots"""
     try:
-        from validator.test_runner import TestRunner
-        from validator.comparator import Comparator
+        from validator.typescript_test_runner import TypeScriptTestRunner
+        from datetime import datetime
         
         project_root = current_app.config['PROJECT_ROOT']
-        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
         
-        if not metadata_file.exists():
-            return jsonify({'error': 'No generated test found for this execution'}), 404
+        # Check execution file for test file path
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        if not execution_file.exists():
+            return jsonify({'error': 'Execution not found'}), 404
         
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
+        with open(execution_file, 'r') as f:
+            exec_data = json.load(f)
         
-        test_filename = metadata.get('filename')
-        if not test_filename:
-            return jsonify({'error': 'Test filename not found in metadata'}), 404
+        # Get test file from execution data (should be TypeScript .spec.ts file)
+        test_file_path = exec_data.get('test_file')
+        if not test_file_path:
+            return jsonify({'error': 'Test file not found in execution data'}), 404
         
-        # Run test in background thread to avoid timeout
+        # Resolve full path
+        test_path = project_root / test_file_path
+        if not test_path.exists():
+            return jsonify({'error': f'Test file not found: {test_path}'}), 404
+        
+        # Run TypeScript test in background thread to avoid timeout
         def run_test_background():
             try:
-                runner = TestRunner(project_root)
-                test_result = runner.run(test_filename, exec_id)
-                
-                # Compare results
-                comparator = Comparator(project_root)
-                comparison = comparator.compare(exec_id, test_result)
+                runner = TypeScriptTestRunner(project_root)
+                test_result = runner.run(str(test_path), exec_id)
                 
                 # Save results to execution file
                 results_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
@@ -913,15 +930,21 @@ def run_test(exec_id):
                     exec_data['playwright_validation'] = {
                         'status': test_result.get('status'),
                         'duration': test_result.get('duration'),
-                        'assertions_passed': test_result.get('assertions_passed'),
-                        'assertions_failed': test_result.get('assertions_failed'),
+                        'assertions_passed': test_result.get('assertions_passed', 0),
+                        'assertions_failed': test_result.get('assertions_failed', 0),
                         'test_file': test_result.get('test_file'),
                         'timestamp': test_result.get('timestamp'),
                         'stdout': test_result.get('stdout', ''),
                         'stderr': test_result.get('stderr', ''),
                         'exit_code': test_result.get('exit_code', 0)
                     }
-                    exec_data['playwright_comparison'] = comparison
+                    # Update execution status based on test result
+                    test_status = test_result.get('status', 'unknown')
+                    if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                        exec_data['status'] = 'failed'
+                    else:
+                        exec_data['status'] = 'completed'
+                    exec_data['completed_at'] = datetime.now().isoformat()
                     
                     with open(results_file, 'w') as f:
                         json.dump(exec_data, f, indent=2)
@@ -1019,50 +1042,6 @@ def download_generated_test(exec_id):
         
     except Exception as e:
         print(f"Error downloading generated test: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-@bp.route('/executions/<exec_id>/download-env', methods=['GET'])
-def download_env_file(exec_id):
-    """Download .env file with TOTP_SECRET_KEY for local test execution"""
-    try:
-        from flask import send_file
-        from io import BytesIO
-        import os
-        
-        project_root = current_app.config['PROJECT_ROOT']
-        env_file_path = project_root / '.env'
-        
-        if not env_file_path.exists():
-            return jsonify({'error': '.env file not found on server'}), 404
-        
-        # Read the .env file
-        with open(env_file_path, 'r') as f:
-            env_content = f.read()
-        
-        # Create a BytesIO object with the .env content
-        env_bytes = BytesIO(env_content.encode('utf-8'))
-        
-        # Send file with proper headers for download
-        response = send_file(
-            env_bytes,
-            as_attachment=True,
-            download_name='.env',
-            mimetype='text/plain'
-        )
-        
-        # Explicitly set Content-Disposition header
-        response.headers['Content-Disposition'] = 'attachment; filename=".env"'
-        
-        # Prevent browser caching
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        
-        return response
-        
-    except Exception as e:
-        print(f"Error downloading .env file: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1322,7 +1301,6 @@ def download_test_ts_zip(exec_id):
         
         # Check if this is an Excel execution
         execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
-        python_test_file = None
         ts_test_file = None
         test_name = None
         
@@ -1349,60 +1327,39 @@ def download_test_ts_zip(exec_id):
                             else:
                                 ts_test_file = None
                 
-                # Fallback to Python file if no TypeScript file found
-                if ts_test_file is None and exec_data.get('test_file'):
-                    python_test_file = project_root / exec_data['test_file']
-                    test_name = exec_data.get('test_name', 'excel_test')
-                    
-                    if not python_test_file.exists():
-                        return jsonify({
-                            'error': f'Excel test file not found: {python_test_file}',
-                            'test_file': exec_data.get('test_file'),
-                            'resolved_path': str(python_test_file.resolve())
-                        }), 404
+                # Excel executions must have TypeScript test file
+                if ts_test_file is None:
+                    return jsonify({
+                        'error': 'No TypeScript test file found for Excel execution. Please regenerate the test.',
+                        'excel_id': excel_id,
+                        'execution_id': exec_id
+                    }), 404
         
-        # Fallback to regular generated test metadata
-        if python_test_file is None and ts_test_file is None:
-            metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
-            
-            if not metadata_file.exists():
-                return jsonify({'error': 'No generated test found for this execution'}), 404
-            
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            
-            # Get the Python test file path
-            python_test_file = Path(metadata['filename'])
-            test_name = python_test_file.stem
-            
-            if not python_test_file.exists():
-                return jsonify({'error': 'Generated Python test file not found'}), 404
+        # Check if TypeScript file is available (required - no Python conversion)
+        if ts_test_file is None or not ts_test_file.exists():
+            return jsonify({
+                'error': 'No TypeScript test file found. Only TypeScript tests are supported.',
+                'execution_id': exec_id
+            }), 404
         
-        # Use pre-generated TypeScript file if available, otherwise convert Python
+        # Use pre-generated TypeScript file (required - no Python conversion)
         if ts_test_file and ts_test_file.exists():
-            # Read pre-generated TypeScript file (preferred - uses new generator)
+            # Read pre-generated TypeScript file
             with open(ts_test_file, 'r') as f:
                 ts_code = f.read()
             
             # Extract REGISTRY_PATHS from TypeScript file
             registry_paths = []
             match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_code, re.DOTALL)
+            if match:
+                paths_str = match.group(1)
+                path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+                registry_paths = [p.strip() for p in path_matches if p.strip()]
         else:
-            # Fallback: Convert Python to TypeScript (old method)
-            with open(python_test_file, 'r') as f:
-                python_code = f.read()
-            
-            # Convert Python to TypeScript
-            from generator.js_converter.py_to_ts_converter import convert_python_to_spec_ts
-            ts_code = convert_python_to_spec_ts(python_code)
-            
-            # Extract REGISTRY_PATHS from Python test file
-            registry_paths = []
-            match = re.search(r"REGISTRY_PATHS\s*=\s*\[(.*?)\]", python_code, re.DOTALL)
-        if match:
-            paths_str = match.group(1)
-            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
-            registry_paths = [p.strip() for p in path_matches if p.strip()]
+            return jsonify({
+                'error': 'No TypeScript test file found. Only TypeScript tests are supported.',
+                'execution_id': exec_id
+            }), 404
         
         # Create package.json content
         package_json_content = '''{
@@ -1787,6 +1744,1199 @@ def update_registry_tree():
     except Exception as e:
         import traceback
         print(f"Error saving registry: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# Excel API Routes (merged from REFACTOR/api/excel_routes.py)
+# ============================================================================
+
+@bp.route('/excel/upload', methods=['POST'])
+def upload_excel():
+    """
+    Upload and validate Excel file.
+    
+    Expected form data:
+    - file: Excel file (.xlsx or .xls)
+    
+    Returns:
+        JSON with excel_id and validation results
+    """
+    try:
+        # Check if file is present
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file extension
+        if not file.filename.lower().endswith(('.xlsx', '.xls')):
+            return jsonify({'error': 'Invalid file type. Expected .xlsx or .xls'}), 400
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Generate unique Excel ID
+        excel_id = f"excel_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        # Create storage directories
+        excel_files_dir = project_root / 'storage' / 'excel_files'
+        excel_files_dir.mkdir(parents=True, exist_ok=True)
+        
+        metadata_dir = excel_files_dir / 'metadata'
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save uploaded file
+        excel_filename = f"{excel_id}.xlsx"
+        excel_path = excel_files_dir / excel_filename
+        file.save(str(excel_path))
+        
+        # Validate Excel file
+        validation_result = validate_excel_file(excel_path)
+        
+        # Save metadata
+        metadata = {
+            'excel_id': excel_id,
+            'filename': file.filename,
+            'saved_filename': excel_filename,
+            'uploaded_at': datetime.now().isoformat(),
+            'validation': validation_result,
+            'file_path': str(excel_path.relative_to(project_root))
+        }
+        
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Return response
+        response = {
+            'success': validation_result['valid'],
+            'excel_id': excel_id,
+            'filename': file.filename,
+            'validation': validation_result,
+            'uploaded_at': metadata['uploaded_at']
+        }
+        
+        if not validation_result['valid']:
+            response['error'] = 'Excel file validation failed'
+            response['validation_summary'] = get_validation_summary(validation_result)
+            return jsonify(response), 400
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"Error uploading Excel file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/generate', methods=['POST'])
+def generate_from_excel():
+    """
+    Generate Playwright test from Excel file.
+    
+    Expected JSON:
+    {
+        "excel_id": "excel_...",
+        "test_name": "optional_test_name"
+    }
+    
+    Returns:
+        JSON with generation status and test file info
+    """
+    try:
+        data = request.get_json()
+        excel_id = data.get('excel_id')
+        
+        if not excel_id:
+            return jsonify({'error': 'excel_id required'}), 400
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load Excel metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Generate test name
+        test_name = data.get('test_name') or f"test_excel_{excel_id}"
+        
+        # Create output directory
+        output_dir = project_root / 'storage' / 'excel_tests'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = output_dir / f"{test_name}.spec.ts"
+        
+        # Track generation
+        active_excel_generations[excel_id] = {
+            'status': 'generating',
+            'started_at': datetime.now().isoformat(),
+            'excel_id': excel_id,
+            'test_name': test_name
+        }
+        
+        # Generate TypeScript Playwright code
+        try:
+            generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
+        except Exception as e:
+            active_excel_generations[excel_id]['status'] = 'error'
+            active_excel_generations[excel_id]['error'] = str(e)
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'excel_id': excel_id
+            }), 500
+        
+        # Create execution ID for this Excel test
+        execution_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{excel_id.split('_')[-1][:8]}"
+        
+        # Create execution metadata (similar to existing system)
+        executions_dir = project_root / 'storage' / 'executions'
+        executions_dir.mkdir(parents=True, exist_ok=True)
+        
+        execution_data = {
+            'execution_id': execution_id,
+            'excel_id': excel_id,
+            'source': 'excel',
+            'story': f"Excel test case: {metadata.get('filename', 'test_case.xlsx')}",
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'status': 'running',
+            'created_at': datetime.now().isoformat(),
+            'excel_metadata': {
+                'excel_id': excel_id,
+                'filename': metadata.get('filename'),
+                'uploaded_at': metadata.get('uploaded_at'),
+                'validation': metadata.get('validation', {})
+            },
+            'actions_taken': [],
+            'screenshots': [],
+            'playwright_validation': {
+                'status': 'running',
+                'test_running': True
+            }
+        }
+        
+        # Save initial execution data
+        execution_file = executions_dir / f"{execution_id}.json"
+        with open(execution_file, 'w') as f:
+            json.dump(execution_data, f, indent=2)
+        
+        # Update metadata
+        metadata['generated_test'] = {
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'generated_at': datetime.now().isoformat(),
+            'generation_result': generation_result,
+            'execution_id': execution_id
+        }
+        
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Update generation status
+        active_excel_generations[excel_id]['status'] = 'completed'
+        active_excel_generations[excel_id]['test_file'] = str(output_file.relative_to(project_root))
+        active_excel_generations[excel_id]['execution_id'] = execution_id
+        
+        # Run test automatically in background thread
+        def run_excel_test_background():
+            try:
+                # Import TypeScriptTestRunner
+                try:
+                    from validator.typescript_test_runner import TypeScriptTestRunner
+                except ImportError as e:
+                    print(f"⚠️ TypeScriptTestRunner not available - test will not be executed automatically: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Update execution with error
+                    execution_data['status'] = 'error'
+                    execution_data['error'] = f'TypeScriptTestRunner not available: {str(e)}'
+                    execution_data['completed_at'] = datetime.now().isoformat()
+                    with open(execution_file, 'w') as f:
+                        json.dump(execution_data, f, indent=2)
+                    return
+                
+                # TypeScriptTestRunner expects the full path to the test file
+                runner = TypeScriptTestRunner(project_root)
+                test_result = runner.run(str(output_file), execution_id=execution_id)
+                
+                # Update execution data with test results
+                execution_data['status'] = 'completed' if test_result.get('status') == 'passed' else 'failed'
+                execution_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                execution_data['screenshots'] = [s['filename'] for s in test_result.get('screenshots', [])]
+                execution_data['playwright_validation'] = {
+                    'status': test_result.get('status'),
+                    'duration': test_result.get('duration'),
+                    'assertions_passed': test_result.get('assertions_passed', 0),
+                    'assertions_failed': test_result.get('assertions_failed', 0),
+                    'test_file': test_result.get('test_file'),
+                    'timestamp': test_result.get('timestamp'),
+                    'stdout': test_result.get('stdout', ''),
+                    'stderr': test_result.get('stderr', ''),
+                    'exit_code': test_result.get('exit_code', 0)
+                }
+                execution_data['completed_at'] = datetime.now().isoformat()
+                
+                # Save updated execution data
+                with open(execution_file, 'w') as f:
+                    json.dump(execution_data, f, indent=2)
+                
+                # Update Excel metadata with execution results
+                excel_metadata = metadata.copy()
+                if 'test_executions' not in excel_metadata:
+                    excel_metadata['test_executions'] = []
+                
+                excel_metadata['test_executions'].append({
+                    'execution_id': execution_id,
+                    'status': test_result.get('status'),
+                    'duration': test_result.get('duration'),
+                    'executed_at': datetime.now().isoformat()
+                })
+                excel_metadata['last_execution'] = excel_metadata['test_executions'][-1]
+                
+                with open(metadata_file, 'w') as f:
+                    json.dump(excel_metadata, f, indent=2)
+                
+                print(f"✅ Excel test execution completed: {execution_id}")
+                
+            except Exception as e:
+                import traceback
+                print(f"❌ Error running Excel test: {e}")
+                print(traceback.format_exc())
+                
+                # Update execution with error
+                execution_data['status'] = 'error'
+                execution_data['error'] = str(e)
+                execution_data['completed_at'] = datetime.now().isoformat()
+                
+                with open(execution_file, 'w') as f:
+                    json.dump(execution_data, f, indent=2)
+        
+        # Start background thread to run test
+        thread = threading.Thread(target=run_excel_test_background)
+        thread.daemon = True
+        thread.start()
+        
+        # Return response with execution_id
+        response = {
+            'success': generation_result.get('success', True),
+            'excel_id': excel_id,
+            'execution_id': execution_id,
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'rows_processed': generation_result.get('rows_processed', 0),
+            'generated_at': datetime.now().isoformat(),
+            'test_running': True,
+            'results_url': f'/results/{execution_id}'
+        }
+        
+        if generation_result.get('errors'):
+            response['warnings'] = generation_result['errors']
+            # If generation failed, include error message
+            if not generation_result.get('success', True):
+                response['error'] = '; '.join(generation_result['errors']) if generation_result['errors'] else 'Generation failed'
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"Error generating test from Excel: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/status', methods=['GET'])
+def get_excel_status(excel_id):
+    """
+    Get Excel file generation status.
+    
+    Returns:
+        JSON with Excel file status and metadata
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get generation status if available
+        generation_status = active_excel_generations.get(excel_id, {})
+        
+        response = {
+            'excel_id': excel_id,
+            'filename': metadata.get('filename'),
+            'uploaded_at': metadata.get('uploaded_at'),
+            'validation': metadata.get('validation', {}),
+            'generation_status': generation_status.get('status', 'not_started')
+        }
+        
+        if 'generated_test' in metadata:
+            response['generated_test'] = metadata['generated_test']
+        
+        if 'error' in generation_status:
+            response['error'] = generation_status['error']
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"Error getting Excel status: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/template', methods=['GET'])
+def download_excel_template():
+    """
+    Download Excel template file.
+    
+    Query params:
+    - include_examples: true/false (default: true)
+    
+    Returns:
+        Excel template file download
+    """
+    try:
+        include_examples = request.args.get('include_examples', 'true').lower() == 'true'
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Generate template using project root
+        template_path = get_template_path("test_case_template.xlsx", project_root=project_root)
+        generate_excel_template(template_path, include_examples=include_examples)
+        
+        if not template_path.exists():
+            return jsonify({'error': 'Failed to generate template'}), 500
+        
+        return send_file(
+            str(template_path),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='test_case_template.xlsx'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error downloading template: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/metadata', methods=['GET'])
+def get_excel_metadata(excel_id):
+    """
+    Get Excel file metadata.
+    
+    Returns:
+        JSON with Excel file metadata
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        return jsonify(metadata), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"Error getting Excel metadata: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/download', methods=['GET'])
+def download_excel_file(excel_id):
+    """
+    Download uploaded Excel file.
+    
+    Returns:
+        Excel file download
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        return send_file(
+            str(excel_path),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=metadata.get('filename', 'test_case.xlsx')
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error downloading Excel file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/generate-ts', methods=['POST'])
+def generate_ts_from_excel():
+    """
+    Generate TypeScript Playwright test from Excel file.
+    
+    Expected JSON:
+    {
+        "excel_id": "excel_...",
+        "test_name": "optional_test_name"
+    }
+    
+    Returns:
+        JSON with generation status and test file info
+    """
+    try:
+        data = request.get_json()
+        excel_id = data.get('excel_id')
+        
+        if not excel_id:
+            return jsonify({'error': 'excel_id required'}), 400
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load Excel metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Generate test name
+        test_name = data.get('test_name') or f"test_excel_{excel_id}"
+        
+        # Create output directory
+        output_dir = project_root / 'storage' / 'excel_tests'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = output_dir / f"{test_name}.spec.ts"  # .spec.ts extension
+        
+        # Generate TypeScript code
+        try:
+            generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
+            
+            # Check if file was actually created (validation warnings are OK)
+            if not output_file.exists():
+                error_msg = generation_result.get('error', 'Unknown error')
+                if generation_result.get('errors'):
+                    error_msg += ': ' + '; '.join(generation_result['errors'][:3])
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'excel_id': excel_id
+                }), 500
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'excel_id': excel_id
+            }), 500
+        
+        # Update metadata with TypeScript test info
+        if 'generated_test_ts' not in metadata:
+            metadata['generated_test_ts'] = {}
+        
+        metadata['generated_test_ts'] = {
+            'test_name': test_name,
+            'test_file': str(output_file.relative_to(project_root)),
+            'generated_at': datetime.now().isoformat(),
+            'generation_result': generation_result
+        }
+        
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        # Check if we should run the test (default: True)
+        run_test = data.get('run_test', True)
+        
+        response_data = {
+            'success': True,
+            'test_file': str(output_file.relative_to(project_root)),
+            'test_name': test_name,
+            'excel_id': excel_id,
+            'download_url': f'/api/excel/{excel_id}/test-ts',
+            'zip_download_url': f'/api/excel/{excel_id}/test-ts-zip',
+            'generation_result': generation_result
+        }
+        
+        # Run test in background if requested
+        if run_test:
+            # Find or create execution_id for this Excel file
+            # Check if there's an existing execution for this Excel
+            executions_dir = project_root / 'storage' / 'executions'
+            execution_id = None
+            
+            # Look for existing execution with this excel_id
+            if executions_dir.exists():
+                for exec_file in executions_dir.glob('*.json'):
+                    try:
+                        with open(exec_file, 'r') as f:
+                            exec_data = json.load(f)
+                        if exec_data.get('excel_id') == excel_id:
+                            execution_id = exec_data.get('execution_id') or exec_file.stem
+                            break
+                    except:
+                        continue
+            
+            # Create new execution if not found
+            if not execution_id:
+                execution_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+                execution_file = executions_dir / f'{execution_id}.json'
+                executions_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create execution data
+                exec_data = {
+                    'execution_id': execution_id,
+                    'excel_id': excel_id,
+                    'source': 'excel',
+                    'status': 'running',
+                    'created_at': datetime.now().isoformat(),
+                    'test_file': str(output_file.relative_to(project_root)),
+                    'test_name': test_name
+                }
+                
+                with open(execution_file, 'w') as f:
+                    json.dump(exec_data, f, indent=2)
+            
+            # Run test in background thread
+            def run_test_background():
+                try:
+                    from validator.typescript_test_runner import TypeScriptTestRunner
+                    
+                    runner = TypeScriptTestRunner(project_root)
+                    test_result = runner.run(str(output_file), execution_id)
+                    
+                    # Update execution with test results
+                    execution_file = executions_dir / f'{execution_id}.json'
+                    if execution_file.exists():
+                        with open(execution_file, 'r') as f:
+                            exec_data = json.load(f)
+                        
+                        exec_data['playwright_validation'] = {
+                            'status': test_result.get('status'),
+                            'duration': test_result.get('duration'),
+                            'assertions_passed': test_result.get('assertions_passed', 0),
+                            'assertions_failed': test_result.get('assertions_failed', 0),
+                            'test_file': test_result.get('test_file'),
+                            'timestamp': test_result.get('timestamp'),
+                            'stdout': test_result.get('stdout', ''),
+                            'stderr': test_result.get('stderr', ''),
+                            'exit_code': test_result.get('exit_code', 0)
+                        }
+                        exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                        # Set status based on test result: 'failed' if test failed, 'completed' if passed
+                        test_status = test_result.get('status', 'unknown')
+                        if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                            exec_data['status'] = 'failed'
+                        else:
+                            exec_data['status'] = 'completed'
+                        exec_data['completed_at'] = datetime.now().isoformat()
+                        
+                        with open(execution_file, 'w') as f:
+                            json.dump(exec_data, f, indent=2)
+                        
+                        print(f"✅ TypeScript test execution completed for {execution_id}")
+                except Exception as e:
+                    print(f"Error running TypeScript test in background: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # Even on error, try to collect any screenshots that were created
+                    execution_file = executions_dir / f'{execution_id}.json'
+                    if execution_file.exists():
+                        try:
+                            from validator.typescript_test_runner import TypeScriptTestRunner
+                            runner = TypeScriptTestRunner(project_root)
+                            # Collect screenshots from disk (test may have generated some before error)
+                            screenshots = runner._collect_screenshots(time.time(), 0)
+                            
+                            with open(execution_file, 'r') as f:
+                                exec_data = json.load(f)
+                            
+                            exec_data['playwright_screenshots'] = screenshots
+                            exec_data['status'] = 'error'
+                            exec_data['error'] = str(e)
+                            exec_data['completed_at'] = datetime.now().isoformat()
+                            
+                            with open(execution_file, 'w') as f:
+                                json.dump(exec_data, f, indent=2)
+                            
+                            print(f"✅ Collected {len(screenshots)} screenshots despite error")
+                        except Exception as collect_error:
+                            print(f"⚠️  Could not collect screenshots: {collect_error}")
+            
+            thread = threading.Thread(target=run_test_background)
+            thread.daemon = True
+            thread.start()
+            
+            response_data['execution_id'] = execution_id
+            response_data['results_url'] = f'/results/{execution_id}'
+            response_data['test_running'] = True
+            response_data['message'] = 'TypeScript test generation completed. Test is running in background. Screenshots will be available shortly.'
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        import traceback
+        print(f"Error generating TypeScript test: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/test-ts', methods=['GET'])
+def download_ts_test(excel_id):
+    """
+    Download generated TypeScript Playwright test file.
+    
+    Returns:
+        TypeScript test file download
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'generated_test_ts' not in metadata:
+            return jsonify({'error': 'TypeScript test not generated yet'}), 404
+        
+        test_file_path = project_root / metadata['generated_test_ts']['test_file']
+        
+        if not test_file_path.exists():
+            return jsonify({'error': f'TypeScript test file not found: {test_file_path}'}), 404
+        
+        return send_file(
+            str(test_file_path),
+            mimetype='text/typescript',
+            as_attachment=True,
+            download_name=metadata['generated_test_ts']['test_name'] + '.spec.ts'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error downloading TypeScript test file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/test-ts-zip', methods=['GET'])
+def download_ts_test_zip(excel_id):
+    """
+    Download TypeScript test file (.spec.ts), package.json, README, and all required registry JSON files bundled as a zip file (excludes .env for security)
+    
+    Returns:
+        Zip file download
+    """
+    try:
+        from flask import send_file
+        from io import BytesIO
+        import zipfile
+        import re
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'generated_test_ts' not in metadata:
+            return jsonify({'error': 'TypeScript test not generated yet'}), 404
+        
+        test_file_path = project_root / metadata['generated_test_ts']['test_file']
+        test_name = metadata['generated_test_ts']['test_name']
+        
+        if not test_file_path.exists():
+            return jsonify({'error': f'TypeScript test file not found: {test_file_path}'}), 404
+        
+        # Read TypeScript test file to extract REGISTRY_PATHS
+        with open(test_file_path, 'r') as f:
+            ts_content = f.read()
+        
+        # Extract REGISTRY_PATHS from TypeScript file
+        registry_paths = []
+        # Match: const REGISTRY_PATHS = [\n    'path1',\n    'path2',\n]
+        match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_content, re.DOTALL)
+        if match:
+            paths_str = match.group(1)
+            # Extract all quoted strings
+            path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
+            registry_paths = [p.strip() for p in path_matches if p.strip()]
+        
+        # Create package.json content
+        package_json_content = '''{
+  "name": "playwright-test",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "dotenv": "^16.0.0"
+  }
+}'''
+        
+        # Create README content
+        readme_content = f'''# {test_name} - Playwright TypeScript Test
+
+## Setup Instructions
+
+1. Extract this zip file
+2. The `.env` file is already included with credentials
+3. Run: `npm install`
+4. Run: `npx playwright install chromium`
+5. Run: `npx playwright test {test_name}.spec.ts --headed`
+
+## Files Included
+- `{test_name}.spec.ts` - Main test file
+- `package.json` - Dependencies
+- `generate_totp.py` - Python script for TOTP generation (called from TypeScript)
+- `element_maps/` - JSON registry files with element XPath mappings
+
+## Important
+- **`.env` file is included** with the package (contains TOTP secrets and credentials)
+- Registry JSON files are included in the `element_maps/` directory structure
+- The test uses `pyotp` via Python script for TOTP generation to ensure consistency with Python tests
+
+## Notes
+- Screenshots saved to `storage/screenshots/`
+- Test uses registry-based element lookup (no hard-coded XPaths)
+'''
+        
+        # Create zip file in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add TypeScript test file
+            ts_filename = f'{test_name}.spec.ts'
+            zip_file.write(test_file_path, ts_filename)
+            print(f"✅ Added TypeScript test file to zip: {ts_filename}")
+            
+            # Note: .env file is NOT included for security reasons
+            
+            # Add package.json
+            zip_file.writestr('package.json', package_json_content)
+            print(f"✅ Added package.json to zip")
+            
+            # Add README.md
+            zip_file.writestr('README.md', readme_content)
+            print(f"✅ Added README.md to zip")
+            
+            # Add generate_totp.py script (required for TOTP generation in TypeScript tests)
+            totp_script_path = project_root / 'Test' / 'generate_totp.py'
+            if totp_script_path.exists():
+                zip_file.write(totp_script_path, 'generate_totp.py')
+                print(f"✅ Added generate_totp.py to zip")
+            else:
+                print(f"⚠️  generate_totp.py not found at {totp_script_path}")
+            
+            # Add .env file from Test directory
+            env_file_path = project_root / 'Test' / '.env'
+            if env_file_path.exists():
+                zip_file.write(env_file_path, '.env')
+                print(f"✅ Added .env file")
+            else:
+                print(f"⚠️  .env file not found at {env_file_path}")
+            
+            # Add all registry JSON files with proper directory structure
+            for registry_path in registry_paths:
+                # registry_path is like 'element_maps/domain/page_page.json'
+                full_registry_path = project_root / registry_path
+                
+                if full_registry_path.exists():
+                    # Preserve the full path structure as the test expects it
+                    zip_path = registry_path
+                    zip_file.write(full_registry_path, zip_path)
+                    print(f"✅ Added registry file to zip: {zip_path}")
+                else:
+                    print(f"⚠️  Registry file not found: {full_registry_path}")
+        
+        # Verify zip contents
+        zip_buffer.seek(0)
+        with zipfile.ZipFile(zip_buffer, 'r') as verify_zip:
+            file_list = verify_zip.namelist()
+            print(f"📦 Zip contains {len(file_list)} files:")
+            for name in file_list:
+                print(f"   - {name}")
+        
+        zip_buffer.seek(0)
+        
+        # Create zip filename
+        zip_filename = f'{test_name}_typescript_complete.zip'
+        
+        # Send zip file
+        response = send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=zip_filename,
+            mimetype='application/zip'
+        )
+        
+        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        import traceback
+        print(f"Error creating TypeScript zip file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/test', methods=['GET'])
+def download_excel_generated_test(excel_id):
+    """
+    Download generated Playwright test file.
+    
+    Returns:
+        TypeScript test file download
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'generated_test' not in metadata:
+            return jsonify({'error': 'Test not generated yet'}), 404
+        
+        test_file_path = project_root / metadata['generated_test']['test_file']
+        
+        if not test_file_path.exists():
+            return jsonify({'error': f'Test file not found: {test_file_path}'}), 404
+        
+        return send_file(
+            str(test_file_path),
+            mimetype='text/typescript',
+            as_attachment=True,
+            download_name=metadata['generated_test']['test_name'] + '.spec.ts'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error downloading test file: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/registry/compare', methods=['GET'])
+def compare_excel_with_registry(excel_id):
+    """
+    Compare Excel file elements with registry to find new/updated elements.
+    
+    Returns:
+        JSON with new_elements, updated_elements, unchanged_elements
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Extract elements from Excel
+        elements = extract_elements_from_excel(excel_path)
+        
+        # Load registry
+        from utils.element_registry import get_registry
+        registry = get_registry()
+        
+        # Compare with registry
+        comparison = compare_with_registry(elements, registry)
+        
+        return jsonify({
+            'success': True,
+            'comparison': comparison,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error comparing Excel with registry: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/registry/update', methods=['POST'])
+def update_registry_from_excel(excel_id):
+    """
+    Update registry with elements from Excel file.
+    
+    Expected JSON:
+    {
+        "new_elements": [...],  # Elements to add
+        "updated_elements": [...]  # Elements to update
+    }
+    
+    Returns:
+        JSON with update status
+    """
+    try:
+        data = request.get_json()
+        new_elements = data.get('new_elements', [])
+        updated_elements = data.get('updated_elements', [])
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        # Load registry
+        from utils.element_registry import get_registry
+        registry = get_registry()
+        
+        added_count = 0
+        updated_count = 0
+        errors = []
+        
+        # Add new elements
+        for elem in new_elements:
+            try:
+                domain = elem['domain']
+                page = elem['page']
+                element_name = elem['element_name']
+                xpath = elem['xpath']
+                
+                # Load or create element map
+                element_map = registry.load_map(domain, page)
+                if not element_map:
+                    from datetime import datetime
+                    element_map = {
+                        "page": page,
+                        "url": elem['url'],
+                        "version": "1.0",
+                        "timestamp": datetime.now().isoformat() + "Z",
+                        "elements": {},
+                        "id_index": {},
+                        "statistics": {
+                            "total_elements": 0,
+                            "parsed_elements": 0,
+                            "discovered_elements": 0
+                        }
+                    }
+                
+                # Add element
+                if element_name not in element_map['elements']:
+                    element_map['elements'][element_name] = {
+                        'xpath': xpath,
+                        'selector': xpath,
+                        'element_id': registry._generate_element_id(element_name, xpath),
+                        'usage_count': 0,
+                        'last_used': None,
+                        'source': 'excel',
+                        'object_type': elem.get('object_type', ''),
+                        'action': elem.get('action', '')
+                    }
+                    element_map['statistics']['total_elements'] = len(element_map['elements'])
+                    registry.save_map(domain, page, element_map)
+                    added_count += 1
+            except Exception as e:
+                errors.append(f"Failed to add {elem.get('element_name', 'unknown')}: {str(e)}")
+        
+        # Update existing elements
+        for elem in updated_elements:
+            try:
+                domain = elem['domain']
+                page = elem['page']
+                element_name = elem['element_name']
+                new_xpath = elem['new_xpath']
+                
+                # Load element map
+                element_map = registry.load_map(domain, page)
+                if not element_map:
+                    errors.append(f"Registry not found for {domain}/{page}")
+                    continue
+                
+                # Update element
+                if element_name in element_map['elements']:
+                    element_map['elements'][element_name]['xpath'] = new_xpath
+                    element_map['elements'][element_name]['selector'] = new_xpath
+                    element_map['elements'][element_name]['source'] = 'excel_updated'
+                    registry.save_map(domain, page, element_map)
+                    updated_count += 1
+                else:
+                    errors.append(f"Element {element_name} not found in registry")
+            except Exception as e:
+                errors.append(f"Failed to update {elem.get('element_name', 'unknown')}: {str(e)}")
+        
+        return jsonify({
+            'success': True,
+            'added_count': added_count,
+            'updated_count': updated_count,
+            'errors': errors,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error updating registry from Excel: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/excel/<excel_id>/steps', methods=['GET'])
+def get_excel_steps(excel_id):
+    """
+    Get test steps from Excel file.
+    
+    Returns:
+        JSON with steps array
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        
+        # Load metadata
+        metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+        metadata_file = metadata_dir / f"{excel_id}.json"
+        
+        if not metadata_file.exists():
+            return jsonify({'error': f'Excel file not found: {excel_id}'}), 404
+        
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        # Get Excel file path
+        excel_path = project_root / metadata['file_path']
+        
+        if not excel_path.exists():
+            return jsonify({'error': f'Excel file not found: {excel_path}'}), 404
+        
+        # Read Excel file and extract steps
+        import pandas as pd
+        df = pd.read_excel(excel_path)
+        
+        # Normalize column names
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        
+        steps = []
+        for idx, row in df.iterrows():
+            step = str(row.get('step', idx + 1)).strip()
+            url = str(row.get('url', '')).strip() if pd.notna(row.get('url')) else ''
+            xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else ''
+            action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
+            object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+            text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
+            # Handle wait_time - convert NaN to None for JSON compatibility
+            wait_time_raw = row.get('wait_time', None)
+            if pd.isna(wait_time_raw):
+                wait_time = None
+            else:
+                try:
+                    wait_time = float(wait_time_raw) if wait_time_raw is not None else None
+                except (ValueError, TypeError):
+                    wait_time = None
+            
+            functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else ''
+            is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
+            
+            steps.append({
+                'step': step,
+                'url': url if url and url.upper() != 'N/A' else None,
+                'xpath': xpath if xpath and xpath.upper() != 'N/A' else None,
+                'action': action,
+                'object_type': object_type,
+                'text_value': text_value if text_value else None,
+                'wait_time': wait_time,
+                'functions': functions if functions else None,
+                'optional': is_optional
+            })
+        
+        return jsonify({
+            'success': True,
+            'steps': steps,
+            'excel_id': excel_id
+        }), 200
+    
+    except Exception as e:
+        import traceback
+        print(f"Error getting Excel steps: {e}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 

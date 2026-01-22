@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
     const uploadBtn = document.getElementById('uploadBtn');
-    const generateBtn = document.getElementById('generateBtn');
     const downloadTemplateBtn = document.getElementById('downloadTemplateBtn');
     const fileInfo = document.getElementById('fileInfo');
     const fileName = document.getElementById('fileName');
@@ -65,7 +64,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Reset state
         currentExcelId = null;
-        generateBtn.disabled = true;
+        const generateTsBtn = document.getElementById('generateTsBtn');
+        if (generateTsBtn) generateTsBtn.disabled = true;
         if (validationResults) validationResults.style.display = 'none';
         if (resultsSection) resultsSection.style.display = 'none';
         hideMessage();
@@ -81,44 +81,10 @@ document.addEventListener('DOMContentLoaded', function() {
         await uploadFile();
     });
     
-    // Generate button handler
-    generateBtn.addEventListener('click', async () => {
-        if (!currentExcelId) {
-            showMessage('Please upload and validate a file first', 'error');
-            return;
-        }
-        
-        await generateTest();
-    });
-    
     // Generate TypeScript button handler
-    let generateTsBtn = document.getElementById('generateTsBtn');
-    console.log('🔵 generateTsBtn found:', generateTsBtn);
-    
-    // If button doesn't exist, create it (workaround for template cache issue)
-    if (!generateTsBtn) {
-        console.warn('⚠️ generateTsBtn not found, creating it dynamically');
-        const actionButtons = document.querySelector('.action-buttons');
-        const generateBtn = document.getElementById('generateBtn');
-        if (actionButtons && generateBtn) {
-            generateTsBtn = document.createElement('button');
-            generateTsBtn.id = 'generateTsBtn';
-            generateTsBtn.className = 'btn btn-primary';
-            generateTsBtn.disabled = true;
-            generateTsBtn.innerHTML = `
-                <span class="btn-text">Generate TypeScript</span>
-                <span class="btn-loading" style="display: none;">
-                    <span class="spinner"></span> Generating...
-                </span>
-            `;
-            // Insert after generateBtn
-            generateBtn.parentNode.insertBefore(generateTsBtn, generateBtn.nextSibling);
-            console.log('✅ generateTsBtn created dynamically');
-        }
-    }
+    const generateTsBtn = document.getElementById('generateTsBtn');
     
     if (generateTsBtn) {
-        console.log('🔵 generateTsBtn visible:', window.getComputedStyle(generateTsBtn).display);
         generateTsBtn.addEventListener('click', async () => {
             if (!currentExcelId) {
                 showMessage('Please upload and validate a file first', 'error');
@@ -128,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
             await generateTestTS();
         });
     } else {
-        console.error('❌ generateTsBtn NOT FOUND and could not be created!');
+        console.error('❌ generateTsBtn NOT FOUND!');
     }
     
     // Download template button handler
@@ -172,7 +138,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (data.success) {
                 showMessage('File uploaded and validated successfully!', 'success');
-                generateBtn.disabled = false;
                 const generateTsBtn = document.getElementById('generateTsBtn');
                 if (generateTsBtn) generateTsBtn.disabled = false;
             } else {
@@ -182,88 +147,14 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             showMessage('Upload failed: ' + error.message, 'error');
             currentExcelId = null;
-            generateBtn.disabled = true;
+            const generateTsBtn = document.getElementById('generateTsBtn');
+            if (generateTsBtn) generateTsBtn.disabled = true;
         } finally {
             uploadBtn.disabled = false;
             const uploadBtnText = uploadBtn.querySelector('.btn-text');
             const uploadBtnLoading = uploadBtn.querySelector('.btn-loading');
             if (uploadBtnText) uploadBtnText.style.display = 'inline';
             if (uploadBtnLoading) uploadBtnLoading.style.display = 'none';
-        }
-    }
-    
-    // Generate test
-    async function generateTest() {
-        if (!currentExcelId) {
-            showMessage('No file uploaded', 'error');
-            return;
-        }
-        
-        // Disable button and show loading
-        generateBtn.disabled = true;
-        const generateBtnText = generateBtn.querySelector('.btn-text');
-        const generateBtnLoading = generateBtn.querySelector('.btn-loading');
-        if (generateBtnText) generateBtnText.style.display = 'none';
-        if (generateBtnLoading) generateBtnLoading.style.display = 'inline-block';
-        
-        hideMessage();
-        
-        try {
-            const response = await fetch('/api/excel/generate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    excel_id: currentExcelId
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.error || 'Generation failed');
-            }
-            
-            if (data.success) {
-                showMessage('Test generated successfully!', 'success');
-                
-                // If execution_id is provided, redirect to results page (main page integration)
-                if (data.execution_id) {
-                    // Refresh executions list if loadExecutions function exists (on main page)
-                    if (typeof loadExecutions === 'function') {
-                        setTimeout(() => {
-                            loadExecutions();
-                        }, 1000);
-                    }
-                    // Redirect to results page after a short delay
-                    setTimeout(() => {
-                        window.location.href = `/results/${data.execution_id}`;
-                    }, 2000);
-                } else if (resultsSection) {
-                    // Show results section if on excel_upload.html page
-                    displayResults(data);
-                }
-            } else {
-                // Check for error message, warnings array, or errors array
-                let errorMsg = data.error;
-                if (!errorMsg && data.warnings && data.warnings.length > 0) {
-                    errorMsg = Array.isArray(data.warnings) ? data.warnings.join('; ') : data.warnings;
-                }
-                if (!errorMsg && data.errors && data.errors.length > 0) {
-                    errorMsg = Array.isArray(data.errors) ? data.errors.join('; ') : data.errors;
-                }
-                showMessage('Generation failed: ' + (errorMsg || 'Unknown error'), 'error');
-            }
-            
-        } catch (error) {
-            showMessage('Generation failed: ' + error.message, 'error');
-        } finally {
-            generateBtn.disabled = false;
-            const generateBtnText = generateBtn.querySelector('.btn-text');
-            const generateBtnLoading = generateBtn.querySelector('.btn-loading');
-            if (generateBtnText) generateBtnText.style.display = 'inline';
-            if (generateBtnLoading) generateBtnLoading.style.display = 'none';
         }
     }
     

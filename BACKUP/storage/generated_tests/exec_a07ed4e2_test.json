@@ -1,8 +1,0 @@
-{
-  "execution_id": "exec_a07ed4e2",
-  "test_name": "test_https_caninecommons_cancer",
-  "filename": "/Users/lollal/Documents/ai-agent-qa/tests/generated/test_https_caninecommons_cancer.py",
-  "generated_at": "2026-01-08T16:05:10.486733Z",
-  "story": "Go to https://caninecommons.cancer.gov/#/ If there is a popup, click Continue Click on Explore Click on Study dropdown Click on GLIOMA01",
-  "discoveries_count": 0
-}
