@@ -368,7 +368,7 @@ def manual_register_element():
         element_registry = get_registry()
         
         # Register element
-        from REFACTOR.api.manual_registry_helper import ManualRegistryHelper
+        from api.manual_registry_helper import ManualRegistryHelper
         helper = ManualRegistryHelper(element_registry)
         
         # Debug: Log received HTML (first 200 chars)
