@@ -15,7 +15,6 @@ import uuid
 refactor_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(refactor_dir.parent))
 
-from REFACTOR.generator.excel_generator import generate_playwright_from_excel
 from REFACTOR.generator.excel_generator_ts import generate_playwright_ts_from_excel
 from REFACTOR.generator.excel_validator import validate_excel_file, get_validation_summary
 from REFACTOR.generator.excel_template import generate_excel_template, get_template_path
@@ -153,7 +152,7 @@ def generate_from_excel():
         output_dir = project_root / 'storage' / 'excel_tests'
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        output_file = output_dir / f"{test_name}.py"
+        output_file = output_dir / f"{test_name}.spec.ts"
         
         # Track generation
         active_excel_generations[excel_id] = {
@@ -163,9 +162,9 @@ def generate_from_excel():
             'test_name': test_name
         }
         
-        # Generate Playwright code
+        # Generate TypeScript Playwright code
         try:
-            generation_result = generate_playwright_from_excel(excel_path, output_file)
+            generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
         except Exception as e:
             active_excel_generations[excel_id]['status'] = 'error'
             active_excel_generations[excel_id]['error'] = str(e)
@@ -230,37 +229,24 @@ def generate_from_excel():
         # Run test automatically in background thread
         def run_excel_test_background():
             try:
-                # Import TestRunner (from BACKUP when available)
+                # Import TypeScriptTestRunner
                 try:
-                    from validator.test_runner import TestRunner
+                    from validator.typescript_test_runner import TypeScriptTestRunner
                 except ImportError as e:
-                    print(f"⚠️ TestRunner not available - test will not be executed automatically: {e}")
+                    print(f"⚠️ TypeScriptTestRunner not available - test will not be executed automatically: {e}")
                     import traceback
                     traceback.print_exc()
                     # Update execution with error
                     execution_data['status'] = 'error'
-                    execution_data['error'] = f'TestRunner not available: {str(e)}'
+                    execution_data['error'] = f'TypeScriptTestRunner not available: {str(e)}'
                     execution_data['completed_at'] = datetime.now().isoformat()
                     with open(execution_file, 'w') as f:
                         json.dump(execution_data, f, indent=2)
                     return
                 
-                # TestRunner expects tests in tests/generated/ directory
-                # Copy test file to that location
-                tests_generated_dir = project_root / 'tests' / 'generated'
-                tests_generated_dir.mkdir(parents=True, exist_ok=True)
-                
-                import shutil
-                test_filename = f"{test_name}.py"
-                test_dest = tests_generated_dir / test_filename
-                shutil.copy2(output_file, test_dest)
-                
-                # TestRunner expects just the filename
-                test_filename_to_run = test_filename
-                
-                # Run the test
-                runner = TestRunner(project_root)
-                test_result = runner.run(test_filename_to_run, execution_id=execution_id)
+                # TypeScriptTestRunner expects the full path to the test file
+                runner = TypeScriptTestRunner(project_root)
+                test_result = runner.run(str(output_file), execution_id=execution_id)
                 
                 # Update execution data with test results
                 execution_data['status'] = 'completed' if test_result.get('status') == 'passed' else 'failed'
@@ -940,7 +926,7 @@ def download_generated_test(excel_id):
     Download generated Playwright test file.
     
     Returns:
-        Python test file download
+        TypeScript test file download
     """
     try:
         project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
@@ -965,9 +951,9 @@ def download_generated_test(excel_id):
         
         return send_file(
             str(test_file_path),
-            mimetype='text/x-python',
+            mimetype='text/typescript',
             as_attachment=True,
-            download_name=metadata['generated_test']['test_name'] + '.py'
+            download_name=metadata['generated_test']['test_name'] + '.spec.ts'
         )
         
     except Exception as e:
