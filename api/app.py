@@ -81,7 +81,13 @@ def create_app():
     def excel_upload_page():
         return render_template('excel_upload.html', timestamp=int(time.time()))
     
-    # Instructions route moved to BACKUP - no longer available
+    @app.route('/parser')
+    def parser_page():
+        return render_template('parser.html', timestamp=int(time.time()))
+    
+    @app.route('/instructions')
+    def instructions_page():
+        return render_template('instructions.html', timestamp=int(time.time()))
     
     # Excel Execution route moved to Experimented folder - no longer available
     
