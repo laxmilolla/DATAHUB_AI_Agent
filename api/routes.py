@@ -633,10 +633,10 @@ def generate_and_validate(exec_id):
                         'execution_id': exec_id
                     }), 400
                 
-                # Import Excel generation function
+                # Import TypeScript Excel generation function
                 sys.path.insert(0, str(project_root))
-                from REFACTOR.generator.excel_generator import generate_playwright_from_excel
-                from validator.test_runner import TestRunner
+                from REFACTOR.generator.excel_generator_ts import generate_playwright_ts_from_excel
+                from validator.typescript_test_runner import TypeScriptTestRunner
                 from pathlib import Path
                 from datetime import datetime
                 import uuid
@@ -659,14 +659,14 @@ def generate_and_validate(exec_id):
                         'error': f'Excel file not found: {excel_path}'
                     }), 404
                 
-                # Generate new test file
+                # Generate new TypeScript test file
                 output_dir = project_root / 'storage' / 'excel_tests'
                 output_dir.mkdir(parents=True, exist_ok=True)
                 new_exec_id = f"excel_exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-                output_file = output_dir / f"test_excel_{excel_id}.py"
+                output_file = output_dir / f"test_excel_{excel_id}.spec.ts"
                 
-                # Generate test from Excel
-                generation_result = generate_playwright_from_excel(excel_path, output_file)
+                # Generate TypeScript test from Excel
+                generation_result = generate_playwright_ts_from_excel(excel_path, output_file)
                 
                 if not generation_result.get('success'):
                     return jsonify({
@@ -680,11 +680,11 @@ def generate_and_validate(exec_id):
                 with open(execution_file, 'w') as f:
                     json.dump(exec_data, f, indent=2)
                 
-                # Run test in background
+                # Run TypeScript test in background
                 def run_test_background():
                     try:
-                        runner = TestRunner(project_root)
-                        test_result = runner.run(output_file.name, exec_id)
+                        runner = TypeScriptTestRunner(project_root)
+                        test_result = runner.run(str(output_file), exec_id)
                         
                         # Update execution with test results
                         exec_data['playwright_validation'] = {
@@ -699,6 +699,12 @@ def generate_and_validate(exec_id):
                             'exit_code': test_result.get('exit_code', 0)
                         }
                         exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
+                        # Update execution status based on test result
+                        test_status = test_result.get('status', 'unknown')
+                        if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                            exec_data['status'] = 'failed'
+                        else:
+                            exec_data['status'] = 'completed'
                         exec_data['completed_at'] = datetime.now().isoformat()
                         
                         with open(execution_file, 'w') as f:
@@ -875,33 +881,36 @@ def get_generated_test(exec_id):
 
 @bp.route('/executions/<exec_id>/run-test', methods=['POST'])
 def run_test(exec_id):
-    """Run generated Playwright test in background to generate screenshots"""
+    """Run generated TypeScript Playwright test in background to generate screenshots"""
     try:
-        from validator.test_runner import TestRunner
-        from validator.comparator import Comparator
+        from validator.typescript_test_runner import TypeScriptTestRunner
+        from datetime import datetime
         
         project_root = current_app.config['PROJECT_ROOT']
-        metadata_file = project_root / 'storage' / 'generated_tests' / f'{exec_id}_test.json'
         
-        if not metadata_file.exists():
-            return jsonify({'error': 'No generated test found for this execution'}), 404
+        # Check execution file for test file path
+        execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
+        if not execution_file.exists():
+            return jsonify({'error': 'Execution not found'}), 404
         
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
+        with open(execution_file, 'r') as f:
+            exec_data = json.load(f)
         
-        test_filename = metadata.get('filename')
-        if not test_filename:
-            return jsonify({'error': 'Test filename not found in metadata'}), 404
+        # Get test file from execution data (should be TypeScript .spec.ts file)
+        test_file_path = exec_data.get('test_file')
+        if not test_file_path:
+            return jsonify({'error': 'Test file not found in execution data'}), 404
         
-        # Run test in background thread to avoid timeout
+        # Resolve full path
+        test_path = project_root / test_file_path
+        if not test_path.exists():
+            return jsonify({'error': f'Test file not found: {test_path}'}), 404
+        
+        # Run TypeScript test in background thread to avoid timeout
         def run_test_background():
             try:
-                runner = TestRunner(project_root)
-                test_result = runner.run(test_filename, exec_id)
-                
-                # Compare results
-                comparator = Comparator(project_root)
-                comparison = comparator.compare(exec_id, test_result)
+                runner = TypeScriptTestRunner(project_root)
+                test_result = runner.run(str(test_path), exec_id)
                 
                 # Save results to execution file
                 results_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
@@ -913,15 +922,21 @@ def run_test(exec_id):
                     exec_data['playwright_validation'] = {
                         'status': test_result.get('status'),
                         'duration': test_result.get('duration'),
-                        'assertions_passed': test_result.get('assertions_passed'),
-                        'assertions_failed': test_result.get('assertions_failed'),
+                        'assertions_passed': test_result.get('assertions_passed', 0),
+                        'assertions_failed': test_result.get('assertions_failed', 0),
                         'test_file': test_result.get('test_file'),
                         'timestamp': test_result.get('timestamp'),
                         'stdout': test_result.get('stdout', ''),
                         'stderr': test_result.get('stderr', ''),
                         'exit_code': test_result.get('exit_code', 0)
                     }
-                    exec_data['playwright_comparison'] = comparison
+                    # Update execution status based on test result
+                    test_status = test_result.get('status', 'unknown')
+                    if test_status == 'failed' or test_result.get('exit_code', 0) != 0:
+                        exec_data['status'] = 'failed'
+                    else:
+                        exec_data['status'] = 'completed'
+                    exec_data['completed_at'] = datetime.now().isoformat()
                     
                     with open(results_file, 'w') as f:
                         json.dump(exec_data, f, indent=2)
