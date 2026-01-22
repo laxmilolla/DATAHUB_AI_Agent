@@ -20,14 +20,6 @@ sys.path.insert(0, str(project_root))
 # Import routes
 from api.routes import bp as api_bp
 
-# Import Excel routes
-try:
-    from REFACTOR.api.excel_routes import bp_excel
-    EXCEL_ROUTES_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ Excel routes not available: {e}")
-    EXCEL_ROUTES_AVAILABLE = False
-
 # Instructions routes moved to Experimented folder - no longer used
 # Excel Execution routes moved to Experimented folder - no longer used
 
@@ -52,11 +44,7 @@ def create_app():
     
     # Register blueprints
     app.register_blueprint(api_bp, url_prefix='/api')
-    
-    # Register Excel blueprint if available
-    if EXCEL_ROUTES_AVAILABLE:
-        app.register_blueprint(bp_excel)
-        print("✅ Excel API routes registered")
+    print("✅ API routes registered (includes Excel routes)")
     
     # Instructions blueprint moved to Experimented folder - no longer registered
     # Excel Execution blueprint moved to Experimented folder - no longer registered

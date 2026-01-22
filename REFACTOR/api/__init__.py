@@ -1,7 +1,9 @@
 """
-Excel API Module
-"""
-from REFACTOR.api.excel_routes import bp_excel
+REFACTOR API Module
 
-__all__ = ['bp_excel']
+Note: Excel routes have been merged into api/routes.py
+This module now only contains manual_registry_helper.py
+"""
+# Excel routes moved to api/routes.py - no longer exported from here
+__all__ = []
 
