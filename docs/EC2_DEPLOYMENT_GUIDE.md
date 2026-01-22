@@ -821,8 +821,8 @@ ssh -i ~/Downloads/ai-crdc-hub-key.pem ubuntu@13.222.91.163 \
 - **API Documentation**: `REFACTOR/api/README.md`
 
 ### Common Issues Documentation
-- **AWS Credentials**: See `BACKUP/AWS_CREDENTIALS_FIX.md` if credentials are compromised
-- **Deployment**: See `BACKUP/DEPLOYMENT_COMPLETE.md` for previous deployment notes
+- **AWS Credentials**: See `docs/AWS_CREDENTIALS_FIX.md` if credentials are compromised
+- **Deployment**: See `docs/DEPLOYMENT_COMPLETE.md` for previous deployment notes
 
 ### Getting Help
 1. Check logs: `tail -f ~/DATAHUB_AI_Agent/flask.log`
