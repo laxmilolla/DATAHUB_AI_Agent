@@ -44,17 +44,31 @@
       "action": "fill",
       "discovered_at": "2026-01-22T18:00:00.000000Z",
       "last_updated": "2026-01-22T18:00:00.000000Z"
+    },
+    "generic_table": {
+      "xpath": "//table[@data-testid=\"generic-table\"]",
+      "selector": "//table[@data-testid=\"generic-table\"]",
+      "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+      "element_id": "ID_generic_table_001",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "table",
+      "action": "verify",
+      "discovered_at": "2026-01-23T13:10:00.000000Z",
+      "last_updated": "2026-01-23T13:10:00.000000Z"
     }
   },
   "id_index": {
     "ID_d4e1aae2": "text",
     "ID_org_filter_001": "organization_filter",
-    "ID_sub_name_001": "submission_name_input"
+    "ID_sub_name_001": "submission_name_input",
+    "ID_generic_table_001": "generic_table"
   },
   "statistics": {
-    "total_elements": 3,
+    "total_elements": 4,
     "parsed_elements": 0,
     "discovered_elements": 1
   },
-  "last_updated": "2026-01-22T18:00:00.000000Z"
+  "last_updated": "2026-01-23T13:10:00.000000Z"
 }
