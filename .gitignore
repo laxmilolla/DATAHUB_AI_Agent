@@ -63,4 +63,6 @@ Thumbs.db
 *.log
 logs/
 
-
+# Excel temporary files
+~$*.xlsx
+~$*.xls
