@@ -373,6 +373,8 @@
         // DATA FETCHING
         // ===================================
         
+        let previousResultsHash = null;
+        
         async function pollResults() {
             try {
                 let response = await fetch(`/api/executions/${executionId}/results`);
@@ -398,14 +400,53 @@
                     }
                 }
                 
-                currentResults = results;
-                await displayResults(results);
+                // Create a hash of key fields to detect changes
+                const resultsHash = JSON.stringify({
+                    status: results.status,
+                    actions_count: safeArray(results.actions_taken).length,
+                    screenshots_count: safeArray(results.screenshots).length,
+                    playwright_status: safeGet(results, 'playwright_validation.status'),
+                    playwright_screenshots_count: safeArray(results.playwright_screenshots).length
+                });
+                
+                // Only update if results actually changed
+                const hasChanged = resultsHash !== previousResultsHash;
+                
+                // Stop polling if test is completed, failed, or error
+                const isCompleted = results.status === 'completed' || results.status === 'failed' || results.status === 'error' || results.status === 'timeout';
+                const pwValidation = safeGet(results, 'playwright_validation');
+                const pwCompleted = pwValidation && pwValidation.status && pwValidation.status !== 'running' && pwValidation.status !== 'not started';
+                
+                if (isCompleted || pwCompleted) {
+                    document.getElementById('live-indicator')?.style.setProperty('display', 'none');
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
+                    // Only update display once when completed
+                    if (hasChanged) {
+                        currentResults = results;
+                        await displayResults(results);
+                        previousResultsHash = resultsHash;
+                    }
+                    return;
+                }
+                
+                // Only update display if results changed
+                if (hasChanged) {
+                    currentResults = results;
+                    await displayResults(results);
+                    previousResultsHash = resultsHash;
+                }
                 
                 if (results.status === 'running') {
                     document.getElementById('live-indicator')?.style.setProperty('display', 'inline-block');
                 } else {
                     document.getElementById('live-indicator')?.style.setProperty('display', 'none');
-                    clearInterval(pollInterval);
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
                 }
             } catch (error) {
                 console.error('Error loading results:', error);
