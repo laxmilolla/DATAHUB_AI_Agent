@@ -617,7 +617,7 @@
                             📸 Screenshots (${screenshots.length})
                         </button>
                         <button class="tab-button" onclick="switchTab('playwright')">
-                            🎭 Playwright${safeArray(results.playwright_screenshots).length > 0 ? ` (${safeArray(results.playwright_screenshots).length})` : ''}
+                            🎭 Playwright
                         </button>
                     </div>
                     
@@ -1363,38 +1363,6 @@
                     </div>
                     ` : ''}
                     
-                    ${screenshots.length > 0 ? `
-                    <div style="margin-top: 30px;">
-                        <h4 style="color: var(--nci-blue); margin-bottom: 15px;">🎭 Playwright Test Screenshots (${screenshots.length})</h4>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-                            ${screenshots.map((screenshot, index) => {
-                                const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
-                                
-                                // Extract step number from filename
-                                const stepMatch = filename.match(/pw_step(\d+)_/);
-                                const stepNum = stepMatch ? stepMatch[1] : null;
-                                
-                                // Determine pass/fail status
-                                const isFailed = filename.includes('_failed');
-                                const borderColor = isFailed ? 'var(--error)' : 'var(--success)';
-                                const statusText = stepNum ? (isFailed ? `Step ${stepNum} - ❌ Failed` : `Step ${stepNum} - ✅ Passed`) : filename;
-                                
-                                return `
-                                    <div style="border: 2px solid ${borderColor}; border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${filename}', '_blank')">
-                                        <img src="/api/screenshots/${filename}" 
-                                             alt="${filename}"
-                                             style="width: 100%; height: auto; display: block;"
-                                             onerror="this.parentElement.innerHTML='<div style=\\'padding: 30px; text-align: center; color: var(--text-secondary);\\'>📷 Screenshot Not Found</div>'">
-                                        <div style="padding: 10px; background: var(--bg-tertiary); font-size: 0.85em; text-align: center;">
-                                            ${statusText}
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                    ` : ''}
-                    
                     <div style="text-align: center; margin-top: 30px;">
                         <button class="btn-secondary" onclick="generatePlaywrightTest()" style="font-size: 1em; padding: 12px 24px;">
                             🔄 Regenerate Test
@@ -1623,10 +1591,10 @@
                                     }
                                     // Refresh entire page to show screenshots
                                     await pollResults();
-                                    // Auto-switch to Playwright tab if screenshots are available
+                                    // Auto-switch to Steps tab if screenshots are available (screenshots now shown in Steps tab)
                                     if (screenshots.length > 0) {
                                         setTimeout(() => {
-                                            switchTab('playwright');
+                                            switchTab('steps');
                                             // Scroll to top of page
                                             window.scrollTo({ top: 0, behavior: 'smooth' });
                                         }, 500);
@@ -1813,28 +1781,6 @@
                         ` : ''}
                     </div>
                 </div>
-                
-                ${screenshots.length > 0 ? `
-                <div style="margin-top: 30px;">
-                    <h4 style="color: var(--nci-blue); margin-bottom: 15px;">🎭 Playwright Test Screenshots (${screenshots.length})</h4>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-                        ${screenshots.map((screenshot, index) => {
-                            const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
-                            return `
-                                <div style="border: 2px solid var(--info); border-radius: 8px; overflow: hidden; cursor: pointer;" onclick="window.open('/api/screenshots/${filename}', '_blank')">
-                                    <img src="/api/screenshots/${filename}" 
-                                         alt="${filename}"
-                                         style="width: 100%; height: auto; display: block;"
-                                         onerror="this.parentElement.innerHTML='<div style=\\'padding: 30px; text-align: center; color: var(--text-secondary);\\'>📷 Screenshot Not Found</div>'">
-                                    <div style="padding: 10px; background: var(--bg-tertiary); font-size: 0.85em; text-align: center;">
-                                        ${filename}
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                </div>
-                ` : ''}
             `;
             
             container.innerHTML = html;
