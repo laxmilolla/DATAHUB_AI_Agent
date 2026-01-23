@@ -840,6 +840,21 @@
                             return html + renderEmptyState('🎬', 'No Steps Available', 'No steps found in Excel file.');
                         }
                         
+                        // Build screenshot mapping by step number
+                        const playwrightScreenshots = safeArray(results.playwright_screenshots);
+                        const screenshotMap = {};
+                        playwrightScreenshots.forEach(screenshot => {
+                            const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
+                            const stepMatch = filename.match(/pw_step(\d+)_/);
+                            if (stepMatch) {
+                                const stepNum = parseInt(stepMatch[1]);
+                                if (!screenshotMap[stepNum]) {
+                                    screenshotMap[stepNum] = [];
+                                }
+                                screenshotMap[stepNum].push(filename);
+                            }
+                        });
+                        
                         html += '<div style="display: grid; gap: 15px;">';
                         
                         steps.forEach((step, index) => {
@@ -852,6 +867,10 @@
                             const waitTime = step.wait_time || '';
                             const functions = step.functions || '';
                             const isOptional = step.optional || false;
+                            
+                            // Find screenshot for this step (prefer non-failed screenshot)
+                            const stepScreenshots = screenshotMap[stepNum] || [];
+                            const screenshot = stepScreenshots.find(s => !s.includes('_failed')) || stepScreenshots[0];
                             
                             // Determine action icon and color
                             let actionIcon = '⚙️';
@@ -875,49 +894,78 @@
                             
                             html += `
                                 <div class="action-item" style="background: white; border-left: 4px solid ${actionColor}; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                                    <div class="action-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                                        <div style="display: flex; align-items: center; gap: 10px;">
-                                            <span style="background: ${actionColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${stepNum}</span>
-                                            <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${actionIcon} ${action.toUpperCase()}</strong>
-                                            ${isOptional ? '<span style="background: #D4C5B9; color: #6B5B3D; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600;">Optional</span>' : ''}
+                                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                                        <!-- Step Details (Left Side) -->
+                                        <div style="flex: 1; min-width: 300px;">
+                                            <div class="action-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <span style="background: ${actionColor}; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em;">${stepNum}</span>
+                                                    <strong class="action-name" style="font-size: 1.1em; color: #2c3e50;">${actionIcon} ${action.toUpperCase()}</strong>
+                                                    ${isOptional ? '<span style="background: #D4C5B9; color: #6B5B3D; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; font-weight: 600;">Optional</span>' : ''}
+                                                </div>
+                                            </div>
+                                            ${url ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #495057;">🌐 URL:</strong>
+                                                <div style="color: #495057; font-size: 0.95em; word-break: break-all; margin-top: 4px;">${url}</div>
+                                            </div>
+                                            ` : ''}
+                                            ${xpath ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #495057;">📍 XPath:</strong>
+                                                <div style="color: #495057; font-size: 0.85em; font-family: monospace; word-break: break-all; margin-top: 4px;">${xpath}</div>
+                                            </div>
+                                            ` : ''}
+                                            ${objectType ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #495057;">🎯 Object Type:</strong>
+                                                <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${objectType}</span>
+                                            </div>
+                                            ` : ''}
+                                            ${textValue ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #495057;">📝 Text Value:</strong>
+                                                <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${textValue}</span>
+                                            </div>
+                                            ` : ''}
+                                            ${waitTime ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #495057;">⏱️ Wait Time:</strong>
+                                                <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${waitTime}ms</span>
+                                            </div>
+                                            ` : ''}
+                                            ${functions ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: #E8DDD4; border-radius: 6px;">
+                                                <strong style="font-size: 0.9em; color: #6B5B3D;">⚙️ Functions:</strong>
+                                                <span style="color: #6B5B3D; font-size: 0.95em; margin-left: 8px;">${functions}</span>
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                        
+                                        <!-- Screenshot (Right Side) -->
+                                        <div style="flex: 0 0 300px; min-width: 250px;">
+                                            ${screenshot ? `
+                                            <div style="border: 2px solid ${actionColor}; border-radius: 8px; overflow: hidden; background: #f8f9fa;">
+                                                <div style="background: ${actionColor}; color: white; padding: 8px; text-align: center; font-size: 0.85em; font-weight: 600;">
+                                                    📸 Step ${stepNum} Screenshot
+                                                </div>
+                                                <img src="/api/screenshots/${screenshot}" 
+                                                     alt="Step ${stepNum} screenshot"
+                                                     style="width: 100%; height: auto; display: block; cursor: pointer;"
+                                                     onclick="window.open('/api/screenshots/${screenshot}', '_blank')"
+                                                     onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'300\\' height=\\'200\\'%3E%3Crect fill=\\'%23f0f8ff\\' width=\\'300\\' height=\\'200\\'/%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' dominant-baseline=\\'middle\\' text-anchor=\\'middle\\' fill=\\'%232196F3\\' font-family=\\'Arial\\'%3E📷 Not Found%3C/text%3E%3C/svg%3E'">
+                                                <div style="padding: 8px; text-align: center; font-size: 0.75em; color: #6c757d; word-break: break-all;">
+                                                    ${screenshot}
+                                                </div>
+                                            </div>
+                                            ` : `
+                                            <div style="border: 2px dashed #D4C5B9; border-radius: 8px; padding: 40px; text-align: center; background: #f8f9fa; color: #6c757d;">
+                                                <div style="font-size: 2em; margin-bottom: 10px;">📷</div>
+                                                <div style="font-size: 0.9em;">No screenshot available</div>
+                                            </div>
+                                            `}
                                         </div>
                                     </div>
-                                    ${url ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #495057;">🌐 URL:</strong>
-                                        <div style="color: #495057; font-size: 0.95em; word-break: break-all; margin-top: 4px;">${url}</div>
-                                    </div>
-                                    ` : ''}
-                                    ${xpath ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #495057;">📍 XPath:</strong>
-                                        <div style="color: #495057; font-size: 0.85em; font-family: monospace; word-break: break-all; margin-top: 4px;">${xpath}</div>
-                                    </div>
-                                    ` : ''}
-                                    ${objectType ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #495057;">🎯 Object Type:</strong>
-                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${objectType}</span>
-                                    </div>
-                                    ` : ''}
-                                    ${textValue ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #495057;">📝 Text Value:</strong>
-                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${textValue}</span>
-                                    </div>
-                                    ` : ''}
-                                    ${waitTime ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #495057;">⏱️ Wait Time:</strong>
-                                        <span style="color: #495057; font-size: 0.95em; margin-left: 8px;">${waitTime}ms</span>
-                                    </div>
-                                    ` : ''}
-                                    ${functions ? `
-                                    <div style="margin: 10px 0; padding: 10px; background: #E8DDD4; border-radius: 6px;">
-                                        <strong style="font-size: 0.9em; color: #6B5B3D;">⚙️ Functions:</strong>
-                                        <span style="color: #6B5B3D; font-size: 0.95em; margin-left: 8px;">${functions}</span>
-                                    </div>
-                                    ` : ''}
                                 </div>
                             `;
                         });
