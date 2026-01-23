@@ -471,10 +471,27 @@
                     // Fall back to actions.length if fetch fails
                 }
             }
-            const passedSteps = actions.filter(a => safeString(a.result).includes('✅')).length;
-            const failedSteps = actions.filter(a => safeString(a.result).includes('❌')).length;
+            // For Excel executions, use Playwright validation data
+            let passedSteps = actions.filter(a => safeString(a.result).includes('✅')).length;
+            let failedSteps = actions.filter(a => safeString(a.result).includes('❌')).length;
+            let duration = safeNumber(results.duration, 0);
+            let screenshotsCount = screenshots.length;
+            
+            if (isExcelExecution) {
+                const pwValidation = safeGet(results, 'playwright_validation');
+                if (pwValidation && pwValidation.status) {
+                    // Use Playwright validation data for Excel executions
+                    passedSteps = safeNumber(pwValidation.assertions_passed, 0);
+                    failedSteps = safeNumber(pwValidation.assertions_failed, 0);
+                    duration = safeNumber(pwValidation.duration, 0);
+                }
+                // Use Playwright screenshots count for Excel executions
+                const pwScreenshots = safeArray(results.playwright_screenshots);
+                screenshotsCount = pwScreenshots.length;
+            }
+            
             const successRate = totalSteps > 0 ? Math.round((passedSteps / totalSteps) * 100) : 0;
-            const duration = safeNumber(results.duration, 0).toFixed(1);
+            const durationFormatted = duration.toFixed(1);
             const status = safeString(results.status, 'unknown');
             const story = safeString(results.story, 'No test scenario provided');
             const error = safeGet(results, 'error');
@@ -547,11 +564,11 @@
                             </div>
                             ` : ''}
                             <div class="stat-item">
-                                <div class="stat-value">${duration}s</div>
+                                <div class="stat-value">${durationFormatted}s</div>
                                 <div class="stat-label">Duration</div>
                             </div>
                             <div class="stat-item">
-                                <div class="stat-value">${screenshots.length}</div>
+                                <div class="stat-value">${screenshotsCount}</div>
                                 <div class="stat-label">Screenshots</div>
                             </div>
                             <div class="stat-item">
@@ -620,44 +637,20 @@
                 <!-- Main Content Card with Tabs -->
                 <div class="card">
                     <div class="tab-navigation">
-                        <button class="tab-button active" onclick="switchTab('overview')">
-                            📊 Overview
-                        </button>
-                        <button class="tab-button" onclick="switchTab('steps')">
+                        <button class="tab-button active" onclick="switchTab('steps')">
                             🎬 Steps (${totalSteps})
-                        </button>
-                        <button class="tab-button" onclick="switchTab('discoveries')">
-                            🔍 Discoveries (${discoveries.length})
-                        </button>
-                        <button class="tab-button" onclick="switchTab('screenshots')">
-                            📸 Screenshots (${screenshots.length})
                         </button>
                         <button class="tab-button" onclick="switchTab('playwright')">
                             🎭 Playwright
                         </button>
                     </div>
                     
-                    <!-- Tab 1: Overview -->
-                    <div id="tab-overview" class="tab-content active">
-                        ${renderOverviewTab(results, totalSteps, passedSteps, failedSteps)}
-                    </div>
-                    
-                    <!-- Tab 2: Steps -->
-                    <div id="tab-steps" class="tab-content">
+                    <!-- Tab 1: Steps -->
+                    <div id="tab-steps" class="tab-content active">
                         <div id="steps-content">Loading steps...</div>
                     </div>
                     
-                    <!-- Tab 3: Discoveries -->
-                    <div id="tab-discoveries" class="tab-content">
-                        ${renderDiscoveriesTab(results)}
-                    </div>
-                    
-                    <!-- Tab 4: Screenshots -->
-                    <div id="tab-screenshots" class="tab-content">
-                        ${renderScreenshotsTab(results)}
-                    </div>
-                    
-                    <!-- Tab 5: Playwright -->
+                    <!-- Tab 2: Playwright -->
                     <div id="tab-playwright" class="tab-content">
                         ${renderPlaywrightTab(results)}
                     </div>
