@@ -1310,10 +1310,6 @@
                             </div>
                             ${validation.test_file ? `
                             <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-                                <a href="/api/executions/${executionId}/generated-test" target="_blank" 
-                                   class="btn-secondary" style="display: inline-block; text-decoration: none;">
-                                    👁️ View Code
-                                </a>
                                 ${(isExcelExecution && excelId) ? `
                                 <button onclick="generateTypeScriptFromExcel('${excelId || ''}')" 
                                         class="btn-primary" id="generateTsBtn_${excelId || ''}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
@@ -1750,10 +1746,6 @@
                         </div>
                         ${result.test_path ? `
                         <div style="margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-                            <a href="/api/executions/${executionId}/generated-test" target="_blank" 
-                               class="btn-secondary" style="display: inline-block; text-decoration: none;">
-                                👁️ View Code
-                            </a>
                             ${(typeof isExcelExecution !== 'undefined' && isExcelExecution && excelId) ? `
                             <button onclick="generateTypeScriptFromExcel('${excelId}')" 
                                     class="btn-primary" id="generateTsBtn_${excelId}" style="display: inline-block; cursor: pointer; border: none; padding: 12px 24px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
