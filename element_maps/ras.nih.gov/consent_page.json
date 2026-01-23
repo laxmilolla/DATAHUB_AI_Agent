@@ -1,13 +1,11 @@
 {
   "page": "consent",
-  "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
   "version": "1.0",
   "timestamp": "2026-01-20T17:30:00.000000Z",
   "elements": {
     "grant_button": {
       "xpath": "//input[@name='action' and @value='Grant']",
       "selector": "//input[@name='action' and @value='Grant']",
-      "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
       "element_id": "ID_grant_button_consent",
       "usage_count": 0,
       "last_used": null,
@@ -22,7 +20,6 @@
     "deny_button": {
       "xpath": "//input[@name='action' and @value='Deny']",
       "selector": "//input[@name='action' and @value='Deny']",
-      "url": "https://ras.nih.gov/auth/oauth/v2/authorize/consent",
       "element_id": "ID_deny_button_consent",
       "usage_count": 0,
       "last_used": null,
