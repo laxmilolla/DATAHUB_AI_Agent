@@ -1016,6 +1016,103 @@
             
             html += '<div style="display: grid; gap: 20px;">';
             
+            // Helper function to render verification table from row details
+            function renderVerificationTable(rowDetails, expectedValue, passed) {
+                if (!rowDetails || !Array.isArray(rowDetails) || rowDetails.length === 0) {
+                    return '';
+                }
+                
+                let tableHtml = `
+                    <div style="margin-top: 15px; padding: 15px; background: white; border-radius: 8px; border: 2px solid ${passed ? '#28a745' : '#dc3545'};">
+                        <strong style="font-size: 0.95em; color: #495057; display: block; margin-bottom: 12px;">📊 Row-by-Row Verification:</strong>
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                                <thead>
+                                    <tr style="background: ${passed ? '#d4edda' : '#f8d7da'};">
+                                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid ${passed ? '#28a745' : '#dc3545'}; color: #495057; font-weight: 600;">Row</th>
+                                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid ${passed ? '#28a745' : '#dc3545'}; color: #495057; font-weight: 600;">Value</th>
+                                        <th style="padding: 10px; text-align: center; border-bottom: 2px solid ${passed ? '#28a745' : '#dc3545'}; color: #495057; font-weight: 600;">Status</th>
+                                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid ${passed ? '#28a745' : '#dc3545'}; color: #495057; font-weight: 600;">Expected</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+                
+                rowDetails.forEach((detail, idx) => {
+                    const rowMatches = detail.matches !== undefined ? detail.matches : (detail.value && expectedValue && detail.value.toLowerCase().includes(expectedValue.toLowerCase()));
+                    const rowBgColor = rowMatches ? '#d4edda' : '#f8d7da';
+                    const rowTextColor = rowMatches ? '#155724' : '#721c24';
+                    const statusIcon = rowMatches ? '✅' : '❌';
+                    
+                    tableHtml += `
+                        <tr style="background: ${rowBgColor};">
+                            <td style="padding: 8px 10px; border-bottom: 1px solid #dee2e6; color: ${rowTextColor}; font-weight: 600;">${detail.row_number || (idx + 1)}</td>
+                            <td style="padding: 8px 10px; border-bottom: 1px solid #dee2e6; color: ${rowTextColor}; max-width: 300px; word-break: break-word;">
+                                <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${safeString(detail.value, 'N/A')}</code>
+                            </td>
+                            <td style="padding: 8px 10px; border-bottom: 1px solid #dee2e6; text-align: center; color: ${rowTextColor}; font-size: 1.2em;">${statusIcon}</td>
+                            <td style="padding: 8px 10px; border-bottom: 1px solid #dee2e6; color: ${rowTextColor};">
+                                <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px; font-size: 0.9em;">${safeString(expectedValue, 'N/A')}</code>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tableHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                
+                return tableHtml;
+            }
+            
+            // Helper function to parse verification table from result message (fallback)
+            function parseVerificationTableFromResult(resultText, expectedValue) {
+                // Look for the table pattern in the result
+                if (!resultText.includes('Row-by-Row Verification:') && !resultText.includes('┌──────┬')) {
+                    return '';
+                }
+                
+                // Try to extract row information from the formatted table
+                const lines = resultText.split('\n');
+                const rowDetails = [];
+                let inTable = false;
+                
+                for (const line of lines) {
+                    if (line.includes('Row-by-Row Verification:') || line.includes('┌──────┬')) {
+                        inTable = true;
+                        continue;
+                    }
+                    if (inTable && line.includes('│') && !line.includes('Row  │') && !line.includes('└──────┴')) {
+                        // Parse row line: │  1   │ apsndana                  │   ✅   │ apsndana                  │
+                        const parts = line.split('│').map(p => p.trim()).filter(p => p);
+                        if (parts.length >= 3) {
+                            const rowNum = parseInt(parts[0]);
+                            const value = parts[1];
+                            const status = parts[2];
+                            if (!isNaN(rowNum)) {
+                                rowDetails.push({
+                                    row_number: rowNum,
+                                    value: value,
+                                    matches: status.includes('✅')
+                                });
+                            }
+                        }
+                    }
+                    if (line.includes('└──────┴')) {
+                        break;
+                    }
+                }
+                
+                if (rowDetails.length > 0) {
+                    return renderVerificationTable(rowDetails, expectedValue, rowDetails.every(r => r.matches));
+                }
+                
+                return '';
+            }
+            
             actions.forEach((action, index) => {
                 const tool = safeString(action.tool, 'unknown');
                 const input = safeGet(action, 'input', {});
@@ -1024,6 +1121,43 @@
                 const passed = result.includes('✅');
                 const borderColor = passed ? '#28a745' : '#dc3545';
                 const screenshots = safeArray(action.screenshots);
+                
+                // Check if this is a verify_table action and parse row details
+                const isVerifyTable = tool === 'browser_verify_table';
+                let verificationTableHtml = '';
+                let resultSummary = result;
+                
+                if (isVerifyTable) {
+                    // Try to extract row details from discoveries metadata
+                    const discoveries = safeArray(results.discoveries);
+                    let rowDetails = null;
+                    
+                    // Find matching discovery for this verification
+                    for (const discovery of discoveries) {
+                        if (discovery.discovery_method === 'table_verification' && discovery.metadata) {
+                            const metadata = discovery.metadata;
+                            if (metadata.column_name === input.column_name && metadata.expected_value === input.expected_value) {
+                                rowDetails = metadata.row_details;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If we have row details, render table
+                    if (rowDetails && Array.isArray(rowDetails) && rowDetails.length > 0) {
+                        verificationTableHtml = renderVerificationTable(rowDetails, input.expected_value, passed);
+                        // Extract summary line (first line before table)
+                        const lines = result.split('\n');
+                        resultSummary = lines[0] || result;
+                    } else {
+                        // Fallback: try to parse from result message
+                        verificationTableHtml = parseVerificationTableFromResult(result, input.expected_value);
+                        if (verificationTableHtml) {
+                            const lines = result.split('\n');
+                            resultSummary = lines[0] || result;
+                        }
+                    }
+                }
                 
                 // Format input for display
                 let inputDisplay = '';
@@ -1038,6 +1172,12 @@
                 }
                 if (input.value) {
                     inputDisplay += `<div style="margin: 4px 0;"><strong>Value:</strong> ${safeString(input.value)}</div>`;
+                }
+                if (input.column_name) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>Column:</strong> ${safeString(input.column_name)}</div>`;
+                }
+                if (input.expected_value) {
+                    inputDisplay += `<div style="margin: 4px 0;"><strong>Expected Value:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">${safeString(input.expected_value)}</code></div>`;
                 }
                 if (!inputDisplay && Object.keys(input).length > 0) {
                     inputDisplay = `<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 0.85em; overflow-x: auto;">${JSON.stringify(input, null, 2)}</pre>`;
@@ -1063,9 +1203,10 @@
                         ` : ''}
                         <div style="margin-top: 15px; padding: 12px; background: ${passed ? '#d4edda' : '#f8d7da'}; border-radius: 6px;">
                             <strong style="font-size: 0.9em; color: ${passed ? '#155724' : '#721c24'}; display: block; margin-bottom: 8px;">Result:</strong>
-                            <div style="color: ${passed ? '#155724' : '#721c24'}; font-size: 0.95em; line-height: 1.6;">
-                                ${result}
+                            <div style="color: ${passed ? '#155724' : '#721c24'}; font-size: 0.95em; line-height: 1.6; margin-bottom: ${verificationTableHtml ? '15px' : '0'};">
+                                ${resultSummary}
                             </div>
+                            ${verificationTableHtml ? verificationTableHtml : ''}
                         </div>
                         ${screenshots.length > 0 ? `
                         <div style="margin-top: 15px;">

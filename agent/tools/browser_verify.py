@@ -91,31 +91,29 @@ class BrowserVerifyTool:
             matching_rows = 0
             mismatches = []
             sample_values = []
+            row_details = []  # Store all row details for display
             
-            for i, row in enumerate(rows[:10]):  # Check first 10 rows
+            # Check all rows
+            for i, row in enumerate(rows):
                 cells = await row.locator('td').all()
                 if column_index < len(cells):
                     cell_text = await cells[column_index].text_content()
                     cell_text = cell_text.strip() if cell_text else ""
                     sample_values.append(cell_text)
                     
-                    if expected_value.lower() in cell_text.lower():
+                    # Check if row matches
+                    matches = expected_value.lower() in cell_text.lower()
+                    if matches:
                         matching_rows += 1
                     else:
                         mismatches.append(f"Row {i+1}: '{cell_text}'")
-            
-            # Check remaining rows if any
-            if total_rows > 10:
-                for i in range(10, total_rows):
-                    row = rows[i]
-                    cells = await row.locator('td').all()
-                    if column_index < len(cells):
-                        cell_text = await cells[column_index].text_content()
-                        cell_text = cell_text.strip() if cell_text else ""
-                        if expected_value.lower() in cell_text.lower():
-                            matching_rows += 1
-                        else:
-                            mismatches.append(f"Row {i+1}: '{cell_text}'")
+                    
+                    # Store row detail for display
+                    row_details.append({
+                        "row_number": i + 1,
+                        "value": cell_text,
+                        "matches": matches
+                    })
             
             # Take screenshot
             screenshot_result = await self.screenshot_manager.capture(page, f"verify_{column_name}")
@@ -123,6 +121,18 @@ class BrowserVerifyTool:
             
             if matching_rows == total_rows:
                 logger.info(f"  ✅ VERIFICATION PASSED: All {total_rows} rows contain '{expected_value}'")
+                
+                # Build detailed row-by-row message
+                row_details_text = "\n\nRow-by-Row Verification:\n"
+                row_details_text += "┌──────┬──────────────────────────────┬────────┬──────────────────────────────┐\n"
+                row_details_text += "│ Row  │ Value                        │ Status │ Expected                     │\n"
+                row_details_text += "├──────┼──────────────────────────────┼────────┼──────────────────────────────┤\n"
+                for detail in row_details:
+                    value_display = detail["value"][:28] if len(detail["value"]) <= 28 else detail["value"][:25] + "..."
+                    status = "✅" if detail["matches"] else "❌"
+                    expected_display = expected_value[:28] if len(expected_value) <= 28 else expected_value[:25] + "..."
+                    row_details_text += f"│ {detail['row_number']:4d} │ {value_display:28s} │ {status:6s} │ {expected_display:28s} │\n"
+                row_details_text += "└──────┴──────────────────────────────┴────────┴──────────────────────────────┘"
                 
                 await self.discovery_tracker.track(
                     element_name=f"verify_table_{column_name}",
@@ -136,13 +146,26 @@ class BrowserVerifyTool:
                         "result": "PASS",
                         "total_rows": total_rows,
                         "matching_rows": matching_rows,
+                        "row_details": row_details,
                         "screenshot": screenshot_path
                     }
                 )
                 
-                return f"✅ VERIFICATION PASSED: All {total_rows} rows in '{column_name}' column contain '{expected_value}'"
+                return f"✅ VERIFICATION PASSED: All {total_rows} rows in '{column_name}' column contain '{expected_value}'{row_details_text}"
             else:
                 logger.warning(f"  ❌ VERIFICATION FAILED: {matching_rows}/{total_rows} rows match")
+                
+                # Build detailed row-by-row message
+                row_details_text = "\n\nRow-by-Row Verification:\n"
+                row_details_text += "┌──────┬──────────────────────────────┬────────┬──────────────────────────────┐\n"
+                row_details_text += "│ Row  │ Value                        │ Status │ Expected                     │\n"
+                row_details_text += "├──────┼──────────────────────────────┼────────┼──────────────────────────────┤\n"
+                for detail in row_details:
+                    value_display = detail["value"][:28] if len(detail["value"]) <= 28 else detail["value"][:25] + "..."
+                    status = "✅" if detail["matches"] else "❌"
+                    expected_display = expected_value[:28] if len(expected_value) <= 28 else expected_value[:25] + "..."
+                    row_details_text += f"│ {detail['row_number']:4d} │ {value_display:28s} │ {status:6s} │ {expected_display:28s} │\n"
+                row_details_text += "└──────┴──────────────────────────────┴────────┴──────────────────────────────┘"
                 
                 await self.discovery_tracker.track(
                     element_name=f"verify_table_{column_name}",
@@ -158,12 +181,13 @@ class BrowserVerifyTool:
                         "matching_rows": matching_rows,
                         "mismatches": mismatches,
                         "sample_values": sample_values,
+                        "row_details": row_details,
                         "screenshot": screenshot_path
                     }
                 )
                 
                 mismatch_details = "; ".join(mismatches[:5]) if mismatches else "See screenshot"
-                return f"❌ VERIFICATION FAILED: {matching_rows}/{total_rows} rows match. Mismatches: {mismatch_details}"
+                return f"❌ VERIFICATION FAILED: {matching_rows}/{total_rows} rows match. Mismatches: {mismatch_details}{row_details_text}"
         except Exception as e:
             logger.error(f"  ❌ Table verification error: {e}")
             
