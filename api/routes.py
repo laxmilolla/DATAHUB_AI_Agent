@@ -1231,42 +1231,12 @@ def mark_test_passed(exec_id):
                 'excel_id': excel_id
             }), 404
         
-        # Import required modules
-        import pandas as pd
-        sys.path.insert(0, str(project_root))
-        from REFACTOR.generator.excel_generator import populate_registry_from_excel
-        
-        # Read Excel file
-        try:
-            df = pd.read_excel(excel_file)
-            # Normalize column names
-            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
-        except Exception as e:
-            return jsonify({
-                'error': f'Failed to read Excel file: {str(e)}',
-                'path': str(excel_file)
-            }), 400
-        
-        # Populate registry from Excel
-        element_maps_dir = project_root / 'element_maps'
-        element_maps_dir.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            # This will add/update elements in registries
-            populate_registry_from_excel(df, element_maps_dir)
-        except Exception as e:
-            import traceback
-            print(f"Error populating registry: {e}")
-            print(traceback.format_exc())
-            return jsonify({
-                'error': f'Failed to populate registry: {str(e)}',
-                'traceback': traceback.format_exc()
-            }), 500
+        # Registry is not updated from Excel - only lookup existing XPaths
+        # All XPaths must already exist in the registry JSON file
         
         # Mark execution as passed
-        exec_data['registry_updated'] = True
-        exec_data['registry_updated_at'] = datetime.now().isoformat()
         exec_data['test_status'] = 'passed'
+        exec_data['marked_passed_at'] = datetime.now().isoformat()
         
         # Save updated execution data
         with open(execution_file, 'w') as f:
@@ -1274,10 +1244,10 @@ def mark_test_passed(exec_id):
         
         return jsonify({
             'success': True,
-            'message': 'Test marked as passed and registry updated successfully',
+            'message': 'Test marked as passed successfully',
             'execution_id': exec_id,
             'excel_file': str(excel_file),
-            'registry_updated_at': exec_data['registry_updated_at']
+            'marked_passed_at': exec_data['marked_passed_at']
         })
         
     except Exception as e:

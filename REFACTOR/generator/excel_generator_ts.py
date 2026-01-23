@@ -2,7 +2,7 @@
 Excel-Based Playwright TypeScript Generator
 Reads Excel file with Step, URL, XPath, Action, etc. and generates TypeScript Playwright code
 Registry-aware: Uses element registry instead of hard-coded XPaths
-Auto-populates registries from Excel before test generation
+Looks up XPaths in existing registry JSON - registry is NOT updated from Excel
 """
 import pandas as pd
 import re
@@ -21,7 +21,6 @@ from REFACTOR.generator.excel_generator import (
     escape_xpath,
     escape_text,
     detect_registry_files_from_urls,
-    populate_registry_from_excel,
     lookup_element_id_by_xpath
 )
 
@@ -816,14 +815,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         project_root = output_file.parent.parent.parent  # Go up from storage/excel_tests to project root
         element_maps_dir = project_root / 'element_maps'
         
-        # STEP 1: Auto-populate unified registry from Excel (Excel → JSON)
-        # URL-free approach: ALL elements go to ONE unified registry (unified_registry.json)
-        # This ensures all XPaths from Excel are in registry before test generation
-        # JSON becomes the source of truth, test code references JSON
-        populate_registry_from_excel(df, element_maps_dir)
-        
-        # Load ALL registries (URL-free: always loads all, including unified_registry.json)
-        # URLs parameter is ignored - kept for backward compatibility only
+        # Load registry files - NO auto-population, only lookup existing XPaths
+        # Registry must already contain all XPaths from Excel
         urls = df['url'].dropna().unique().tolist() if 'url' in df.columns else []
         registry_files = detect_registry_files_from_urls(urls, element_maps_dir) if element_maps_dir.exists() else []
         
