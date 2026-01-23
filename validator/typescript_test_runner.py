@@ -125,7 +125,7 @@ class TypeScriptTestRunner:
             assertions_failed = stdout.count('❌') + stdout.count('failed')
             
             # Extract Playwright screenshots from disk (same as Python runner)
-            screenshots = self._collect_screenshots(start_time, duration)
+            screenshots = self._collect_screenshots(start_time, duration, execution_id)
             
             test_result = {
                 'status': 'passed' if passed else 'failed',
@@ -155,7 +155,7 @@ class TypeScriptTestRunner:
         except subprocess.TimeoutExpired:
             duration = time.time() - start_time
             # Collect screenshots even on timeout (test may have generated some before timing out)
-            screenshots = self._collect_screenshots(start_time, duration)
+            screenshots = self._collect_screenshots(start_time, duration, execution_id)
             return {
                 'status': 'timeout',
                 'exit_code': -1,
@@ -172,7 +172,7 @@ class TypeScriptTestRunner:
         
         except Exception as e:
             # Collect screenshots even on error (test may have generated some before error)
-            screenshots = self._collect_screenshots(start_time, 0)
+            screenshots = self._collect_screenshots(start_time, 0, execution_id)
             return {
                 'status': 'error',
                 'exit_code': -1,
@@ -187,21 +187,25 @@ class TypeScriptTestRunner:
                 'execution_id': execution_id
             }
     
-    def _collect_screenshots(self, start_time: float, duration: float) -> list:
+    def _collect_screenshots(self, start_time: float, duration: float, execution_id: str = None) -> list:
         """
         Collect screenshots from disk that were created during test execution
         
         Args:
-            start_time: Test start time
-            duration: Test duration (0 if unknown)
+            start_time: Test start time (when runner started)
+            duration: Test duration in seconds (0 if unknown)
+            execution_id: Execution ID to filter screenshots (optional, for logging)
             
         Returns:
             List of screenshot dictionaries
         """
         screenshots = []
         
-        # Get test start time (subtract duration to get start)
-        test_start_time = start_time - duration if duration > 0 else start_time - 600  # Default to 10 min window if duration unknown
+        # Use tight time window: only screenshots created during THIS test execution
+        # start_time is when the test runner started, so screenshots should be between
+        # start_time and start_time + duration + small buffer
+        test_start_time = start_time
+        test_end_time = start_time + duration + 30 if duration > 0 else start_time + 600  # 30s buffer, or 10min if duration unknown
         
         # Check main screenshots directory
         screenshots_dir = self.project_root / 'storage' / 'screenshots'
@@ -210,8 +214,8 @@ class TypeScriptTestRunner:
                 try:
                     # Check if file was modified during test execution window
                     file_mtime = screenshot_file.stat().st_mtime
-                    # Include files created/modified during test execution (within 10 minutes of test start)
-                    if file_mtime >= test_start_time - 120:  # 2 minute buffer before test start
+                    # Only include files created/modified during THIS test execution
+                    if test_start_time <= file_mtime <= test_end_time:
                         screenshot_name = screenshot_file.name
                         screenshot_path = f"storage/screenshots/{screenshot_name}"
                         
@@ -231,7 +235,8 @@ class TypeScriptTestRunner:
             for screenshot_file in test_screenshots_dir.glob('pw_*.png'):
                 try:
                     file_mtime = screenshot_file.stat().st_mtime
-                    if file_mtime >= test_start_time - 120:
+                    # Only include files created/modified during THIS test execution
+                    if test_start_time <= file_mtime <= test_end_time:
                         screenshot_name = screenshot_file.name
                         # Use relative path from project root
                         screenshot_path = f"storage/excel_tests/storage/screenshots/{screenshot_name}"
@@ -247,6 +252,10 @@ class TypeScriptTestRunner:
         
         # Sort by filename to maintain step order (pw_step1_*, pw_step2_*, etc.)
         screenshots.sort(key=lambda x: x['filename'])
+        
+        if execution_id:
+            print(f"📸 Collected {len(screenshots)} screenshots for execution {execution_id} (time window: {test_start_time:.0f} to {test_end_time:.0f})")
+        
         return screenshots
 
 
