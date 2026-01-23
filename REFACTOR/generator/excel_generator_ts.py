@@ -46,13 +46,12 @@ def build_registry_code_ts(registry_files: List[str]) -> str:
     registry_paths_list_str += "]"
     
     code = f'''// ============================================================================
-// MULTI-REGISTRY SUPPORT (loads all registries for pages visited in test)
+// MULTI-REGISTRY SUPPORT (URL-FREE APPROACH)
 // ============================================================================
-// Automatically detects and loads all registry files needed based on URLs in Excel
+// Loads all registry files - no URL matching needed, lookup by element_id only
 const REGISTRY_PATHS = {registry_paths_list_str};
 
-// Load registries per domain/page (for dynamic loading based on current page)
-// NO MERGE: Keep registries separate to avoid conflicts when same element name exists in multiple registries
+// Load registries - NO MERGE: Keep registries separate to avoid conflicts when same element name exists in multiple registries
 const REGISTRIES_BY_PATH: {{ [key: string]: any }} = {{}};  // registry_path -> registryData
 let loadedCount = 0;
 
@@ -102,139 +101,13 @@ if (loadedCount > 0) {{
     console.log(`✅ Loaded ${{loadedCount}} registries: ${{totalElements}} total elements, ${{totalIds}} total IDs (separate, not merged)`);
 }}
 
-function getRegistryForPage(pageUrl: string | null): any {{
-    /* Get registry for current page based on URL */
-    if (!pageUrl) {{
-        return null;
-    }}
-    
-    const parsed = new URL(pageUrl);
-    const domain = parsed.hostname.split(':')[0];  // Remove port if present
-    
-    // Extract page name from URL path
-    const pathParts = parsed.pathname.split('/').filter(p => p);
-    let pageName: string;
-    if (pathParts.length === 0) {{
-        pageName = 'home';
-    }} else if (pathParts[pathParts.length - 1] === 'explore') {{
-        pageName = 'explore';
-    }} else {{
-        // Get last path segment, remove query params
-        pageName = pathParts[pathParts.length - 1].split('?')[0].split('#')[0];
-        // Remove file extension if present
-        if (pageName.includes('.')) {{
-            pageName = pageName.split('.')[0];
-        }}
-    }}
-    
-    // Try to find matching registry file
-    let bestMatch: any = null;
-    let bestScore = 0;
-    
-    for (const [registryPathStr, registryData] of Object.entries(REGISTRIES_BY_PATH)) {{
-        // Check if registry path matches domain
-        if (!registryPathStr.includes(domain)) {{
-            continue;
-        }}
-        
-        let score = 0;
-        // Score based on how well the registry path matches the page
-        
-        // Exact page name match gets highest score
-        if (registryPathStr.includes(pageName)) {{
-            score += 10;
-        }}
-        
-        // Check for specific page patterns in registry path
-        const registryFilename = registryPathStr.split('/').at(-1) || '';
-        
-        // Match page name in filename (e.g., LoginMFA.aspx_page.json for LoginMFA.aspx)
-        if (registryFilename.toLowerCase().includes(pageName.toLowerCase())) {{
-            score += 8;
-        }}
-        
-        // Match common patterns
-        if (registryFilename.toLowerCase().includes('home') && (!pathParts || pathParts.length === 0 || pathParts[pathParts.length - 1] === '')) {{
-            score += 5;
-        }}
-        
-        // Match domain exactly
-        if (registryPathStr.includes(domain)) {{
-            score += 3;
-        }}
-        
-        if (score > bestScore) {{
-            bestScore = score;
-            bestMatch = registryData;
-        }}
-    }}
-    
-    // If we found a good match, return it
-    if (bestMatch && bestScore >= 3) {{
-        return bestMatch;
-    }}
-    
-    // Fallback: return first registry that matches domain
-    for (const [registryPathStr, registryData] of Object.entries(REGISTRIES_BY_PATH)) {{
-        if (registryPathStr.includes(domain)) {{
-            return registryData;
-        }}
-    }}
-    
-    return null;
-}}
-
-function getXpathById(elementId: string, pageUrl?: string): string {{
-    /* Get XPath from registry by unique ID - prefers registry for current page, searches all registries for same domain if not found */
+function getXpathById(elementId: string): string {{
+    /* Get XPath from registry by unique element_id - searches ALL registries (URL-free approach) */
     if (!elementId) {{
         throw new Error(`❌ element_id is required`);
     }}
     
-    // STEP 1: Try to get registry for current page first
-    if (pageUrl) {{
-        const pageRegistry = getRegistryForPage(pageUrl);
-        if (pageRegistry) {{
-            const currentRegistry = pageRegistry.elements || {{}};
-            const currentIdIndex = pageRegistry.id_index || {{}};
-            
-            // Check if element_id exists in current page registry
-            if (elementId in currentIdIndex) {{
-                const registryKey = currentIdIndex[elementId];
-                if (registryKey in currentRegistry) {{
-                    const xpath = currentRegistry[registryKey].xpath;
-                    if (xpath) {{
-                        return xpath;
-                    }}
-                }}
-            }}
-        }}
-    }}
-    
-    // STEP 2: If not found in page-specific registry, search all registries for same domain
-    if (pageUrl) {{
-        const parsed = new URL(pageUrl);
-        const domain = parsed.hostname.split(':')[0];  // Remove port if present
-        
-        // Search all registries for this domain
-        for (const [registryPathStr, registryData] of Object.entries(REGISTRIES_BY_PATH)) {{
-            if (registryPathStr.includes(domain)) {{
-                const idIndex = registryData.id_index || {{}};
-                const elements = registryData.elements || {{}};
-                
-                if (elementId in idIndex) {{
-                    const registryKey = idIndex[elementId];
-                    if (registryKey in elements) {{
-                        const xpath = elements[registryKey].xpath;
-                        if (xpath) {{
-                            return xpath;
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }}
-    
-    // STEP 3: Last resort - search ALL registries (cross-domain fallback)
+    // Search ALL registries by element_id (no URL matching needed)
     for (const registryData of Object.values(REGISTRIES_BY_PATH)) {{
         const idIndex = registryData.id_index || {{}};
         const elements = registryData.elements || {{}};
@@ -326,19 +199,12 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use registry lookup if element_id is available
     if element_id:
         element_id_escaped = escape_xpath(element_id)
-        # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
-        # This works even if page.url() hasn't updated yet after redirects
+        # URL-free approach: Lookup by element_id only (searches all registries)
         code += f"{ind}    let element;\n"
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
-        url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
-        if url_escaped:
-            code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
-            code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
-        else:
-            code += f"{ind}        // No Excel URL, use current page URL\n"
-            code += f"{ind}        const lookupUrl = page.url();\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+        code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -618,20 +484,13 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
-            # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
-            # This works even if page.url() hasn't updated yet after redirects
+            # URL-free approach: Lookup by element_id only (searches all registries)
             # Declare element variable outside try block so it's in scope for fill handling
             code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
-            if url_escaped:
-                code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
-                code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
-            else:
-                code += f"{ind}        // No Excel URL, use current page URL\n"
-                code += f"{ind}        const lookupUrl = page.url();\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+            code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -805,12 +664,8 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
                 code += f"{ind}    let element;\n"
                 code += f"{ind}    // Try registry lookup first\n"
                 code += f"{ind}    try {{\n"
-                url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
-                if url_escaped:
-                    code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
-                else:
-                    code += f"{ind}        const lookupUrl = page.url();\n"
-                code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+                code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+                code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
                 code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
                 code += f"{ind}        element = page.locator(selector).nth(0);\n"
                 code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -840,20 +695,13 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         # Use registry lookup if element_id is available
         if element_id:
             element_id_escaped = escape_xpath(element_id)
-            # Use Excel URL for registry lookup - tells us which registry to search (where element SHOULD be)
-            # This works even if page.url() hasn't updated yet after redirects
+            # URL-free approach: Lookup by element_id only (searches all registries)
             # Declare element variable outside try block so it's in scope
             code += f"{ind}    let element;\n"
             code += f"{ind}    // Try registry lookup first\n"
             code += f"{ind}    try {{\n"
-            url_escaped = url.replace("'", "\\'") if url and url != 'N/A' else ''
-            if url_escaped:
-                code += f"{ind}        // Use Excel URL for registry lookup (where element should be), fallback to page.url()\n"
-                code += f"{ind}        const lookupUrl = '{url_escaped}' || page.url();\n"
-            else:
-                code += f"{ind}        // No Excel URL, use current page URL\n"
-                code += f"{ind}        const lookupUrl = page.url();\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}', lookupUrl);\n"
+            code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
             code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
@@ -908,16 +756,17 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         # Normalize column names (case-insensitive, handle spaces)
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         
-        # Detect registry files from URLs in Excel
+        # Detect registry files (URL-free approach: loads all registries if URLs missing)
         project_root = output_file.parent.parent.parent  # Go up from storage/excel_tests to project root
         element_maps_dir = project_root / 'element_maps'
         
         # STEP 1: Auto-populate registries from Excel (Excel → JSON)
         # This ensures all XPaths from Excel are in registries before test generation
         # JSON becomes the source of truth, test code references JSON
+        # URL is optional - elements without URL go to default registry
         populate_registry_from_excel(df, element_maps_dir)
         
-        # Get unique URLs from Excel
+        # Get unique URLs from Excel (optional - if empty, loads all registries)
         urls = df['url'].dropna().unique().tolist() if 'url' in df.columns else []
         registry_files = detect_registry_files_from_urls(urls, element_maps_dir) if element_maps_dir.exists() else []
         
@@ -966,9 +815,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                 if xpath and xpath != 'N/A':
                     element_name = object_type or 'element'
                     
-                    # Lookup element_id from registry - use URL from this row (not current_url)
-                    row_url = url if url and url != 'N/A' else current_url or ''
-                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    # Lookup element_id from registry by XPath (URL-free approach)
+                    element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
                     
                     # Check if next step is on a different URL (for navigation wait after click)
                     next_url_for_wait = None
@@ -978,6 +826,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                         if next_step_url and next_step_url != 'N/A':
                             next_url_for_wait = next_step_url
                     
+                    # row_url still needed for generate_click_code_ts signature (for navigation wait logic), but not for registry lookup
+                    row_url = url if url and url != 'N/A' else current_url or ''
                     test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
@@ -997,9 +847,8 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     elif text_value and ('email' in element_name.lower() or 'user' in element_name.lower() or 'username' in element_name.lower()):
                         user_email = text_value  # Store username for TOTP key lookup
                     
-                    # Lookup element_id from registry - use URL from this row (not current_url)
-                    row_url = url if url and url != 'N/A' else current_url or ''
-                    element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                    # Lookup element_id from registry by XPath (URL-free approach)
+                    element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
                     test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email)
                     previous_action = 'fill'
                     previous_was_totp = is_totp  # Track if this was TOTP
@@ -1017,12 +866,13 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     errors.append(f"Step {step}: Verify action requires XPath (unless Functions=table)")
                 else:
                     element_name = object_type or 'element'
-                    # Lookup element_id from registry - use URL from this row (not current_url)
-                    row_url = url if url and url != 'N/A' else current_url or ''
+                    # Lookup element_id from registry by XPath (URL-free approach)
                     # For table verification, don't require element_id (table selector is in XPath)
                     element_id = None
                     if not is_table_verification:
-                        element_id = lookup_element_id_by_xpath(xpath, row_url, registry_files, element_maps_dir) if registry_files else None
+                        element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
+                    # row_url still needed for generate_verify_code_ts signature (for backward compatibility), but not used for lookup
+                    row_url = url if url and url != 'N/A' else current_url or ''
                     test_body += generate_verify_code_ts(
                         step, xpath, row_url, element_name, 
                         element_id=element_id,

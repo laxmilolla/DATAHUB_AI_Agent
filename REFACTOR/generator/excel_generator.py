@@ -33,10 +33,10 @@ def escape_text(text: str) -> str:
 
 def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> List[str]:
     """
-    Detect registry files needed based on URLs in Excel file
+    Detect registry files needed (URL-free approach: loads all registries if URLs missing)
     
     Args:
-        urls: List of URLs from Excel file
+        urls: List of URLs from Excel file (optional - if empty, loads all registries)
         element_maps_dir: Base directory for element maps (usually 'element_maps')
     
     Returns:
@@ -44,6 +44,17 @@ def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> 
     """
     registry_paths = set()
     
+    # URL-free approach: If no URLs provided, load ALL registry files
+    if not urls or all(not url or url == 'N/A' for url in urls):
+        # Load all registry files from element_maps directory
+        if element_maps_dir.exists():
+            for domain_dir in element_maps_dir.iterdir():
+                if domain_dir.is_dir():
+                    for json_file in domain_dir.glob('*_page.json'):
+                        registry_paths.add(f'element_maps/{domain_dir.name}/{json_file.name}')
+        return sorted(list(registry_paths))
+    
+    # Process URLs if provided (for backward compatibility)
     for url in urls:
         if not url or url == 'N/A':
             continue
@@ -110,6 +121,13 @@ def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> 
             # Skip invalid URLs
             continue
     
+    # If no registries found from URLs, fallback to loading all registries
+    if not registry_paths and element_maps_dir.exists():
+        for domain_dir in element_maps_dir.iterdir():
+            if domain_dir.is_dir():
+                for json_file in domain_dir.glob('*_page.json'):
+                    registry_paths.add(f'element_maps/{domain_dir.name}/{json_file.name}')
+    
     return sorted(list(registry_paths))
 
 
@@ -130,12 +148,18 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
     
     registry = ElementRegistry(str(element_maps_dir))
     
-    print("📝 Auto-populating registries from Excel data...")
+    print("📝 Auto-populating registries from Excel data (URL-free approach)...")
     added_count = 0
     skipped_count = 0
     
-    # Group rows by URL to process elements per page
-    for url in df['url'].dropna().unique():
+    # URL-free approach: Group rows by domain/page from URL if available, otherwise use default
+    # Process rows with URL first, then rows without URL
+    rows_with_url = df[df['url'].notna() & (df['url'] != '') & (df['url'] != 'N/A')].copy()
+    rows_without_url = df[df['url'].isna() | (df['url'] == '') | (df['url'] == 'N/A')].copy()
+    
+    # Process rows with URL (group by domain/page)
+    processed_urls = set()
+    for url in rows_with_url['url'].unique():
         if not url or url == 'N/A':
             continue
         
@@ -165,14 +189,13 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
                 page = page.rsplit('.', 1)[0]
             
             # Get rows for this URL
-            url_rows = df[df['url'] == url]
+            url_rows = rows_with_url[rows_with_url['url'] == url]
             
             # Load or create element map for this page
             element_map = registry.load_map(domain, page)
             if not element_map:
                 element_map = {
                     "page": page,
-                    "url": url,
                     "version": "1.0",
                     "timestamp": datetime.now().isoformat() + "Z",
                     "elements": {},
@@ -184,109 +207,132 @@ def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> No
                     }
                 }
             
-            # Track additions and updates per URL
-            url_added_count = 0
-            url_updated_count = 0
+            url_added, url_skipped = _process_rows_for_registry(url_rows, element_map, registry, domain, page, url)
+            added_count += url_added
+            skipped_count += url_skipped
             
-            # Process each row for this URL
-            for idx, row in url_rows.iterrows():
-                xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
-                
-                action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
-                object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
-                step = str(row.get('step', idx + 1)).strip()
-                
-                # Skip if no XPath
-                if not xpath or xpath == 'N/A':
-                    continue
-                
-                # Generate element name from step/action/object_type
-                if object_type:
-                    element_name = f"{object_type}_{step}"
-                elif action:
-                    element_name = f"{action}_{step}"
-                else:
-                    element_name = f"element_{step}"
-                
-                # Check if XPath already exists in registry (same URL/page)
-                existing_element_key = None
-                existing_element = None
-                
-                # Strategy 1: Check by URL + XPath (primary key - most reliable match)
-                for key, elem_data in element_map.get('elements', {}).items():
-                    elem_xpath = elem_data.get('xpath', '')
-                    elem_url = elem_data.get('url', '')
-                    # Match both URL and XPath (URL + XPath = unique element)
-                    if elem_xpath == xpath and elem_url == url:
-                        existing_element_key = key
-                        existing_element = elem_data
-                        break
-                
-                # Strategy 1b: Check by XPath only (fallback for backward compatibility)
-                if not existing_element_key:
-                    for key, elem_data in element_map.get('elements', {}).items():
-                        if elem_data.get('xpath') == xpath:
-                            existing_element_key = key
-                            existing_element = elem_data
-                            break
-                
-                # Strategy 2: Check by element_id if we can generate the same ID
-                if not existing_element_key:
-                    # Generate ID using URL + element_name + XPath for consistency
-                    potential_element_id = registry._generate_element_id(f"{url}|{element_name}", xpath)
-                    if potential_element_id in element_map.get('id_index', {}):
-                        existing_element_key = element_map['id_index'][potential_element_id]
-                        existing_element = element_map['elements'].get(existing_element_key)
-                
-                if existing_element_key and existing_element:
-                    # Update existing element (no duplicate)
-                    existing_element['object_type'] = object_type or existing_element.get('object_type', '')
-                    existing_element['action'] = action or existing_element.get('action', '')
-                    existing_element['source'] = 'excel'
-                    existing_element['url'] = url  # Store URL for URL+XPath matching
-                    existing_element['last_updated'] = datetime.now().isoformat() + "Z"
-                    # Preserve existing element_id and usage_count
-                    url_updated_count += 1
-                    skipped_count += 1
-                else:
-                    # Add new element if not found
-                    # Generate element_id based on URL + element_name + XPath for consistency
-                    element_id = registry._generate_element_id(f"{url}|{element_name}", xpath)
-                    
-                    element_entry = {
-                        'xpath': xpath,
-                        'selector': xpath,
-                        'url': url,  # Store URL for URL+XPath matching
-                        'element_id': element_id,
-                        'usage_count': 0,
-                        'last_used': None,
-                        'source': 'excel',
-                        'object_type': object_type,
-                        'action': action,
-                        'discovered_at': datetime.now().isoformat() + "Z"
-                    }
-                    
-                    element_map['elements'][element_name] = element_entry
-                    element_map['id_index'][element_id] = element_name
-                    element_map['statistics']['total_elements'] = len(element_map['elements'])
-                    url_added_count += 1
-                    added_count += 1
-            
-            # Save updated registry if we added or updated elements
-            if url_added_count > 0 or url_updated_count > 0:
+            # Save registry
+            if url_added > 0 or url_skipped > 0:
                 registry.save_map(domain, page, element_map)
                 update_msg = []
-                if url_added_count > 0:
-                    update_msg.append(f"{url_added_count} new")
-                if url_updated_count > 0:
-                    update_msg.append(f"{url_updated_count} updated")
+                if url_added > 0:
+                    update_msg.append(f"{url_added} new")
+                if url_skipped > 0:
+                    update_msg.append(f"{url_skipped} updated")
                 print(f"  ✅ Updated registry: {domain}/{page}_page.json ({', '.join(update_msg)} elements)")
-        
+            
         except Exception as e:
-            print(f"  ⚠️  Error processing URL {url}: {e}")
+            print(f"⚠️  Error processing URL {url}: {e}")
             continue
     
-    print(f"📝 Registry population complete: {added_count} added, {skipped_count} skipped")
+    # Process rows without URL (use default registry)
+    if not rows_without_url.empty:
+        # Use a default domain/page for elements without URL
+        default_domain = "default"
+        default_page = "elements"
+        
+        element_map = registry.load_map(default_domain, default_page)
+        if not element_map:
+            element_map = {
+                "page": default_page,
+                "version": "1.0",
+                "timestamp": datetime.now().isoformat() + "Z",
+                "elements": {},
+                "id_index": {},
+                "statistics": {
+                    "total_elements": 0,
+                    "parsed_elements": 0,
+                    "discovered_elements": 0
+                }
+            }
+        
+        no_url_added, no_url_skipped = _process_rows_for_registry(rows_without_url, element_map, registry, default_domain, default_page, None)
+        added_count += no_url_added
+        skipped_count += no_url_skipped
+        
+        # Save registry
+        if no_url_added > 0 or no_url_skipped > 0:
+            registry.save_map(default_domain, default_page, element_map)
+            update_msg = []
+            if no_url_added > 0:
+                update_msg.append(f"{no_url_added} new")
+            if no_url_skipped > 0:
+                update_msg.append(f"{no_url_skipped} updated")
+            print(f"  ✅ Updated registry: {default_domain}/{default_page}_page.json ({', '.join(update_msg)} elements)")
+    
+    print(f"✅ Registry population complete: {added_count} added, {skipped_count} skipped")
+
+
+def _process_rows_for_registry(url_rows, element_map, registry, domain, page, url):
+    """Helper function to process rows and add to registry (URL-free approach)"""
+    from datetime import datetime
+    
+    added_count = 0
+    skipped_count = 0
+    
+    for idx, row in url_rows.iterrows():
+        xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
+        
+        action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
+        object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+        step = str(row.get('step', idx + 1)).strip()
+        
+        # Skip if no XPath
+        if not xpath or xpath == 'N/A':
+            continue
+        
+        # Skip navigate and wait actions (no element to register)
+        if action in ['navigate', 'wait']:
+            continue
+        
+        # Generate element name from step/action/object_type
+        if object_type:
+            element_name = f"{object_type}_{step}"
+        elif action:
+            element_name = f"{action}_{step}"
+        else:
+            element_name = f"element_{step}"
+        
+        # URL-free approach: Check if XPath already exists in registry (match by XPath only)
+        existing_element_key = None
+        existing_element = None
+        
+        # Strategy: Check by XPath only (URL-free matching)
+        for key, elem_data in element_map.get('elements', {}).items():
+            if elem_data.get('xpath') == xpath:
+                existing_element_key = key
+                existing_element = elem_data
+                break
+        
+        if existing_element_key and existing_element:
+            # Update existing element (no duplicate)
+            existing_element['object_type'] = object_type or existing_element.get('object_type', '')
+            existing_element['action'] = action or existing_element.get('action', '')
+            existing_element['source'] = 'excel'
+            existing_element['last_updated'] = datetime.now().isoformat() + "Z"
+            # Preserve existing element_id
+            skipped_count += 1
+        else:
+            # Add new element if not found
+            # Generate element_id based on element_name + XPath (URL-free)
+            element_id = registry._generate_element_id(element_name, xpath)
+            
+            element_entry = {
+                'xpath': xpath,
+                'selector': xpath,
+                'element_id': element_id,
+                'source': 'excel',
+                'object_type': object_type,
+                'action': action,
+                'discovered_at': datetime.now().isoformat() + "Z"
+            }
+            
+            element_map['elements'][element_name] = element_entry
+            element_map['id_index'][element_id] = element_name
+            element_map['statistics']['total_elements'] = len(element_map['elements'])
+            added_count += 1
+    
+    return added_count, skipped_count
 
 
 def build_registry_code(registry_files: List[str]) -> str:
@@ -464,13 +510,12 @@ def get_xpath_by_id(element_id, page_url=None):
     return code
 
 
-def lookup_element_id_by_xpath(xpath: str, url: str, registry_files: List[str], element_maps_dir: Path) -> Optional[str]:
+def lookup_element_id_by_xpath(xpath: str, registry_files: List[str], element_maps_dir: Path) -> Optional[str]:
     """
-    Look up element_id from registry by matching XPath
+    Look up element_id from registry by matching XPath (URL-free approach)
     
     Args:
         xpath: XPath to find
-        url: URL for context (to determine which registry to check first)
         registry_files: List of registry file paths
         element_maps_dir: Base directory for element maps
     
@@ -480,32 +525,8 @@ def lookup_element_id_by_xpath(xpath: str, url: str, registry_files: List[str], 
     if not xpath or xpath == 'N/A':
         return None
     
-    # Parse URL to determine domain/page
-    parsed = urlparse(url) if url else None
-    domain = parsed.netloc.split(':')[0] if parsed else None
-    
-    # Try registries in order: page-specific first, then domain, then all
-    registries_to_check = []
-    
-    # Priority 1: Page-specific registry (if URL provided)
-    if domain and url:
-        for reg_path in registry_files:
-            if domain in reg_path and url.split('/')[-1].split('?')[0] in reg_path:
-                registries_to_check.insert(0, reg_path)
-    
-    # Priority 2: Domain-specific registries
-    if domain:
-        for reg_path in registry_files:
-            if domain in reg_path and reg_path not in registries_to_check:
-                registries_to_check.append(reg_path)
-    
-    # Priority 3: All other registries
-    for reg_path in registry_files:
-        if reg_path not in registries_to_check:
-            registries_to_check.append(reg_path)
-    
-    # Search registries
-    for reg_path_str in registries_to_check:
+    # Search ALL registries by XPath (no URL matching needed)
+    for reg_path_str in registry_files:
         try:
             # reg_path_str is relative (e.g., 'element_maps/domain/page.json')
             # element_maps_dir is absolute path to element_maps directory
@@ -527,56 +548,24 @@ def lookup_element_id_by_xpath(xpath: str, url: str, registry_files: List[str], 
             elements = registry_data.get('elements', {})
             id_index = registry_data.get('id_index', {})
             
-            # Normalize URL for comparison (remove query params, trailing slash, etc.)
-            def normalize_url(u: str) -> str:
-                if not u:
-                    return ''
-                parsed = urlparse(u)
-                # Remove query params and fragment
-                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                # Remove trailing slash
-                normalized = normalized.rstrip('/')
-                return normalized
-            
-            search_url_normalized = normalize_url(url) if url else ''
-            
-            # Search for matching XPath AND URL (URL + XPath = unique element)
+            # Search for matching XPath (URL-free: match by XPath only)
             for key, element_data in elements.items():
                 element_xpath = element_data.get('xpath', '')
-                element_url = element_data.get('url', '')
-                element_url_normalized = normalize_url(element_url) if element_url else ''
                 
-                # Match both XPath and URL
+                # Match XPath only (no URL matching)
                 if element_xpath == xpath:
-                    # If URL is provided, it must match; if not provided in element, allow match
-                    if search_url_normalized:
-                        if element_url_normalized == search_url_normalized:
-                            # Found match - get element_id
-                            element_id = element_data.get('element_id')
-                            if element_id:
-                                return element_id
-                    else:
-                        # No URL provided in search, match by XPath only (fallback)
-                        element_id = element_data.get('element_id')
-                        if element_id:
-                            return element_id
+                    element_id = element_data.get('element_id')
+                    if element_id:
+                        return element_id
             
-            # Also check id_index for reverse lookup (with URL matching)
+            # Also check id_index for reverse lookup
             for element_id, registry_key in id_index.items():
                 if registry_key in elements:
                     element_data = elements[registry_key]
                     element_xpath = element_data.get('xpath', '')
-                    element_url = element_data.get('url', '')
-                    element_url_normalized = normalize_url(element_url) if element_url else ''
                     
                     if element_xpath == xpath:
-                        # Match URL if provided
-                        if search_url_normalized:
-                            if element_url_normalized == search_url_normalized:
-                                return element_id
-                        else:
-                            # No URL provided, match by XPath only (fallback)
-                            return element_id
+                        return element_id
         except Exception:
             continue
     

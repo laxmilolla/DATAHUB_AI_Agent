@@ -31,8 +31,8 @@ def validate_excel_format(df: pd.DataFrame) -> Dict[str, Any]:
     # Normalize column names (case-insensitive, handle spaces)
     df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
     
-    # Required columns
-    required_columns = ['step', 'url', 'xpath', 'action']
+    # Required columns (URL is optional - only needed for navigate action)
+    required_columns = ['step', 'xpath', 'action']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
@@ -44,6 +44,12 @@ def validate_excel_format(df: pd.DataFrame) -> Dict[str, Any]:
             empty_count = df[col].isna().sum() + (df[col] == '').sum()
             if empty_count > 0:
                 warnings.append(f"Column '{col}' has {empty_count} empty values")
+    
+    # URL is optional - warn if missing but don't error (only required for navigate action)
+    if 'url' in df.columns:
+        url_empty_count = df['url'].isna().sum() + (df['url'] == '').sum()
+        if url_empty_count > 0:
+            warnings.append(f"Column 'url' has {url_empty_count} empty values (optional - only needed for navigate action)")
     
     # Validate data types
     if 'step' in df.columns:
