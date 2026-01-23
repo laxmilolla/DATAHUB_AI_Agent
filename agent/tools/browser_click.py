@@ -10,6 +10,7 @@ from pathlib import Path
 from playwright.async_api import Page, Locator
 from agent.utils.modal_utils import ModalUtils
 from agent.utils.label_matcher import LabelMatcher
+from agent.utils.file_upload_handler import FileUploadHandler
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class BrowserClickTool:
         self.xpath_generator = xpath_generator
         self.llm_helper = llm_helper
         self.totp_handler = totp_handler
+        self.file_upload_handler = FileUploadHandler()
         self.screenshot_manager = screenshot_manager
         self.context = execution_context
         self.parsed_steps = parsed_steps
@@ -76,6 +78,11 @@ class BrowserClickTool:
         step_metadata = self.parsed_steps.get(step_identifier, {})
         step_text = step_metadata.get('text', '')
         step_type = step_metadata.get('type', '')
+        functions = step_metadata.get('functions', '')  # Get Functions column value
+        text_value = step_metadata.get('text_value', '')  # Get Text Value column value
+        
+        # Parse location and filename from functions or text_value
+        location, filename = self.file_upload_handler.parse_file_upload_params(functions, text_value)
         
         # Check if this is a dropdown selection pattern ("Pick X from Y dropdown")
         dropdown_selection = self._parse_dropdown_selection_pattern(step_text)
@@ -959,6 +966,97 @@ class BrowserClickTool:
                 discovery_url_before_click = self.page.url
                 
                 await strategy["method"]()
+                
+                # Handle file upload if this is a file upload step
+                is_file_upload_step = self.file_upload_handler.is_file_upload_step(step_text, functions)
+                if is_file_upload_step and location:
+                    try:
+                        logger.info(f"  [FILE_UPLOAD] Detected file upload step - location: {location}, filename: {filename or 'ALL FILES'}")
+                        
+                        # Get project root for resolving file path
+                        project_root = Path(__file__).parent.parent.parent
+                        path_result = self.file_upload_handler.get_file_path(location, filename or '*', project_root)
+                        
+                        # Determine if uploading single file or all files in folder
+                        is_folder_upload = not filename or filename.strip() in ['*', 'all', 'ALL'] or path_result.is_dir()
+                        
+                        if is_folder_upload:
+                            # Upload all files in folder
+                            folder_path = path_result if path_result.is_dir() else path_result.parent
+                            file_paths = self.file_upload_handler.get_all_files_in_folder(folder_path)
+                            
+                            if not file_paths:
+                                logger.warning(f"  [FILE_UPLOAD] ⚠️ No files found in folder: {folder_path}")
+                                return f"❌ File Upload FAILED: No files found in folder: {folder_path}"
+                            
+                            logger.info(f"  [FILE_UPLOAD] Uploading {len(file_paths)} files from folder: {folder_path}")
+                            file_paths_str = [str(fp) for fp in file_paths]
+                        else:
+                            # Single file upload
+                            file_path = path_result
+                            # Validate file
+                            is_valid, error_msg = self.file_upload_handler.validate_file(file_path)
+                            if not is_valid:
+                                logger.error(f"  [FILE_UPLOAD] File validation failed: {error_msg}")
+                                return f"❌ File Upload FAILED: {error_msg}"
+                            file_paths_str = [str(file_path)]
+                            logger.info(f"  [FILE_UPLOAD] Uploading single file: {file_path}")
+                        
+                        # Find the file input element (might be hidden)
+                        # Try common file input selectors
+                        file_input_selectors = [
+                            'input[type="file"]',
+                            'input[type="file"]:visible',
+                            f'input[type="file"][id*="{selector}"]' if selector else None,
+                            f'input[type="file"][data-testid*="file"]',
+                        ]
+                        
+                        file_input_locator = None
+                        for file_selector in file_input_selectors:
+                            if not file_selector:
+                                continue
+                            try:
+                                locator = self.page.locator(file_selector).first
+                                count = await locator.count()
+                                if count > 0:
+                                    file_input_locator = locator
+                                    logger.info(f"  [FILE_UPLOAD] Found file input with selector: {file_selector}")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"  [FILE_UPLOAD] Selector {file_selector} failed: {e}")
+                                continue
+                        
+                        # If not found, try to find it near the clicked element
+                        if not file_input_locator:
+                            try:
+                                # Look for file input near the clicked element
+                                parent = chosen_locator.locator('..')
+                                file_input_locator = parent.locator('input[type="file"]').first
+                                count = await file_input_locator.count()
+                                if count == 0:
+                                    # Try in the same container
+                                    file_input_locator = self.page.locator('input[type="file"]').first
+                            except Exception as e:
+                                logger.debug(f"  [FILE_UPLOAD] Could not find file input near clicked element: {e}")
+                        
+                        if file_input_locator:
+                            # Upload file(s) using set_input_files
+                            # Playwright's set_input_files accepts single file (str) or multiple files (list)
+                            if len(file_paths_str) == 1:
+                                await file_input_locator.set_input_files(file_paths_str[0])
+                                logger.info(f"  [FILE_UPLOAD] ✅ Successfully uploaded file: {file_paths_str[0]}")
+                            else:
+                                await file_input_locator.set_input_files(file_paths_str)
+                                logger.info(f"  [FILE_UPLOAD] ✅ Successfully uploaded {len(file_paths_str)} files:")
+                                for fp in file_paths_str:
+                                    logger.info(f"    - {fp}")
+                            await self.page.wait_for_timeout(500)  # Brief wait after upload
+                        else:
+                            logger.warning(f"  [FILE_UPLOAD] ⚠️ File input element not found - upload may have failed")
+                            return f"❌ File Upload FAILED: File input element not found"
+                    except Exception as e:
+                        logger.error(f"  [FILE_UPLOAD] File upload error: {e}")
+                        return f"❌ File Upload FAILED: {str(e)}"
                 
                 # IMPROVEMENT #1 & #2: Check if this was a dropdown click - use pre-detection OR post-click detection
                 # Initialize dropdown detection variable
