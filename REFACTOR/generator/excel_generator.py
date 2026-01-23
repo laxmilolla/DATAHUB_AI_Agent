@@ -33,96 +33,25 @@ def escape_text(text: str) -> str:
 
 def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> List[str]:
     """
-    Detect registry files needed (URL-free approach: loads all registries if URLs missing)
+    Detect registry files needed (URL-free approach: ALWAYS loads ALL registries)
     
     Args:
-        urls: List of URLs from Excel file (optional - if empty, loads all registries)
+        urls: List of URLs from Excel file (ignored - kept for backward compatibility)
         element_maps_dir: Base directory for element maps (usually 'element_maps')
     
     Returns:
-        List of relative registry file paths
+        List of relative registry file paths (ALL registries)
     """
     registry_paths = set()
     
-    # URL-free approach: If no URLs provided, load ALL registry files
-    if not urls or all(not url or url == 'N/A' for url in urls):
-        # Load all registry files from element_maps directory
-        if element_maps_dir.exists():
-            for domain_dir in element_maps_dir.iterdir():
-                if domain_dir.is_dir():
-                    for json_file in domain_dir.glob('*_page.json'):
-                        registry_paths.add(f'element_maps/{domain_dir.name}/{json_file.name}')
-        return sorted(list(registry_paths))
-    
-    # Process URLs if provided (for backward compatibility)
-    for url in urls:
-        if not url or url == 'N/A':
-            continue
+    # URL-free approach: ALWAYS load ALL registry files regardless of URLs
+    if element_maps_dir.exists():
+        # Load unified registry first (if it exists)
+        unified_registry = element_maps_dir / 'unified_registry.json'
+        if unified_registry.exists():
+            registry_paths.add('element_maps/unified_registry.json')
         
-        try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.split(':')[0]  # Remove port if present
-            
-            # Extract page name from URL path
-            path_parts = [p for p in parsed.path.split('/') if p]
-            if not path_parts:
-                page = 'home'
-            elif path_parts[-1] == 'explore':
-                page = 'explore'
-            else:
-                page = path_parts[-1].split('?')[0].split('#')[0]
-                if not page:
-                    page = 'home'
-            
-            # Sanitize page name
-            page_sanitized = re.sub(r'[^\w\-_\.]', '', page)
-            if not page_sanitized:
-                page_sanitized = 'home'
-            
-            # Remove file extensions (.aspx, .html, .php, etc.) for consistency
-            page_no_ext = page_sanitized
-            if '.' in page_sanitized:
-                page_no_ext = page_sanitized.rsplit('.', 1)[0]
-            
-            # Check if registry file exists
-            domain_dir = element_maps_dir / domain
-            if domain_dir.exists():
-                # Try exact match: page_page.json (without extension)
-                registry_file = domain_dir / f'{page_no_ext}_page.json'
-                if registry_file.exists():
-                    registry_paths.add(f'element_maps/{domain}/{page_no_ext}_page.json')
-                    continue
-                
-                # Also check with extension (for backward compatibility)
-                if page_sanitized != page_no_ext:
-                    registry_file = domain_dir / f'{page_sanitized}_page.json'
-                    if registry_file.exists():
-                        registry_paths.add(f'element_maps/{domain}/{page_sanitized}_page.json')
-                        continue
-                
-                # List all .json files in domain directory (catch any we missed)
-                for json_file in domain_dir.glob('*_page.json'):
-                    registry_paths.add(f'element_maps/{domain}/{json_file.name}')
-                    continue
-                
-                # Fallback to common page names
-                for page_name in ['home_page.json', 'explore_page.json', 'index.json']:
-                    registry_file = domain_dir / page_name
-                    if registry_file.exists():
-                        registry_paths.add(f'element_maps/{domain}/{page_name}')
-                        break
-                
-                # If no match found, try any JSON file in domain directory
-                if not any(f'element_maps/{domain}' in p for p in registry_paths):
-                    json_files = list(domain_dir.glob('*.json'))
-                    if json_files:
-                        registry_paths.add(f'element_maps/{domain}/{json_files[0].name}')
-        except Exception as e:
-            # Skip invalid URLs
-            continue
-    
-    # If no registries found from URLs, fallback to loading all registries
-    if not registry_paths and element_maps_dir.exists():
+        # Also load all domain/page registries (for backward compatibility with existing registries)
         for domain_dir in element_maps_dir.iterdir():
             if domain_dir.is_dir():
                 for json_file in domain_dir.glob('*_page.json'):
@@ -133,134 +62,125 @@ def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> 
 
 def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> None:
     """
-    Auto-populate element registries from Excel data (Excel → JSON)
-    Ensures all XPaths from Excel are present in registries before test generation
+    Auto-populate unified registry from Excel data (Excel → JSON)
+    URL-free approach: ALL elements go to ONE unified registry regardless of URL
     
     Args:
         df: DataFrame with Excel data (columns: step, url, xpath, action, object_type)
         element_maps_dir: Directory containing element_maps
     """
     from datetime import datetime
+    import json
     
-    # Import ElementRegistry
-    sys.path.insert(0, str(element_maps_dir.parent))
-    from utils.element_registry import ElementRegistry
-    
-    registry = ElementRegistry(str(element_maps_dir))
-    
-    print("📝 Auto-populating registries from Excel data (URL-free approach)...")
+    print("📝 Auto-populating unified registry from Excel data (URL-free approach)...")
     added_count = 0
     skipped_count = 0
     
-    # URL-free approach: Group rows by domain/page from URL if available, otherwise use default
-    # Process rows with URL first, then rows without URL
-    rows_with_url = df[df['url'].notna() & (df['url'] != '') & (df['url'] != 'N/A')].copy()
-    rows_without_url = df[df['url'].isna() | (df['url'] == '') | (df['url'] == 'N/A')].copy()
+    # Unified registry path: ONE registry for all elements
+    unified_registry_path = element_maps_dir / 'unified_registry.json'
     
-    # Process rows with URL (group by domain/page)
-    processed_urls = set()
-    for url in rows_with_url['url'].unique():
-        if not url or url == 'N/A':
-            continue
-        
-        try:
-            # Parse domain and page from URL
-            parsed = urlparse(url)
-            domain = parsed.netloc.split(':')[0]
-            
-            # Extract page name from URL path
-            path_parts = [p for p in parsed.path.split('/') if p]
-            if not path_parts:
-                page = 'home'
-            elif path_parts[-1] == 'explore':
-                page = 'explore'
-            else:
-                page = path_parts[-1].split('?')[0].split('#')[0]
-                if not page:
-                    page = 'home'
-            
-            # Sanitize page name
-            page = re.sub(r'[^\w\-_\.]', '', page)
-            if not page:
-                page = 'home'
-            
-            # Remove file extensions (.aspx, .html, .php, etc.) for consistency
-            if '.' in page:
-                page = page.rsplit('.', 1)[0]
-            
-            # Get rows for this URL
-            url_rows = rows_with_url[rows_with_url['url'] == url]
-            
-            # Load or create element map for this page
-            element_map = registry.load_map(domain, page)
-            if not element_map:
-                element_map = {
-                    "page": page,
-                    "version": "1.0",
-                    "timestamp": datetime.now().isoformat() + "Z",
-                    "elements": {},
-                    "id_index": {},
-                    "statistics": {
-                        "total_elements": 0,
-                        "parsed_elements": 0,
-                        "discovered_elements": 0
-                    }
-                }
-            
-            url_added, url_skipped = _process_rows_for_registry(url_rows, element_map, registry, domain, page, url)
-            added_count += url_added
-            skipped_count += url_skipped
-            
-            # Save registry
-            if url_added > 0 or url_skipped > 0:
-                registry.save_map(domain, page, element_map)
-                update_msg = []
-                if url_added > 0:
-                    update_msg.append(f"{url_added} new")
-                if url_skipped > 0:
-                    update_msg.append(f"{url_skipped} updated")
-                print(f"  ✅ Updated registry: {domain}/{page}_page.json ({', '.join(update_msg)} elements)")
-            
-        except Exception as e:
-            print(f"⚠️  Error processing URL {url}: {e}")
-            continue
-    
-    # Process rows without URL (use default registry)
-    if not rows_without_url.empty:
-        # Use a default domain/page for elements without URL
-        default_domain = "default"
-        default_page = "elements"
-        
-        element_map = registry.load_map(default_domain, default_page)
-        if not element_map:
-            element_map = {
-                "page": default_page,
-                "version": "1.0",
-                "timestamp": datetime.now().isoformat() + "Z",
-                "elements": {},
-                "id_index": {},
-                "statistics": {
-                    "total_elements": 0,
-                    "parsed_elements": 0,
-                    "discovered_elements": 0
-                }
+    # Load existing unified registry or create new one
+    if unified_registry_path.exists():
+        with open(unified_registry_path, 'r') as f:
+            element_map = json.load(f)
+    else:
+        element_map = {
+            "version": "1.0",
+            "timestamp": datetime.now().isoformat() + "Z",
+            "elements": {},
+            "id_index": {},
+            "statistics": {
+                "total_elements": 0,
+                "parsed_elements": 0,
+                "discovered_elements": 0
             }
-        
-        no_url_added, no_url_skipped = _process_rows_for_registry(rows_without_url, element_map, registry, default_domain, default_page, None)
-        added_count += no_url_added
-        skipped_count += no_url_skipped
-        
-        # Save registry
-        if no_url_added > 0 or no_url_skipped > 0:
-            registry.save_map(default_domain, default_page, element_map)
-            update_msg = []
-            if no_url_added > 0:
-                update_msg.append(f"{no_url_added} new")
-            if no_url_skipped > 0:
-                update_msg.append(f"{no_url_skipped} updated")
-            print(f"  ✅ Updated registry: {default_domain}/{default_page}_page.json ({', '.join(update_msg)} elements)")
+        }
     
-    print(f"✅ Registry population complete: {added_count} added, {skipped_count} skipped")
+    # Import ElementRegistry for ID generation
+    sys.path.insert(0, str(element_maps_dir.parent))
+    from utils.element_registry import ElementRegistry
+    registry = ElementRegistry(str(element_maps_dir))
+    
+    # Process ALL rows (URL-free: no separation by domain/page)
+    for idx, row in df.iterrows():
+        xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else None
+        
+        action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
+        object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+        step = str(row.get('step', idx + 1)).strip()
+        
+        # Skip if no XPath
+        if not xpath or xpath == 'N/A':
+            continue
+        
+        # Skip navigate and wait actions (no element to register)
+        if action in ['navigate', 'wait']:
+            continue
+        
+        # Generate element name from step/action/object_type
+        if object_type:
+            element_name = f"{object_type}_{step}"
+        elif action:
+            element_name = f"{action}_{step}"
+        else:
+            element_name = f"element_{step}"
+        
+        # Check if XPath already exists in unified registry (match by XPath only)
+        existing_element_key = None
+        existing_element = None
+        
+        # Strategy: Check by XPath only (URL-free matching)
+        for key, elem_data in element_map.get('elements', {}).items():
+            if elem_data.get('xpath') == xpath:
+                existing_element_key = key
+                existing_element = elem_data
+                break
+        
+        if existing_element_key and existing_element:
+            # Update existing element (no duplicate)
+            existing_element['object_type'] = object_type or existing_element.get('object_type', '')
+            existing_element['action'] = action or existing_element.get('action', '')
+            existing_element['source'] = 'excel'
+            existing_element['last_updated'] = datetime.now().isoformat() + "Z"
+            # Preserve existing element_id
+            skipped_count += 1
+        else:
+            # Add new element if not found
+            # Generate element_id based on element_name + XPath (URL-free)
+            element_id = registry._generate_element_id(element_name, xpath)
+            
+            element_entry = {
+                'xpath': xpath,
+                'selector': xpath,
+                'element_id': element_id,
+                'source': 'excel',
+                'object_type': object_type,
+                'action': action,
+                'discovered_at': datetime.now().isoformat() + "Z"
+            }
+            
+            element_map['elements'][element_name] = element_entry
+            element_map['id_index'][element_id] = element_name
+            element_map['statistics']['total_elements'] = len(element_map['elements'])
+            added_count += 1
+    
+    # Save unified registry
+    if added_count > 0 or skipped_count > 0:
+        element_map['last_updated'] = datetime.now().isoformat() + "Z"
+        element_map['statistics']['total_elements'] = len(element_map['elements'])
+        
+        unified_registry_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(unified_registry_path, 'w') as f:
+            json.dump(element_map, f, indent=2)
+        
+        update_msg = []
+        if added_count > 0:
+            update_msg.append(f"{added_count} new")
+        if skipped_count > 0:
+            update_msg.append(f"{skipped_count} updated")
+        print(f"  ✅ Updated unified registry: unified_registry.json ({', '.join(update_msg)} elements, {len(element_map['elements'])} total)")
+    
+    print(f"✅ Unified registry population complete: {added_count} added, {skipped_count} skipped")
 
 
 def _process_rows_for_registry(url_rows, element_map, registry, domain, page, url):
