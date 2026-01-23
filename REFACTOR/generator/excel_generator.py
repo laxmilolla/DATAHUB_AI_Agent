@@ -33,31 +33,23 @@ def escape_text(text: str) -> str:
 
 def detect_registry_files_from_urls(urls: List[str], element_maps_dir: Path) -> List[str]:
     """
-    Detect registry files needed (URL-free approach: ALWAYS loads ALL registries)
+    Detect registry files needed (Single master registry approach)
     
     Args:
         urls: List of URLs from Excel file (ignored - kept for backward compatibility)
         element_maps_dir: Base directory for element maps (usually 'element_maps')
     
     Returns:
-        List of relative registry file paths (ALL registries)
+        List containing only the master registry file path
     """
-    registry_paths = set()
+    registry_paths = []
     
-    # URL-free approach: ALWAYS load ALL registry files regardless of URLs
-    if element_maps_dir.exists():
-        # Load unified registry first (if it exists)
-        unified_registry = element_maps_dir / 'unified_registry.json'
-        if unified_registry.exists():
-            registry_paths.add('element_maps/unified_registry.json')
-        
-        # Also load all domain/page registries (for backward compatibility with existing registries)
-        for domain_dir in element_maps_dir.iterdir():
-            if domain_dir.is_dir():
-                for json_file in domain_dir.glob('*_page.json'):
-                    registry_paths.add(f'element_maps/{domain_dir.name}/{json_file.name}')
+    # Single master registry approach: Load only data-submissions_page.json (master copy)
+    master_registry = element_maps_dir / 'hub-stage.datacommons.cancer.gov' / 'data-submissions_page.json'
+    if master_registry.exists():
+        registry_paths.append('element_maps/hub-stage.datacommons.cancer.gov/data-submissions_page.json')
     
-    return sorted(list(registry_paths))
+    return registry_paths
 
 
 def populate_registry_from_excel(df: pd.DataFrame, element_maps_dir: Path) -> None:
