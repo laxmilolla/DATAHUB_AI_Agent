@@ -399,7 +399,7 @@
                 }
                 
                 currentResults = results;
-                displayResults(results);
+                await displayResults(results);
                 
                 if (results.status === 'running') {
                     document.getElementById('live-indicator')?.style.setProperty('display', 'inline-block');
@@ -442,7 +442,7 @@
         // MAIN DISPLAY FUNCTION
         // ===================================
         
-        function displayResults(results) {
+        async function displayResults(results) {
             const container = document.getElementById('results-content');
             
             // Calculate metrics with safe defaults
@@ -452,7 +452,25 @@
             const screenshots = safeArray(results.screenshots);
             const discoveries = safeArray(results.discoveries);
             
-            const totalSteps = actions.length;
+            // For Excel executions, fetch step count from Excel file
+            const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
+            const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
+            let totalSteps = actions.length;
+            
+            if (isExcelExecution && excelId) {
+                try {
+                    const stepsResponse = await fetch(`/api/excel/${excelId}/steps`);
+                    if (stepsResponse.ok) {
+                        const stepsData = await stepsResponse.json();
+                        const excelSteps = stepsData.steps || [];
+                        totalSteps = excelSteps.length;
+                        console.log('📊 Excel steps count:', totalSteps);
+                    }
+                } catch (error) {
+                    console.error('Error fetching Excel steps count:', error);
+                    // Fall back to actions.length if fetch fails
+                }
+            }
             const passedSteps = actions.filter(a => safeString(a.result).includes('✅')).length;
             const failedSteps = actions.filter(a => safeString(a.result).includes('❌')).length;
             const successRate = totalSteps > 0 ? Math.round((passedSteps / totalSteps) * 100) : 0;
@@ -460,8 +478,6 @@
             const status = safeString(results.status, 'unknown');
             const story = safeString(results.story, 'No test scenario provided');
             const error = safeGet(results, 'error');
-            const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
-            const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
             
             // Determine overall status
             let overallStatus = 'success';
