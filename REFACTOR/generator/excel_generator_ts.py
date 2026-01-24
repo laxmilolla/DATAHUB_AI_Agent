@@ -180,8 +180,12 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None) -> str:
-    """Generate TypeScript click code - registry-aware"""
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None) -> str:
+    """Generate TypeScript click code - registry-aware
+    
+    Args:
+        wait_time: Wait time in milliseconds after click (from Excel wait_time column)
+    """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
@@ -362,7 +366,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
             code += f"{ind}    if (!clickSucceeded) {{\n"
             code += f"{ind}        throw new Error(`Step {step}: All click methods failed`);\n"
             code += f"{ind}    }}\n"
-    code += f"{ind}    await page.waitForTimeout(1000);  // Wait after click\n"
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms = int(wait_time) if wait_time else 1000
+    code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after click (from Excel wait_time: {wait_ms}ms)\n"
     element_display = element_name or 'element'
     if is_radio_or_checkbox:
         code += f"{ind}    console.log(`✅ Step {step}: Checked {element_display}`);\n"
@@ -416,8 +422,12 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     return code
 
 
-def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, user_email: Optional[str] = None) -> str:
-    """Generate TypeScript fill code - registry-aware"""
+def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, user_email: Optional[str] = None, wait_time: Optional[int] = None) -> str:
+    """Generate TypeScript fill code - registry-aware
+    
+    Args:
+        wait_time: Wait time in milliseconds after fill (from Excel wait_time column)
+    """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
     text_escaped = escape_text(text_value)
@@ -573,12 +583,14 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_display = element_name or 'input'
             code += f"{ind}    console.log(`✅ Step {step}: Filled {element_display} with {text_escaped}`);\n"
     
-    # If this is a TOTP step, use same wait pattern as Python (200ms already done above, now add 500ms)
+    # Use wait_time from Excel if provided, otherwise default to 500ms
+    wait_ms = int(wait_time) if wait_time else 500
+    # If this is a TOTP step, use same wait pattern as Python (200ms already done above, now add wait_time)
     if is_totp:
-        code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
+        code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after fill (from Excel wait_time: {wait_ms}ms)\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     else:
-        code += f"{ind}    await page.waitForTimeout(500);  // Wait after fill\n"
+        code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after fill (from Excel wait_time: {wait_ms}ms)\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     if is_optional:
@@ -878,7 +890,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     
                     # row_url still needed for generate_click_code_ts signature (for navigation wait logic), but not for registry lookup
                     row_url = url if url and url != 'N/A' else current_url or ''
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait)
+                    # Pass wait_time from Excel to use after click
+                    wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
@@ -899,7 +913,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     
                     # Lookup element_id from registry by XPath (URL-free approach)
                     element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
-                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email)
+                    # Pass wait_time from Excel to use after fill
+                    wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
+                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email, wait_time=wait_ms)
                     previous_action = 'fill'
                     previous_was_totp = is_totp  # Track if this was TOTP
                 else:
