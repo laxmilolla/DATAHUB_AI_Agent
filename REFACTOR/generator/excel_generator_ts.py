@@ -213,24 +213,28 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Modal detection: Wait for modal to be visible and scope element lookup to modal context
     if is_modal:
         code += f"{ind}// Modal step - wait for modal to be visible and scope element lookup to modal\n"
-        code += f"{ind}let modalContext = page;  // Default to page context\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    // Try ARIA dialog pattern first (generic W3C standard)\n"
-        code += f"{ind}    const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
-        code += f"{ind}    await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}    modalContext = ariaModal;\n"
-        code += f"{ind}    console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
-        code += f"{ind}}} catch (ariaError) {{\n"
-        code += f"{ind}    // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}// Check if modal context needs to be detected (reuse if already detected)\n"
+        code += f"{ind}if (modalContext === page) {{\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
-        code += f"{ind}        await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}        modalContext = muiModal;\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
-        code += f"{ind}    }} catch (muiError) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
-        code += f"{ind}        // Continue with page context if modal not found\n"
+        code += f"{ind}        // Try ARIA dialog pattern first (generic W3C standard)\n"
+        code += f"{ind}        const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
+        code += f"{ind}        await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}        modalContext = ariaModal;\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}    }} catch (ariaError) {{\n"
+        code += f"{ind}        // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}        try {{\n"
+        code += f"{ind}            const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+        code += f"{ind}            await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}            modalContext = muiModal;\n"
+        code += f"{ind}            console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}        }} catch (muiError) {{\n"
+        code += f"{ind}            console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
+        code += f"{ind}            // Continue with page context if modal not found\n"
+        code += f"{ind}        }}\n"
         code += f"{ind}    }}\n"
+        code += f"{ind}}} else {{\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Reusing existing modal context`);\n"
         code += f"{ind}}}\n"
     
     if is_optional:
@@ -543,24 +547,28 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     # Modal detection: Wait for modal to be visible and scope element lookup to modal context
     if is_modal:
         code += f"{ind}// Modal step - wait for modal to be visible and scope element lookup to modal\n"
-        code += f"{ind}let modalContext = page;  // Default to page context\n"
-        code += f"{ind}try {{\n"
-        code += f"{ind}    // Try ARIA dialog pattern first (generic W3C standard)\n"
-        code += f"{ind}    const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
-        code += f"{ind}    await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}    modalContext = ariaModal;\n"
-        code += f"{ind}    console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
-        code += f"{ind}}} catch (ariaError) {{\n"
-        code += f"{ind}    // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}// Check if modal context needs to be detected (reuse if already detected)\n"
+        code += f"{ind}if (modalContext === page) {{\n"
         code += f"{ind}    try {{\n"
-        code += f"{ind}        const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
-        code += f"{ind}        await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-        code += f"{ind}        modalContext = muiModal;\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
-        code += f"{ind}    }} catch (muiError) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
-        code += f"{ind}        // Continue with page context if modal not found\n"
+        code += f"{ind}        // Try ARIA dialog pattern first (generic W3C standard)\n"
+        code += f"{ind}        const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
+        code += f"{ind}        await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}        modalContext = ariaModal;\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}    }} catch (ariaError) {{\n"
+        code += f"{ind}        // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}        try {{\n"
+        code += f"{ind}            const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+        code += f"{ind}            await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}            modalContext = muiModal;\n"
+        code += f"{ind}            console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}        }} catch (muiError) {{\n"
+        code += f"{ind}            console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
+        code += f"{ind}            // Continue with page context if modal not found\n"
+        code += f"{ind}        }}\n"
         code += f"{ind}    }}\n"
+        code += f"{ind}}} else {{\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Reusing existing modal context`);\n"
         code += f"{ind}}}\n"
     
     if is_totp:
@@ -1156,6 +1164,9 @@ test('{test_name}', async ({{ page }}) => {{
     
     // Generate timestamp if needed
     const TIMESTAMP = new Date().toISOString().replace(/[-:]/g, '').split('.')[0].replace('T', '_');
+    
+    // Modal context - shared across all modal steps
+    let modalContext = page;  // Default to page context, will be updated when modal is detected
     
     try {{
 {test_body}
