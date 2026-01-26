@@ -191,8 +191,8 @@
       "description": "Submission name Search Box"
     },
     "submission_name_in_the_table": {
-      "xpath": "//*[@aria-label=\"Spandana\"]",
-      "selector": "//*[@aria-label=\"Spandana\"]",
+      "xpath": "//a[.//span[@aria-label=\"{text_value}\"]]",
+      "selector": "//a[.//span[@aria-label=\"{text_value}\"]]",
       "element_id": "ID_23750a62",
       "source": "excel",
       "object_type": "link",
