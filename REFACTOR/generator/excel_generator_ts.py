@@ -130,11 +130,17 @@ function getXpathById(elementId: string): string {{
     return code
 
 
-def generate_navigate_code_ts(step: str, url: str, indent: int = 12) -> str:
-    """Generate TypeScript navigation code"""
+def generate_navigate_code_ts(step: str, url: str, indent: int = 12, wait_time: Optional[int] = None) -> str:
+    """Generate TypeScript navigation code
+    
+    Args:
+        wait_time: Wait time in milliseconds before navigation (from Excel wait_time column, default 1000ms)
+    """
     ind = ' ' * indent
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms_before = int(wait_time) if wait_time else 1000
     code = f"{ind}// Step {step}: Navigate to {url}\n"
-    code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     code += f"{ind}try {{\n"
     code += f"{ind}    await page.goto('{url}');\n"
     code += f"{ind}    await page.waitForLoadState('networkidle');\n"
@@ -153,7 +159,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     
     Args:
         step: Step number/identifier
-        wait_time: Wait time in milliseconds (from Excel - follow exactly)
+        wait_time: Wait time in milliseconds (from Excel - follow exactly, default 1000ms)
         indent: Indentation level
         previous_was_click: If True, previous step was a click that might cause navigation/redirect
     """
@@ -163,7 +169,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     # Follow Excel wait_time exactly - no hard-coded logic
     # If user wants to skip wait after TOTP, they should set wait_time to 0 in Excel
     code = f"{ind}// Step {step}: Wait {wait_ms}ms\n"
-    code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    code += f"{ind}await page.waitForTimeout({wait_ms});  // Wait before step (from Excel wait_time: {wait_ms}ms)\n"
     code += f"{ind}try {{\n"
     code += f"{ind}    await page.waitForTimeout({wait_ms});\n"
     # If previous step was a click, wait for page to fully load (handles redirects/navigation)
@@ -184,7 +190,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     """Generate TypeScript click code - registry-aware
     
     Args:
-        wait_time: Wait time in milliseconds after click (from Excel wait_time column)
+        wait_time: Wait time in milliseconds before and after click (from Excel wait_time column, default 1000ms)
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -193,8 +199,11 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Check if this is a radio button or checkbox (use check() instead of click())
     is_radio_or_checkbox = element_name and ('radio' in element_name.lower() or 'checkbox' in element_name.lower())
     
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms_before = int(wait_time) if wait_time else 1000
+    
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
-    code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     
     if is_optional:
         code += f"{ind}// Optional step - continue if element not found\n"
@@ -374,28 +383,32 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     code += f"{ind}    // Check if modal exists and wait for it to disappear (generic patterns)\n"
     code += f"{ind}    try {{\n"
     code += f"{ind}        // Try ARIA dialog pattern first (generic W3C standard)\n"
-    code += f"{ind}        let modal = page.locator('[role=\"dialog\"]').first;\n"
+    code += f"{ind}        const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
     code += f"{ind}        let modalFound = false;\n"
-    code += f"{ind}        if (await modal.count() > 0) {{\n"
-    code += f"{ind}            const isVisible = await modal.isVisible();\n"
+    code += f"{ind}        try {{\n"
+    code += f"{ind}            const isVisible = await ariaModal.isVisible({{ timeout: 100 }});\n"
     code += f"{ind}            if (isVisible) {{\n"
     code += f"{ind}                modalFound = true;\n"
     code += f"{ind}                console.log(`⏳ Step {step}: Modal detected (ARIA pattern), waiting for it to close...`);\n"
-    code += f"{ind}                await modal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
+    code += f"{ind}                await ariaModal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
     code += f"{ind}                console.log(`✅ Step {step}: Modal closed (ARIA pattern)`);\n"
     code += f"{ind}            }}\n"
+    code += f"{ind}        }} catch (ariaError) {{\n"
+    code += f"{ind}            // ARIA modal not found or not visible - try Material-UI pattern\n"
     code += f"{ind}        }}\n"
     code += f"{ind}        \n"
     code += f"{ind}        // If ARIA pattern didn't find visible modal, try Material-UI dialog pattern (generic framework pattern)\n"
     code += f"{ind}        if (!modalFound) {{\n"
-    code += f"{ind}            modal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
-    code += f"{ind}            if (await modal.count() > 0) {{\n"
-    code += f"{ind}                const isVisible = await modal.isVisible();\n"
+    code += f"{ind}            const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+    code += f"{ind}            try {{\n"
+    code += f"{ind}                const isVisible = await muiModal.isVisible({{ timeout: 100 }});\n"
     code += f"{ind}                if (isVisible) {{\n"
     code += f"{ind}                    console.log(`⏳ Step {step}: Modal detected (Material-UI pattern), waiting for it to close...`);\n"
-    code += f"{ind}                    await modal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
+    code += f"{ind}                    await muiModal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
     code += f"{ind}                    console.log(`✅ Step {step}: Modal closed (Material-UI pattern)`);\n"
     code += f"{ind}                }}\n"
+    code += f"{ind}            }} catch (muiError) {{\n"
+    code += f"{ind}                // Material-UI modal not found or not visible - no modal to wait for\n"
     code += f"{ind}            }}\n"
     code += f"{ind}        }}\n"
     code += f"{ind}    }} catch (modal_wait_error) {{\n"
@@ -460,7 +473,7 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     """Generate TypeScript fill code - registry-aware
     
     Args:
-        wait_time: Wait time in milliseconds after fill (from Excel wait_time column)
+        wait_time: Wait time in milliseconds before and after fill (from Excel wait_time column, default 1000ms)
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -472,8 +485,11 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     if is_totp:
         text_escaped = "${TOTP_CODE}"  # Will be replaced at runtime
     
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms_before = int(wait_time) if wait_time else 1000
+    
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
-    code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     
     if is_totp:
         code += f"{ind}// TOTP field - code will be generated automatically\n"
@@ -617,8 +633,8 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             element_display = element_name or 'input'
             code += f"{ind}    console.log(`✅ Step {step}: Filled {element_display} with {text_escaped}`);\n"
     
-    # Use wait_time from Excel if provided, otherwise default to 500ms
-    wait_ms = int(wait_time) if wait_time else 500
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms = int(wait_time) if wait_time else 1000
     # If this is a TOTP step, use same wait pattern as Python (200ms already done above, now add wait_time)
     if is_totp:
         code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after fill (from Excel wait_time: {wait_ms}ms)\n"
@@ -643,13 +659,16 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     return code
 
 
-def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, indent: int = 12, element_id: Optional[str] = None, functions: Optional[str] = None, text_value: Optional[str] = None) -> str:
+def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, indent: int = 12, element_id: Optional[str] = None, functions: Optional[str] = None, text_value: Optional[str] = None, wait_time: Optional[int] = None) -> str:
     """
     Generate TypeScript verify code - registry-aware
     Supports multiple verification types:
     - visibility (default): Verify element is visible
     - text: Verify element text content matches expected value
     - table: Verify all rows in table column contain expected value
+    
+    Args:
+        wait_time: Wait time in milliseconds before verification (from Excel wait_time column, default 1000ms)
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -664,13 +683,16 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         elif 'TEXT' in functions_upper:
             verification_type = 'text'
     
+    # Use wait_time from Excel if provided, otherwise default to 1000ms
+    wait_ms_before = int(wait_time) if wait_time else 1000
+    
     code = f"{ind}// Step {step}: Verify {element_name or 'element'}"
     if verification_type == 'text':
         code += f" (text verification)"
     elif verification_type == 'table':
         code += f" (table verification)"
     code += f"\n"
-    code += f"{ind}await page.waitForTimeout(3000);  // Wait 3 seconds before step\n"
+    code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     code += f"{ind}try {{\n"
     
     # TABLE VERIFICATION
@@ -895,7 +917,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             # Generate code based on action
             if action == 'navigate':
                 if url:
-                    test_body += generate_navigate_code_ts(step, url)
+                    # Pass wait_time from Excel to use before navigation
+                    wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
+                    test_body += generate_navigate_code_ts(step, url, wait_time=wait_ms)
                 else:
                     errors.append(f"Step {step}: Navigate action requires URL")
                 previous_action = 'navigate'
@@ -973,11 +997,14 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                         element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
                     # row_url still needed for generate_verify_code_ts signature (for backward compatibility), but not used for lookup
                     row_url = url if url and url != 'N/A' else current_url or ''
+                    # Pass wait_time from Excel to use before verification
+                    wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
                     test_body += generate_verify_code_ts(
                         step, xpath, row_url, element_name, 
                         element_id=element_id,
                         functions=functions,
-                        text_value=text_value
+                        text_value=text_value,
+                        wait_time=wait_ms
                     )
                     previous_action = 'verify'
             
