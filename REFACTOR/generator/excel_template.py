@@ -81,6 +81,10 @@ def generate_excel_template(output_path: Path, include_examples: bool = True) ->
     ws_instructions = wb.create_sheet("Instructions", 1)
     _add_instructions(ws_instructions)
     
+    # Create credentials sheet
+    ws_credentials = wb.create_sheet("Credentials", 2)
+    _add_credentials_sheet(ws_credentials)
+    
     # Save workbook
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -277,6 +281,60 @@ def _add_instructions(ws):
     # Auto-adjust column widths
     ws.column_dimensions['A'].width = 30
     ws.column_dimensions['B'].width = 60
+
+
+def _add_credentials_sheet(ws):
+    """
+    Add credentials sheet with Email and TOTP_secret columns.
+    
+    Args:
+        ws: Worksheet to add credentials to
+    """
+    # Headers
+    headers = ['Email', 'TOTP_secret']
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Example rows
+    example_rows = [
+        ['user1@example.com', 'YOUR_TOTP_SECRET_KEY_HERE'],
+        ['user2@example.com', 'ANOTHER_TOTP_SECRET_KEY_HERE'],
+        ['', 'DEFAULT_TOTP_SECRET_KEY_HERE'],  # Empty email = default/fallback
+    ]
+    
+    for row_num, row_data in enumerate(example_rows, start=2):
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num, value=value)
+            cell.fill = PatternFill(start_color="E7F3FF", end_color="E7F3FF", fill_type="solid")
+    
+    # Instructions row
+    instructions = [
+        ["", ""],
+        ["Instructions:", ""],
+        ["", ""],
+        ["- Email: User email/username (leave empty for default/fallback key)", ""],
+        ["- TOTP_secret: TOTP secret key for that user", ""],
+        ["- Empty email row: Used as default/fallback when user email doesn't match", ""],
+        ["- Credentials are embedded in generated test code for portability", ""],
+        ["- If Credentials tab is missing, system will use .env file as fallback", ""],
+    ]
+    
+    start_row = len(example_rows) + 3
+    for row_num, row_data in enumerate(instructions, start=start_row):
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num, value=value)
+            if value and value.endswith(':'):
+                cell.font = Font(bold=True)
+    
+    # Auto-adjust column widths
+    ws.column_dimensions['A'].width = 50
+    ws.column_dimensions['B'].width = 50
 
 
 def get_template_path(template_name: str = "test_case_template.xlsx", project_root: Path = None) -> Path:

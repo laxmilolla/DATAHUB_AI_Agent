@@ -738,8 +738,8 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             code += f"{ind}        // Pass secret key to Python script\n"
             code += f"{ind}        const totpCode = execSync(`python3 ${{scriptPath}} ${{secretKey}}`, {{ encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }}).trim();\n"
         else:
-            code += f"{ind}        // Get secret key from environment (same as Python tests)\n"
-            code += f"{ind}        const secretKey = process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
+            code += f"{ind}        // Get secret key from embedded credentials first, then environment (fallback)\n"
+            code += f"{ind}        const secretKey = CREDENTIALS[''] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
             code += f"{ind}        if (!secretKey) {{\n"
             code += f"{ind}            throw new Error('TOTP_SECRET_KEY_TS (or TOTP_SECRET_KEY) not found in environment variables');\n"
             code += f"{ind}        }}\n"
@@ -1038,8 +1038,29 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         Dict with success status and info
     """
     try:
-        # Read Excel file
+        # Read Excel file (main test steps sheet)
         df = pd.read_excel(excel_file)
+        
+        # Read Credentials tab if it exists
+        credentials_dict = {}
+        try:
+            credentials_df = pd.read_excel(excel_file, sheet_name='Credentials')
+            # Normalize column names
+            credentials_df.columns = credentials_df.columns.str.strip().str.lower().str.replace(' ', '_')
+            
+            # Check if required columns exist
+            if 'email' in credentials_df.columns and 'totp_secret' in credentials_df.columns:
+                for idx, row in credentials_df.iterrows():
+                    email = str(row.get('email', '')).strip() if pd.notna(row.get('email')) else ''
+                    totp_secret = str(row.get('totp_secret', '')).strip() if pd.notna(row.get('totp_secret')) else ''
+                    if totp_secret:  # Only add if TOTP secret is provided
+                        credentials_dict[email] = totp_secret
+                print(f"✅ Loaded {len(credentials_dict)} credentials from 'Credentials' tab")
+            else:
+                print("⚠️  'Credentials' tab found but missing 'Email' or 'TOTP_secret' columns")
+        except (ValueError, KeyError):
+            # Credentials tab doesn't exist - that's okay, will use .env fallback
+            print("ℹ️  No 'Credentials' tab found - will use .env file for TOTP secrets")
         
         # Normalize column names (case-insensitive, handle spaces)
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
@@ -1181,6 +1202,19 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             else:
                 errors.append(f"Step {step}: Unknown action '{action}'")
         
+        # Build credentials object code
+        credentials_code = ""
+        if credentials_dict:
+            credentials_lines = []
+            for email, totp_secret in sorted(credentials_dict.items()):
+                # Escape single quotes in email and secret
+                email_escaped = email.replace("'", "\\'")
+                totp_secret_escaped = totp_secret.replace("'", "\\'")
+                credentials_lines.append(f"  '{email_escaped}': '{totp_secret_escaped}',")
+            credentials_code = "\n".join(credentials_lines)
+        else:
+            credentials_code = "  // No credentials tab found - using .env fallback"
+        
         # Build full test script
         test_name = "test_excel_generated"
         test_script = f'''/*Excel-Generated Playwright Test
@@ -1228,6 +1262,12 @@ try {{
     console.log(`⚠️  Failed to load .env file: ${{e}}`);
   }}
 }}
+
+// Credentials from Excel "Credentials" tab (embedded for portability)
+// Format: {{ "email": "totp_secret", "": "default_secret" }}
+const CREDENTIALS: {{ [key: string]: string }} = {{
+{credentials_code}
+}};
 
 {registry_code}
 
