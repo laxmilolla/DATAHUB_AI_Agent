@@ -158,8 +158,8 @@
       "description": "NewTestSpn_laxmi element from option list"
     },
     "entersubmissionname": {
-      "xpath": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]",
-      "selector": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]",
+      "xpath": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]//input",
+      "selector": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]//input",
       "element_id": "ID_e5938fb5",
       "source": "excel",
       "object_type": "input",
