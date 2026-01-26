@@ -186,15 +186,19 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware
     
     Args:
         wait_time: Wait time in milliseconds before and after click (from Excel wait_time column, default 1000ms)
         object_type: Object type from Excel (dropdown, button, etc.) - used to verify dropdown opens
         is_modal: Whether this element is inside a modal dialog (from Excel Modal column)
+        text_value: Text value from Excel - used to replace {text_value} placeholder in XPath
     """
     ind = ' ' * indent
+    # Replace {text_value} placeholder with actual value if provided
+    if text_value and '{text_value}' in xpath:
+        xpath = xpath.replace('{text_value}', text_value)
     xpath_escaped = escape_xpath(xpath)
     safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
     
@@ -251,7 +255,15 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    // Try registry lookup first\n"
         code += f"{ind}    try {{\n"
         code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
-        code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
+        code += f"{ind}        let xpath = getXpathById('{element_id_escaped}');\n"
+        # Replace {text_value} placeholder if text_value is provided
+        if text_value:
+            text_value_escaped = escape_xpath(text_value)
+            code += f"{ind}        // Replace {{text_value}} placeholder with actual value from Excel\n"
+            code += f"{ind}        if (xpath.includes('{{text_value}}')) {{\n"
+            code += f"{ind}            xpath = xpath.replace(/\\{{text_value\\}}/g, '{text_value_escaped}');\n"
+            code += f"{ind}            console.log(`✅ Step {step}: Replaced {{text_value}} with: {text_value_escaped}`);\n"
+            code += f"{ind}        }}\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
         if is_modal:
             code += f"{ind}        // Scope element lookup to modal context\n"
@@ -1041,7 +1053,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     row_url = url if url and url != 'N/A' else current_url or ''
                     # Pass wait_time from Excel to use after click
                     wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type)
+                    # Pass text_value for dynamic XPath replacement (e.g., {text_value} placeholder)
+                    click_text_value = str(text_value).strip() if pd.notna(text_value) and text_value else None
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type, text_value=click_text_value)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
