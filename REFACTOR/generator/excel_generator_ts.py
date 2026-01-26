@@ -369,6 +369,40 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms = int(wait_time) if wait_time else 1000
     code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after click (from Excel wait_time: {wait_ms}ms)\n"
+    
+    # State-based modal wait: Check if modal exists and wait for it to disappear (generic patterns, no hard-coding)
+    code += f"{ind}    // Check if modal exists and wait for it to disappear (generic patterns)\n"
+    code += f"{ind}    try {{\n"
+    code += f"{ind}        // Try ARIA dialog pattern first (generic W3C standard)\n"
+    code += f"{ind}        let modal = page.locator('[role=\"dialog\"]').first;\n"
+    code += f"{ind}        let modalFound = false;\n"
+    code += f"{ind}        if (await modal.count() > 0) {{\n"
+    code += f"{ind}            const isVisible = await modal.isVisible();\n"
+    code += f"{ind}            if (isVisible) {{\n"
+    code += f"{ind}                modalFound = true;\n"
+    code += f"{ind}                console.log(`⏳ Step {step}: Modal detected (ARIA pattern), waiting for it to close...`);\n"
+    code += f"{ind}                await modal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
+    code += f"{ind}                console.log(`✅ Step {step}: Modal closed (ARIA pattern)`);\n"
+    code += f"{ind}            }}\n"
+    code += f"{ind}        }}\n"
+    code += f"{ind}        \n"
+    code += f"{ind}        // If ARIA pattern didn't find visible modal, try Material-UI dialog pattern (generic framework pattern)\n"
+    code += f"{ind}        if (!modalFound) {{\n"
+    code += f"{ind}            modal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+    code += f"{ind}            if (await modal.count() > 0) {{\n"
+    code += f"{ind}                const isVisible = await modal.isVisible();\n"
+    code += f"{ind}                if (isVisible) {{\n"
+    code += f"{ind}                    console.log(`⏳ Step {step}: Modal detected (Material-UI pattern), waiting for it to close...`);\n"
+    code += f"{ind}                    await modal.waitFor({{ state: 'hidden', timeout: 5000 }});\n"
+    code += f"{ind}                    console.log(`✅ Step {step}: Modal closed (Material-UI pattern)`);\n"
+    code += f"{ind}                }}\n"
+    code += f"{ind}            }}\n"
+    code += f"{ind}        }}\n"
+    code += f"{ind}    }} catch (modal_wait_error) {{\n"
+    code += f"{ind}        // Non-blocking: Continue even if modal wait times out or fails\n"
+    code += f"{ind}        console.log(`⚠️  Step {step}: Modal wait timeout or no modal found (continuing anyway): ${{modal_wait_error}}`);\n"
+    code += f"{ind}    }}\n"
+    
     element_display = element_name or 'element'
     if is_radio_or_checkbox:
         code += f"{ind}    console.log(`✅ Step {step}: Checked {element_display}`);\n"
