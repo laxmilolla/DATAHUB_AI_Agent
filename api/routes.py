@@ -1321,6 +1321,11 @@ def download_test_ts_zip(exec_id):
                 'execution_id': exec_id
             }), 404
         
+        # Initialize variables
+        registry_paths = []
+        test_file_paths = []
+        ts_code = None
+        
         # Use pre-generated TypeScript file (required - no Python conversion)
         if ts_test_file and ts_test_file.exists():
             # Read pre-generated TypeScript file
@@ -1328,12 +1333,20 @@ def download_test_ts_zip(exec_id):
                 ts_code = f.read()
             
             # Extract REGISTRY_PATHS from TypeScript file
-            registry_paths = []
             match = re.search(r"const\s+REGISTRY_PATHS\s*=\s*\[(.*?)\]", ts_code, re.DOTALL)
             if match:
                 paths_str = match.group(1)
                 path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
                 registry_paths = [p.strip() for p in path_matches if p.strip()]
+            
+            # Extract file upload paths from TypeScript file
+            # Look for patterns like: path.resolve(projectRoot, 'storage/test_files/filename.tsv')
+            file_path_pattern = r"path\.resolve\(projectRoot,\s*['\"]([^'\"]+)['\"]\)"
+            file_path_matches = re.findall(file_path_pattern, ts_code)
+            for file_path in file_path_matches:
+                file_path = file_path.strip()
+                if file_path and file_path not in test_file_paths:
+                    test_file_paths.append(file_path)
         else:
             return jsonify({
                 'error': 'No TypeScript test file found. Only TypeScript tests are supported.',
@@ -1355,7 +1368,12 @@ def download_test_ts_zip(exec_id):
         
         # Create README content (test_name already set above)
         if test_name is None:
-            test_name = python_test_file.stem if python_test_file else 'test'
+            test_name = exec_id  # Use execution ID as fallback
+        
+        test_files_note = ""
+        if test_file_paths:
+            test_files_note = f"\n- `storage/test_files/` - Test data files for file upload steps ({len(test_file_paths)} file(s))"
+        
         readme_content = f'''# {test_name} - Playwright TypeScript Test
 
 ## Setup Instructions
@@ -1370,16 +1388,18 @@ def download_test_ts_zip(exec_id):
 - `{test_name}.spec.ts` - Main test file
 - `package.json` - Dependencies
 - `generate_totp.py` - Python script for TOTP generation (called from TypeScript)
-- `element_maps/` - JSON registry files with element XPath mappings
+- `element_maps/` - JSON registry files with element XPath mappings{test_files_note}
 
 ## Important
 - **`.env` file is included** with the package (contains TOTP secrets and credentials)
 - Registry JSON files are included in the `element_maps/` directory structure
+- Test data files are included in the `storage/test_files/` directory structure (if file uploads are used)
 - The test uses `pyotp` via Python script for TOTP generation to ensure consistency with Python tests
 
 ## Notes
 - Screenshots saved to `storage/screenshots/`
 - Test uses registry-based element lookup (no hard-coded XPaths)
+- File paths are resolved relative to the test file location (goes up 2 levels to project root)
 '''
         
         # Create zip file in memory
@@ -1426,6 +1446,22 @@ def download_test_ts_zip(exec_id):
                     print(f"✅ Added registry file to zip: {zip_path}")
                 else:
                     print(f"⚠️  Registry file not found: {full_registry_path}")
+            
+            # Add test files for file upload steps
+            if test_file_paths:
+                for file_path in test_file_paths:
+                    # file_path is like 'storage/test_files/dcpagain-icdc_file.tsv'
+                    full_file_path = project_root / file_path
+                    
+                    if full_file_path.exists():
+                        # Preserve the full path structure as the test expects it
+                        zip_path = file_path
+                        zip_file.write(full_file_path, zip_path)
+                        print(f"✅ Added test file to zip: {zip_path}")
+                    else:
+                        print(f"⚠️  Test file not found: {full_file_path}")
+            else:
+                print("ℹ️  No file upload paths found in test file")
         
         zip_buffer.seek(0)
         
@@ -2510,6 +2546,16 @@ def download_ts_test_zip(excel_id):
             path_matches = re.findall(r"['\"]([^'\"]+)['\"]", paths_str)
             registry_paths = [p.strip() for p in path_matches if p.strip()]
         
+        # Extract file upload paths from TypeScript file
+        # Look for patterns like: path.resolve(projectRoot, 'storage/test_files/filename.tsv')
+        test_file_paths = []
+        file_path_pattern = r"path\.resolve\(projectRoot,\s*['\"]([^'\"]+)['\"]\)"
+        file_path_matches = re.findall(file_path_pattern, ts_content)
+        for file_path in file_path_matches:
+            file_path = file_path.strip()
+            if file_path and file_path not in test_file_paths:
+                test_file_paths.append(file_path)
+        
         # Create package.json content
         package_json_content = '''{
   "name": "playwright-test",
@@ -2524,6 +2570,10 @@ def download_ts_test_zip(excel_id):
 }'''
         
         # Create README content
+        test_files_note = ""
+        if test_file_paths:
+            test_files_note = f"\n- `storage/test_files/` - Test data files for file upload steps ({len(test_file_paths)} file(s))"
+        
         readme_content = f'''# {test_name} - Playwright TypeScript Test
 
 ## Setup Instructions
@@ -2538,16 +2588,18 @@ def download_ts_test_zip(excel_id):
 - `{test_name}.spec.ts` - Main test file
 - `package.json` - Dependencies
 - `generate_totp.py` - Python script for TOTP generation (called from TypeScript)
-- `element_maps/` - JSON registry files with element XPath mappings
+- `element_maps/` - JSON registry files with element XPath mappings{test_files_note}
 
 ## Important
 - **`.env` file is included** with the package (contains TOTP secrets and credentials)
 - Registry JSON files are included in the `element_maps/` directory structure
+- Test data files are included in the `storage/test_files/` directory structure (if file uploads are used)
 - The test uses `pyotp` via Python script for TOTP generation to ensure consistency with Python tests
 
 ## Notes
 - Screenshots saved to `storage/screenshots/`
 - Test uses registry-based element lookup (no hard-coded XPaths)
+- File paths are resolved relative to the test file location (goes up 2 levels to project root)
 '''
         
         # Create zip file in memory
@@ -2596,6 +2648,22 @@ def download_ts_test_zip(excel_id):
                     print(f"✅ Added registry file to zip: {zip_path}")
                 else:
                     print(f"⚠️  Registry file not found: {full_registry_path}")
+            
+            # Add test files for file upload steps
+            if test_file_paths:
+                for file_path in test_file_paths:
+                    # file_path is like 'storage/test_files/dcpagain-icdc_file.tsv'
+                    full_file_path = project_root / file_path
+                    
+                    if full_file_path.exists():
+                        # Preserve the full path structure as the test expects it
+                        zip_path = file_path
+                        zip_file.write(full_file_path, zip_path)
+                        print(f"✅ Added test file to zip: {zip_path}")
+                    else:
+                        print(f"⚠️  Test file not found: {full_file_path}")
+            else:
+                print("ℹ️  No file upload paths found in test file")
         
         # Verify zip contents
         zip_buffer.seek(0)
