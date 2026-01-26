@@ -468,8 +468,8 @@
       "description": "Step 16: click on dropdown"
     },
     "step_20_fill_input": {
-      "xpath": "//*[@data-testid=\"submission-name-input\"]",
-      "selector": "//*[@data-testid=\"submission-name-input\"]",
+      "xpath": "//input[@data-testid=\"submission-name-input\" and @aria-labelledby=\"submission-name-filter\"]",
+      "selector": "//input[@data-testid=\"submission-name-input\" and @aria-labelledby=\"submission-name-filter\"]",
       "element_id": "ID_8e2b96b6",
       "usage_count": 0,
       "last_used": null,
