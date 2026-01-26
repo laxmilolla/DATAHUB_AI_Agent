@@ -1273,6 +1273,7 @@ def download_test_ts_zip(exec_id):
         execution_file = project_root / 'storage' / 'executions' / f'{exec_id}.json'
         ts_test_file = None
         test_name = None
+        exec_data = None
         
         if execution_file.exists():
             with open(execution_file, 'r') as f:
@@ -1298,6 +1299,14 @@ def download_test_ts_zip(exec_id):
                                 ts_test_file = None
                 
                 # Excel executions must have TypeScript test file
+                # Fallback to execution JSON's test_file if Excel metadata doesn't have it
+                if ts_test_file is None:
+                    if exec_data.get('test_file'):
+                        ts_test_file = project_root / exec_data['test_file']
+                        test_name = exec_data.get('test_name') or exec_id  # Use execution ID as fallback
+                        if not ts_test_file.exists():
+                            ts_test_file = None
+                
                 if ts_test_file is None:
                     return jsonify({
                         'error': 'No TypeScript test file found for Excel execution. Please regenerate the test.',
@@ -1420,8 +1429,14 @@ def download_test_ts_zip(exec_id):
         
         zip_buffer.seek(0)
         
-        # Create zip filename
-        zip_filename = f'{test_name}_typescript_complete.zip'
+        # Create zip filename - use execution ID for execution-based downloads
+        # This ensures filename matches the execution ID shown in UI
+        if exec_data and exec_data.get('source') == 'excel':
+            # For Excel executions, use execution ID in filename to match UI
+            zip_filename = f'{exec_id}_typescript_complete.zip'
+        else:
+            # Fallback to test_name for non-Excel executions
+            zip_filename = f'{test_name}_typescript_complete.zip'
         
         # Send zip file
         response = send_file(
