@@ -169,14 +169,14 @@
       "description": "EnterSubmissionName"
     },
     "create_button_on_dialog_box": {
-      "xpath": "//button[@data-testid='create-data-submission-dialog-create-button']",
-      "selector": "//button[@data-testid='create-data-submission-dialog-create-button']",
+      "xpath": "//button[@data-testid='create-data-submission-dialog-create-button' and @form='create-submission-dialog-form']",
+      "selector": "//button[@data-testid='create-data-submission-dialog-create-button' and @form='create-submission-dialog-form']",
       "element_id": "ID_5659e6a7",
       "source": "excel",
       "object_type": "button",
       "action": "click",
       "discovered_at": "2026-01-26T10:27:55.454795Z",
-      "last_updated": "2026-01-26T10:27:55.454796Z",
+      "last_updated": "2026-01-26T15:15:00.000000Z",
       "description": "Create button on dialog box"
     },
     "submission_name_search_box": {
