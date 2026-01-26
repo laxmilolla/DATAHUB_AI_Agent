@@ -186,11 +186,12 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware
     
     Args:
         wait_time: Wait time in milliseconds before and after click (from Excel wait_time column, default 1000ms)
+        object_type: Object type from Excel (dropdown, button, etc.) - used to verify dropdown opens
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -198,6 +199,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     
     # Check if this is a radio button or checkbox (use check() instead of click())
     is_radio_or_checkbox = element_name and ('radio' in element_name.lower() or 'checkbox' in element_name.lower())
+    
+    # Check if this is a dropdown (need to verify menu opens after click)
+    is_dropdown = object_type and object_type.lower() == 'dropdown'
     
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms_before = int(wait_time) if wait_time else 1000
@@ -378,6 +382,22 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms = int(wait_time) if wait_time else 1000
     code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after click (from Excel wait_time: {wait_ms}ms)\n"
+    
+    # Dropdown verification: If this is a dropdown, verify the menu (listbox) becomes visible
+    if is_dropdown:
+        code += f"{ind}    // Verify dropdown menu opened (generic ARIA listbox pattern)\n"
+        code += f"{ind}    try {{\n"
+        code += f"{ind}        // Wait for dropdown menu (listbox) to become visible\n"
+        code += f"{ind}        // Use generic ARIA pattern: [role=\"listbox\"] (W3C standard)\n"
+        code += f"{ind}        const dropdownMenu = page.locator('[role=\"listbox\"]').first;\n"
+        code += f"{ind}        await dropdownMenu.waitFor({{ state: 'visible', timeout: 5000 }});\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Dropdown menu opened successfully`);\n"
+        code += f"{ind}    }} catch (dropdown_error) {{\n"
+        code += f"{ind}        // Dropdown menu did not open - this is a failure\n"
+        code += f"{ind}        console.log(`❌ Step {step}: Dropdown menu did not open after click: ${{dropdown_error}}`);\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_dropdown_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Step {step}: Dropdown click succeeded but menu did not open. This indicates the dropdown click did not work correctly.`);\n"
+        code += f"{ind}    }}\n"
     
     # State-based modal wait: Check if modal exists and wait for it to disappear (generic patterns, no hard-coding)
     code += f"{ind}    // Check if modal exists and wait for it to disappear (generic patterns)\n"
@@ -950,7 +970,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     row_url = url if url and url != 'N/A' else current_url or ''
                     # Pass wait_time from Excel to use after click
                     wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms)
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
