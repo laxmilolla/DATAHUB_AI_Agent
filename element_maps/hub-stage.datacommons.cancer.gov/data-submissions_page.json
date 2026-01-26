@@ -202,14 +202,14 @@
       "description": "Submission name in the table"
     },
     "choose_files_button": {
-      "xpath": "//*[@id=\":rdr:\"]",
-      "selector": "//*[@id=\":rdr:\"]",
+      "xpath": "//button[@data-testid=\"metadata-upload-file-select-button\"]",
+      "selector": "//button[@data-testid=\"metadata-upload-file-select-button\"]",
       "element_id": "ID_bbc8d57d",
       "source": "excel",
       "object_type": "button",
       "action": "click",
       "discovered_at": "2026-01-26T10:27:55.454859Z",
-      "last_updated": "2026-01-26T10:27:55.454860Z",
+      "last_updated": "2026-01-26T19:30:00.000000Z",
       "description": "Choose Files button"
     },
     "upload_button": {
