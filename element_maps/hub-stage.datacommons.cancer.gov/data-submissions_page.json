@@ -1,7 +1,7 @@
 {
   "page": "data-submissions",
   "version": "1.0",
-  "timestamp": "2026-01-26T10:03:39.183782Z",
+  "timestamp": "2026-01-26T10:27:55.454925Z",
   "elements": {
     "warning_banner_continue_button": {
       "xpath": "//button[text()='Continue']",
@@ -10,8 +10,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.181681Z",
-      "last_updated": "2026-01-26T10:03:39.181692Z",
+      "discovered_at": "2026-01-26T10:27:55.454377Z",
+      "last_updated": "2026-01-26T10:27:55.454384Z",
       "description": "Warning banner continue button"
     },
     "login_btn_on_nav_bar": {
@@ -21,8 +21,8 @@
       "source": "excel",
       "object_type": "link",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.181738Z",
-      "last_updated": "2026-01-26T10:03:39.181741Z",
+      "discovered_at": "2026-01-26T10:27:55.454423Z",
+      "last_updated": "2026-01-26T10:27:55.454425Z",
       "description": "Login Btn on Nav bar"
     },
     "login_gov_button": {
@@ -32,8 +32,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.181776Z",
-      "last_updated": "2026-01-26T10:03:39.181777Z",
+      "discovered_at": "2026-01-26T10:27:55.454459Z",
+      "last_updated": "2026-01-26T10:27:55.454461Z",
       "description": "Login.gov Button"
     },
     "user_email_address": {
@@ -43,8 +43,8 @@
       "source": "excel",
       "object_type": "input",
       "action": "fill",
-      "discovered_at": "2026-01-26T10:03:39.181828Z",
-      "last_updated": "2026-01-26T10:03:39.181832Z",
+      "discovered_at": "2026-01-26T10:27:55.454491Z",
+      "last_updated": "2026-01-26T10:27:55.454492Z",
       "description": "user email address"
     },
     "user_password_for_login_gov": {
@@ -54,8 +54,8 @@
       "source": "excel",
       "object_type": "input",
       "action": "fill",
-      "discovered_at": "2026-01-26T10:03:39.182084Z",
-      "last_updated": "2026-01-26T10:03:39.182092Z",
+      "discovered_at": "2026-01-26T10:27:55.454519Z",
+      "last_updated": "2026-01-26T10:27:55.454520Z",
       "description": "user password for login.gov"
     },
     "submit_button_for_login_gov_credentials": {
@@ -65,8 +65,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182223Z",
-      "last_updated": "2026-01-26T10:03:39.182226Z",
+      "discovered_at": "2026-01-26T10:27:55.454546Z",
+      "last_updated": "2026-01-26T10:27:55.454547Z",
       "description": "submit button for login.gov credentials"
     },
     "one_time_passcode_for_login_gov": {
@@ -76,8 +76,8 @@
       "source": "excel",
       "object_type": "input",
       "action": "fill",
-      "discovered_at": "2026-01-26T10:03:39.182297Z",
-      "last_updated": "2026-01-26T10:03:39.182300Z",
+      "discovered_at": "2026-01-26T10:27:55.454572Z",
+      "last_updated": "2026-01-26T10:27:55.454573Z",
       "description": "One time Passcode for login.gov"
     },
     "grant_button": {
@@ -87,8 +87,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182412Z",
-      "last_updated": "2026-01-26T10:03:39.182415Z",
+      "discovered_at": "2026-01-26T10:27:55.454616Z",
+      "last_updated": "2026-01-26T10:27:55.454617Z",
       "description": "Grant button"
     },
     "data_submision_link_on_nav_bar": {
@@ -98,8 +98,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182477Z",
-      "last_updated": "2026-01-26T10:03:39.182480Z",
+      "discovered_at": "2026-01-26T10:27:55.454642Z",
+      "last_updated": "2026-01-26T10:27:55.454643Z",
       "description": "Data submision link on Nav bar"
     },
     "click_on_create_a_data_sbmission_button": {
@@ -109,8 +109,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182541Z",
-      "last_updated": "2026-01-26T10:03:39.182544Z",
+      "discovered_at": "2026-01-26T10:27:55.454665Z",
+      "last_updated": "2026-01-26T10:27:55.454666Z",
       "description": "Click on Create a Data Sbmission button"
     },
     "click_on_data_common_dropdown": {
@@ -120,8 +120,8 @@
       "source": "excel",
       "object_type": "dropdown",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182606Z",
-      "last_updated": "2026-01-26T10:03:39.182608Z",
+      "discovered_at": "2026-01-26T10:27:55.454686Z",
+      "last_updated": "2026-01-26T10:27:55.454687Z",
       "description": "Click on Data Common dropdown"
     },
     "select_gc_as_a_data_commons": {
@@ -131,8 +131,8 @@
       "source": "excel",
       "object_type": "option",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182675Z",
-      "last_updated": "2026-01-26T10:03:39.182678Z",
+      "discovered_at": "2026-01-26T10:27:55.454708Z",
+      "last_updated": "2026-01-26T10:27:55.454709Z",
       "description": "Select GC as a data commons"
     },
     "drop_down_opens": {
@@ -142,8 +142,8 @@
       "source": "excel",
       "object_type": "dropdown",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182738Z",
-      "last_updated": "2026-01-26T10:03:39.182740Z",
+      "discovered_at": "2026-01-26T10:27:55.454730Z",
+      "last_updated": "2026-01-26T10:27:55.454731Z",
       "description": "Drop down opens "
     },
     "newtestspn_laxmi_element_from_option_list": {
@@ -153,19 +153,19 @@
       "source": "excel",
       "object_type": "option",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.182847Z",
-      "last_updated": "2026-01-26T10:03:39.182851Z",
+      "discovered_at": "2026-01-26T10:27:55.454752Z",
+      "last_updated": "2026-01-26T10:27:55.454753Z",
       "description": "NewTestSpn_laxmi element from option list"
     },
     "entersubmissionname": {
-      "xpath": "(//*[@data-testid=\"create-submission-dialog\"])//input[@name='name']",
-      "selector": "(//*[@data-testid=\"create-submission-dialog\"])//input[@name='name']",
-      "element_id": "ID_fdcca9da",
+      "xpath": "//div[@data-testid='create-data-submission-dialog-submission-name-input']//input",
+      "selector": "//div[@data-testid='create-data-submission-dialog-submission-name-input']//input",
+      "element_id": "ID_e5938fb5",
       "source": "excel",
       "object_type": "input",
       "action": "fill",
-      "discovered_at": "2026-01-26T10:03:39.182923Z",
-      "last_updated": "2026-01-26T10:03:39.182926Z",
+      "discovered_at": "2026-01-26T10:27:55.454774Z",
+      "last_updated": "2026-01-26T15:10:00.000000Z",
       "description": "EnterSubmissionName"
     },
     "create_button_on_dialog_box": {
@@ -175,8 +175,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.183012Z",
-      "last_updated": "2026-01-26T10:03:39.183014Z",
+      "discovered_at": "2026-01-26T10:27:55.454795Z",
+      "last_updated": "2026-01-26T10:27:55.454796Z",
       "description": "Create button on dialog box"
     },
     "submission_name_search_box": {
@@ -186,8 +186,8 @@
       "source": "excel",
       "object_type": "input",
       "action": "fill",
-      "discovered_at": "2026-01-26T10:03:39.183079Z",
-      "last_updated": "2026-01-26T10:03:39.183082Z",
+      "discovered_at": "2026-01-26T10:27:55.454817Z",
+      "last_updated": "2026-01-26T10:27:55.454818Z",
       "description": "Submission name Search Box"
     },
     "submission_name_in_the_table": {
@@ -197,8 +197,8 @@
       "source": "excel",
       "object_type": "link",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.183370Z",
-      "last_updated": "2026-01-26T10:03:39.183375Z",
+      "discovered_at": "2026-01-26T10:27:55.454838Z",
+      "last_updated": "2026-01-26T10:27:55.454839Z",
       "description": "Submission name in the table"
     },
     "choose_files_button": {
@@ -208,8 +208,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.183502Z",
-      "last_updated": "2026-01-26T10:03:39.183508Z",
+      "discovered_at": "2026-01-26T10:27:55.454859Z",
+      "last_updated": "2026-01-26T10:27:55.454860Z",
       "description": "Choose Files button"
     },
     "upload_button": {
@@ -219,8 +219,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.183613Z",
-      "last_updated": "2026-01-26T10:03:39.183616Z",
+      "discovered_at": "2026-01-26T10:27:55.454880Z",
+      "last_updated": "2026-01-26T10:27:55.454880Z",
       "description": "Upload button"
     },
     "upload_activities_table": {
@@ -230,8 +230,8 @@
       "source": "excel",
       "object_type": "table",
       "action": "verify",
-      "discovered_at": "2026-01-26T10:03:39.183709Z",
-      "last_updated": "2026-01-26T10:03:39.183711Z",
+      "discovered_at": "2026-01-26T10:27:55.454901Z",
+      "last_updated": "2026-01-26T10:27:55.454901Z",
       "description": "Upload Activities table"
     },
     "validate_button_for_data_validation": {
@@ -241,8 +241,8 @@
       "source": "excel",
       "object_type": "button",
       "action": "click",
-      "discovered_at": "2026-01-26T10:03:39.183773Z",
-      "last_updated": "2026-01-26T10:03:39.183775Z",
+      "discovered_at": "2026-01-26T10:27:55.454922Z",
+      "last_updated": "2026-01-26T10:27:55.454923Z",
       "description": "Validate button for data validation"
     }
   },
@@ -261,7 +261,7 @@
     "ID_30db9fd6": "select_gc_as_a_data_commons",
     "ID_2f717945": "drop_down_opens",
     "ID_218af1a2": "newtestspn_laxmi_element_from_option_list",
-    "ID_fdcca9da": "entersubmissionname",
+    "ID_e5938fb5": "entersubmissionname",
     "ID_5659e6a7": "create_button_on_dialog_box",
     "ID_f93deb15": "submission_name_search_box",
     "ID_23750a62": "submission_name_in_the_table",
@@ -275,5 +275,5 @@
     "parsed_elements": 22,
     "discovered_elements": 0
   },
-  "last_updated": "2026-01-26T10:03:39.183785Z"
+  "last_updated": "2026-01-26T10:27:55.454926Z"
 }
