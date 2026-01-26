@@ -186,7 +186,7 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None, functions: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware
     
     Args:
@@ -194,6 +194,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         object_type: Object type from Excel (dropdown, button, etc.) - used to verify dropdown opens
         is_modal: Whether this element is inside a modal dialog (from Excel Modal column)
         text_value: Text value from Excel - used to replace {text_value} placeholder in XPath
+        functions: Functions column from Excel - used to detect file upload steps (e.g., "File Upload:storage/test_files")
     """
     ind = ' ' * indent
     # Replace {text_value} placeholder with actual value if provided
@@ -211,8 +212,44 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms_before = int(wait_time) if wait_time else 1000
     
+    # Detect file upload step from functions column (e.g., "File Upload:storage/test_files")
+    is_file_upload = False
+    file_path = None
+    if functions:
+        func_str = str(functions).strip()
+        if 'file upload' in func_str.lower():
+            is_file_upload = True
+            # Parse file path from functions: "File Upload:storage/test_files" or "File Upload:storage/test_files:filename"
+            if ':' in func_str:
+                parts = func_str.split(':')
+                if len(parts) >= 2:
+                    # Get path after "File Upload:"
+                    path_part = ':'.join(parts[1:]).strip()
+                    # Handle both folder and file paths
+                    if path_part:
+                        file_path = path_part
+    
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
+    if is_file_upload:
+        code += f"{ind}// File upload step - will handle file dialog\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
+    
+    # File upload handling: Set up filechooser listener before clicking
+    if is_file_upload and file_path:
+        # Resolve file path (relative to project root)
+        code += f"{ind}// Set up filechooser listener for file upload\n"
+        code += f"{ind}let fileChooserResolve: ((fileChooser: FileChooser) => void) | null = null;\n"
+        code += f"{ind}const fileChooserPromise = new Promise<FileChooser>((resolve) => {{\n"
+        code += f"{ind}    fileChooserResolve = resolve;\n"
+        code += f"{ind}}});\n"
+        code += f"{ind}page.once('filechooser', (fileChooser) => {{\n"
+        code += f"{ind}    if (fileChooserResolve) fileChooserResolve(fileChooser);\n"
+        code += f"{ind}}});\n"
+        # Resolve file path (handle both relative and absolute paths)
+        code += f"{ind}// Resolve file path (relative to project root: storage/excel_tests/../../)\n"
+        code += f"{ind}const projectRoot = path.resolve(__dirname, '../../');\n"
+        code += f"{ind}const resolvedFilePath = path.resolve(projectRoot, '{file_path}');\n"
+        code += f"{ind}console.log(`📁 Step {step}: File upload - resolved path: ${{resolvedFilePath}}`);\n"
     
     # Modal detection: Wait for modal to be visible and scope element lookup to modal context
     if is_modal:
@@ -423,6 +460,32 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
             code += f"{ind}    if (!clickSucceeded) {{\n"
             code += f"{ind}        throw new Error(`Step {step}: All click methods failed`);\n"
             code += f"{ind}    }}\n"
+    
+    # File upload handling: Wait for filechooser and set files
+    if is_file_upload and file_path:
+        code += f"{ind}    // Handle file upload dialog\n"
+        code += f"{ind}    try {{\n"
+        code += f"{ind}        const fileChooser = await Promise.race([\n"
+        code += f"{ind}            fileChooserPromise,\n"
+        code += f"{ind}            new Promise<FileChooser>((_, reject) => setTimeout(() => reject(new Error('FileChooser timeout')), 5000))\n"
+        code += f"{ind}        ]);\n"
+        code += f"{ind}        await fileChooser.setFiles(resolvedFilePath);\n"
+        code += f"{ind}        console.log(`✅ Step {step}: File uploaded successfully: ${{resolvedFilePath}}`);\n"
+        code += f"{ind}        await page.waitForTimeout(500);  // Brief wait after file upload\n"
+        code += f"{ind}    }} catch (fileUploadError) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: File upload handling failed: ${{fileUploadError}}`);\n"
+        code += f"{ind}        // Try alternative: find file input directly and set files\n"
+        code += f"{ind}        try {{\n"
+        code += f"{ind}            const fileInput = page.locator('input[type=\"file\"]').first;\n"
+        code += f"{ind}            await fileInput.setInputFiles(resolvedFilePath);\n"
+        code += f"{ind}            console.log(`✅ Step {step}: File uploaded via direct file input: ${{resolvedFilePath}}`);\n"
+        code += f"{ind}            await page.waitForTimeout(500);\n"
+        code += f"{ind}        }} catch (directUploadError) {{\n"
+        code += f"{ind}            console.log(`❌ Step {step}: Direct file input upload also failed: ${{directUploadError}}`);\n"
+        code += f"{ind}            throw new Error(`Step {step}: File upload failed - both filechooser and direct input methods failed`);\n"
+        code += f"{ind}        }}\n"
+        code += f"{ind}    }}\n"
+    
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms = int(wait_time) if wait_time else 1000
     code += f"{ind}    await page.waitForTimeout({wait_ms});  // Wait after click (from Excel wait_time: {wait_ms}ms)\n"
@@ -1055,7 +1118,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
                     # Pass text_value for dynamic XPath replacement (e.g., {text_value} placeholder)
                     click_text_value = str(text_value).strip() if pd.notna(text_value) and text_value else None
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type, text_value=click_text_value)
+                    # Pass functions for file upload detection
+                    click_functions = str(functions).strip() if pd.notna(functions) and functions else None
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type, text_value=click_text_value, functions=click_functions)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
@@ -1123,7 +1188,7 @@ Generated from: {excel_file.name}*/
 
 // Load environment variables from .env file (for TOTP_SECRET_KEY, etc.)
 // Check multiple locations: same dir, parent, home, or 3 levels up
-import {{ test, expect }} from '@playwright/test';
+import {{ test, expect, type FileChooser }} from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import {{ URL }} from 'url';
