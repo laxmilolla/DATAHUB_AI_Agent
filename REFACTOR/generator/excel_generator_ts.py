@@ -186,12 +186,13 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False) -> str:
     """Generate TypeScript click code - registry-aware
     
     Args:
         wait_time: Wait time in milliseconds before and after click (from Excel wait_time column, default 1000ms)
         object_type: Object type from Excel (dropdown, button, etc.) - used to verify dropdown opens
+        is_modal: Whether this element is inside a modal dialog (from Excel Modal column)
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -209,6 +210,29 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     
+    # Modal detection: Wait for modal to be visible and scope element lookup to modal context
+    if is_modal:
+        code += f"{ind}// Modal step - wait for modal to be visible and scope element lookup to modal\n"
+        code += f"{ind}let modalContext = page;  // Default to page context\n"
+        code += f"{ind}try {{\n"
+        code += f"{ind}    // Try ARIA dialog pattern first (generic W3C standard)\n"
+        code += f"{ind}    const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
+        code += f"{ind}    await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}    modalContext = ariaModal;\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}}} catch (ariaError) {{\n"
+        code += f"{ind}    // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}    try {{\n"
+        code += f"{ind}        const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+        code += f"{ind}        await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}        modalContext = muiModal;\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}    }} catch (muiError) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
+        code += f"{ind}        // Continue with page context if modal not found\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}}}\n"
+    
     if is_optional:
         code += f"{ind}// Optional step - continue if element not found\n"
         code += f"{ind}try {{\n"
@@ -225,7 +249,11 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
         code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
         code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-        code += f"{ind}        element = page.locator(selector).nth(0);\n"
+        if is_modal:
+            code += f"{ind}        // Scope element lookup to modal context\n"
+            code += f"{ind}        element = modalContext.locator(selector).nth(0);\n"
+        else:
+            code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
         code += f"{ind}    }} catch (registry_error) {{\n"
@@ -489,11 +517,12 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     return code
 
 
-def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, user_email: Optional[str] = None, wait_time: Optional[int] = None) -> str:
+def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, element_name: str, functions: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, user_email: Optional[str] = None, wait_time: Optional[int] = None, is_modal: bool = False) -> str:
     """Generate TypeScript fill code - registry-aware
     
     Args:
         wait_time: Wait time in milliseconds before and after fill (from Excel wait_time column, default 1000ms)
+        is_modal: Whether this element is inside a modal dialog (from Excel Modal column)
     """
     ind = ' ' * indent
     xpath_escaped = escape_xpath(xpath)
@@ -510,6 +539,29 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
     
     code = f"{ind}// Step {step}: Fill {element_name or 'input'}\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
+    
+    # Modal detection: Wait for modal to be visible and scope element lookup to modal context
+    if is_modal:
+        code += f"{ind}// Modal step - wait for modal to be visible and scope element lookup to modal\n"
+        code += f"{ind}let modalContext = page;  // Default to page context\n"
+        code += f"{ind}try {{\n"
+        code += f"{ind}    // Try ARIA dialog pattern first (generic W3C standard)\n"
+        code += f"{ind}    const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
+        code += f"{ind}    await ariaModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}    modalContext = ariaModal;\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Modal detected (ARIA pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}}} catch (ariaError) {{\n"
+        code += f"{ind}    // ARIA modal not found - try Material-UI dialog pattern\n"
+        code += f"{ind}    try {{\n"
+        code += f"{ind}        const muiModal = page.locator('.MuiDialog-root.MuiModal-root').first;\n"
+        code += f"{ind}        await muiModal.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+        code += f"{ind}        modalContext = muiModal;\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Modal detected (Material-UI pattern), scoping element lookup to modal`);\n"
+        code += f"{ind}    }} catch (muiError) {{\n"
+        code += f"{ind}        console.log(`⚠️  Step {step}: Modal not found, using page context: ${{muiError}}`);\n"
+        code += f"{ind}        // Continue with page context if modal not found\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}}}\n"
     
     if is_totp:
         code += f"{ind}// TOTP field - code will be generated automatically\n"
@@ -538,7 +590,10 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}    let element: any = null;\n"
         code += f"{ind}    for (const totpSel of totpSelectors) {{\n"
         code += f"{ind}        try {{\n"
-        code += f"{ind}            const testElem = page.locator(totpSel).first();\n"
+        if is_modal:
+            code += f"{ind}            const testElem = modalContext.locator(totpSel).first();\n"
+        else:
+            code += f"{ind}            const testElem = page.locator(totpSel).first();\n"
         code += f"{ind}            if (await testElem.isVisible({{ timeout: 2000 }})) {{\n"
         code += f"{ind}                element = testElem;\n"
         code += f"{ind}                selectorFound = true;\n"
@@ -552,7 +607,10 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
         code += f"{ind}    if (!selectorFound) {{\n"
         code += f"{ind}        // Fallback to original selector\n"
         code += f"{ind}        const selector = `xpath={xpath_escaped}`;\n"
-        code += f"{ind}        element = page.locator(selector).nth(0);\n"
+        if is_modal:
+            code += f"{ind}        element = modalContext.locator(selector).nth(0);\n"
+        else:
+            code += f"{ind}        element = page.locator(selector).nth(0);\n"
         code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
         code += f"{ind}        console.log(`⚠️  Step {step}: TOTP field not found with fallback selectors, using original selector`);\n"
         code += f"{ind}    }}\n"
@@ -627,7 +685,11 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
             code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
             code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-            code += f"{ind}        element = page.locator(selector).nth(0);\n"
+            if is_modal:
+                code += f"{ind}        // Scope element lookup to modal context\n"
+                code += f"{ind}        element = modalContext.locator(selector).nth(0);\n"
+            else:
+                code += f"{ind}        element = page.locator(selector).nth(0);\n"
             code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
             code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
             code += f"{ind}    }} catch (registry_error) {{\n"
@@ -929,6 +991,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
             wait_time = row.get('wait_time', None)
             is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
+            is_modal = str(row.get('modal', '')).strip().lower() in ['true', 'yes', '1', 'y']
             
             # Update current URL
             if url and url != 'N/A':
@@ -993,7 +1056,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
                     # Pass wait_time from Excel to use after fill
                     wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
-                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email, wait_time=wait_ms)
+                    test_body += generate_fill_code_ts(step, xpath, text_value, row_url, element_name, functions, is_optional, element_id=element_id, user_email=user_email, wait_time=wait_ms, is_modal=is_modal)
                     previous_action = 'fill'
                     previous_was_totp = is_totp  # Track if this was TOTP
                 else:
