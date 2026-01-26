@@ -158,14 +158,14 @@
       "description": "NewTestSpn_laxmi element from option list"
     },
     "entersubmissionname": {
-      "xpath": "//div[@data-testid='create-data-submission-dialog-submission-name-input']//input",
-      "selector": "//div[@data-testid='create-data-submission-dialog-submission-name-input']//input",
+      "xpath": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]",
+      "selector": "//*[@data-testid=\"create-data-submission-dialog-submission-name-input\"]",
       "element_id": "ID_e5938fb5",
       "source": "excel",
       "object_type": "input",
       "action": "fill",
       "discovered_at": "2026-01-26T10:27:55.454774Z",
-      "last_updated": "2026-01-26T15:10:00.000000Z",
+      "last_updated": "2026-01-26T15:25:00.000000Z",
       "description": "EnterSubmissionName"
     },
     "create_button_on_dialog_box": {
