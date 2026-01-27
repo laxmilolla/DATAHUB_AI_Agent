@@ -406,6 +406,203 @@ def parse_html_string():
             'traceback': traceback.format_exc()
         }), 500
 
+@bp.route('/parser/save', methods=['POST'])
+def save_parser_registry():
+    """
+    Save a parser registry with a unique name (URL or PageName)
+    
+    Expected JSON:
+    {
+        "registry": {...},  # The full registry JSON
+        "name": "home",     # Unique name (URL or PageName)
+        "url": "https://example.com/page",  # Optional: for reference
+        "page_name": "home"  # Optional: for reference
+    }
+    
+    Returns:
+        Success message with saved registry info
+    """
+    try:
+        data = request.get_json()
+        registry = data.get('registry')
+        name = data.get('name', '').strip()
+        url = data.get('url', '').strip()
+        page_name = data.get('page_name', '').strip()
+        
+        if not registry:
+            return jsonify({'error': 'Registry data is required'}), 400
+        if not name:
+            return jsonify({'error': 'Registry name is required'}), 400
+        
+        # Sanitize name (remove invalid characters for filename)
+        import re
+        sanitized_name = re.sub(r'[<>:"/\\|?*]', '_', name)
+        sanitized_name = sanitized_name.strip()
+        if not sanitized_name:
+            return jsonify({'error': 'Invalid registry name. Please use alphanumeric characters and common symbols.'}), 400
+        
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        parser_registries_dir = project_root / 'storage' / 'parser_registries'
+        parser_registries_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check for duplicate name
+        registry_file = parser_registries_dir / f"{sanitized_name}.json"
+        if registry_file.exists():
+            return jsonify({
+                'error': f'Registry with name "{sanitized_name}" already exists. Please choose a different name.',
+                'duplicate': True
+            }), 400
+        
+        # Use sanitized name
+        name = sanitized_name
+        
+        # Create registry metadata
+        registry_metadata = {
+            'name': name,
+            'url': url,
+            'page_name': page_name,
+            'saved_at': datetime.now().isoformat(),
+            'registry': registry
+        }
+        
+        # Save registry
+        with open(registry_file, 'w') as f:
+            json.dump(registry_metadata, f, indent=2)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Registry "{name}" saved successfully',
+            'name': name,
+            'saved_at': registry_metadata['saved_at']
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+@bp.route('/parser/list', methods=['GET'])
+def list_parser_registries():
+    """
+    List all saved parser registries
+    
+    Returns:
+        List of saved registries with metadata
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        parser_registries_dir = project_root / 'storage' / 'parser_registries'
+        
+        if not parser_registries_dir.exists():
+            return jsonify({
+                'success': True,
+                'registries': []
+            }), 200
+        
+        registries = []
+        for registry_file in parser_registries_dir.glob('*.json'):
+            try:
+                with open(registry_file, 'r') as f:
+                    metadata = json.load(f)
+                
+                # Extract summary info
+                registry_data = metadata.get('registry', {})
+                registries.append({
+                    'name': metadata.get('name', registry_file.stem),
+                    'url': metadata.get('url', ''),
+                    'page_name': metadata.get('page_name', ''),
+                    'saved_at': metadata.get('saved_at', ''),
+                    'element_count': len(registry_data.get('elements', {}))
+                })
+            except Exception as e:
+                continue
+        
+        # Sort by saved_at (most recent first)
+        registries.sort(key=lambda x: x.get('saved_at', ''), reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'registries': registries
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+@bp.route('/parser/load/<name>', methods=['GET'])
+def load_parser_registry(name):
+    """
+    Load a saved parser registry by name
+    
+    Returns:
+        Full registry JSON
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        parser_registries_dir = project_root / 'storage' / 'parser_registries'
+        registry_file = parser_registries_dir / f"{name}.json"
+        
+        if not registry_file.exists():
+            return jsonify({
+                'error': f'Registry "{name}" not found'
+            }), 404
+        
+        with open(registry_file, 'r') as f:
+            metadata = json.load(f)
+        
+        return jsonify({
+            'success': True,
+            'registry': metadata.get('registry'),
+            'name': metadata.get('name'),
+            'url': metadata.get('url', ''),
+            'page_name': metadata.get('page_name', ''),
+            'saved_at': metadata.get('saved_at', '')
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
+@bp.route('/parser/delete/<name>', methods=['DELETE'])
+def delete_parser_registry(name):
+    """
+    Delete a saved parser registry by name
+    
+    Returns:
+        Success message
+    """
+    try:
+        project_root = current_app.config.get('PROJECT_ROOT', Path.cwd())
+        parser_registries_dir = project_root / 'storage' / 'parser_registries'
+        registry_file = parser_registries_dir / f"{name}.json"
+        
+        if not registry_file.exists():
+            return jsonify({
+                'error': f'Registry "{name}" not found'
+            }), 404
+        
+        registry_file.unlink()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Registry "{name}" deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
 @bp.route('/manual-register', methods=['POST'])
 def manual_register_element():
     """
