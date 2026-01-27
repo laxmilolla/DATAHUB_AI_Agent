@@ -339,6 +339,73 @@ def parse_html():
             'traceback': traceback.format_exc()
         }), 500
 
+@bp.route('/parse-html-string', methods=['POST'])
+def parse_html_string():
+    """
+    Parse HTML string and generate element registry JSON
+    
+    Expected JSON:
+    {
+        "html": "<html>...</html>",
+        "url": "https://example.com/page",
+        "page_name": "home"
+    }
+    
+    Returns:
+        Element registry JSON in the exact format
+    """
+    try:
+        data = request.get_json()
+        html_string = data.get('html', '').strip()
+        url = data.get('url', '').strip()
+        page_name = data.get('page_name', '').strip()
+        
+        if not html_string:
+            return jsonify({'error': 'HTML content is required'}), 400
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+        if not page_name:
+            return jsonify({'error': 'Page name is required'}), 400
+        
+        # Import parser
+        try:
+            from utils.html_registry_parser import HTMLRegistryParser
+        except ImportError as e:
+            return jsonify({
+                'error': f'Failed to import parser: {str(e)}'
+            }), 500
+        
+        try:
+            parser = HTMLRegistryParser()
+            registry = parser.parse_html(html_string, url, page_name)
+            
+            # Debug: Log how many elements were found
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Parsed HTML: found {len(registry.get('elements', {}))} elements")
+            
+            return jsonify({
+                'success': True,
+                'registry': registry
+            }), 200
+        except Exception as parse_error:
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Parse error: {parse_error}")
+            logger.error(traceback.format_exc())
+            return jsonify({
+                'error': f'Parsing failed: {str(parse_error)}',
+                'traceback': traceback.format_exc()
+            }), 500
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
 @bp.route('/manual-register', methods=['POST'])
 def manual_register_element():
     """

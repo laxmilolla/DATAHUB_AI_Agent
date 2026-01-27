@@ -71,7 +71,7 @@ def create_app():
     
     @app.route('/parser')
     def parser_page():
-        return render_template('parser.html', timestamp=int(time.time()))
+        return render_template('parser_ai.html', timestamp=int(time.time()))
     
     @app.route('/instructions')
     def instructions_page():
