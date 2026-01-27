@@ -873,9 +873,12 @@
                         const screenshotMap = {};
                         playwrightScreenshots.forEach(screenshot => {
                             const filename = typeof screenshot === 'string' ? screenshot : (screenshot.filename || screenshot.path || '');
-                            const stepMatch = filename.match(/pw_step(\d+)_/);
+                            // Match step numbers: pw_step1.0_ or pw_step1_ (handles both integer and decimal)
+                            const stepMatch = filename.match(/pw_step([\d.]+)_/);
                             if (stepMatch) {
-                                const stepNum = parseInt(stepMatch[1]);
+                                // Extract integer part from step number (e.g., "1.0" -> 1, "2.5" -> 2)
+                                const stepNumRaw = stepMatch[1];
+                                const stepNum = parseInt(stepNumRaw) || parseFloat(stepNumRaw);
                                 if (!screenshotMap[stepNum]) {
                                     screenshotMap[stepNum] = [];
                                 }
@@ -886,7 +889,10 @@
                         html += '<div style="display: grid; gap: 15px;">';
                         
                         steps.forEach((step, index) => {
-                            const stepNum = step.step || (index + 1);
+                            const stepNumRaw = step.step || (index + 1);
+                            // Normalize step number: extract integer part (e.g., "1.0" -> 1, "2.5" -> 2)
+                            // This matches how screenshot filenames are parsed (regex extracts integer)
+                            const stepNum = typeof stepNumRaw === 'string' ? parseInt(stepNumRaw) || parseFloat(stepNumRaw) : stepNumRaw;
                             const action = step.action || 'unknown';
                             const url = step.url || '';
                             const xpath = step.xpath || '';
@@ -897,6 +903,7 @@
                             const isOptional = step.optional || false;
                             
                             // Find screenshot for this step (prefer non-failed screenshot)
+                            // Use normalized integer stepNum for lookup
                             const stepScreenshots = screenshotMap[stepNum] || [];
                             const screenshot = stepScreenshots.find(s => !s.includes('_failed')) || stepScreenshots[0];
                             
