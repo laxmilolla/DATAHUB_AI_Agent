@@ -450,6 +450,31 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+        
+        .btn {
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #savedRegistriesDropdown {
+            cursor: pointer;
+        }
+        
+        #savedRegistriesDropdown:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -465,6 +490,28 @@
             <p style="color: #666; margin-bottom: 30px; font-size: 1.1em;">
                 Paste your HTML content below and let AI extract all interactive elements with intelligent XPath generation.
             </p>
+            
+            <!-- Saved Registries Dropdown -->
+            <div class="form-group" style="margin-bottom: 25px; background: #f5f5f5; padding: 20px; border-radius: 12px;">
+                <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <span style="font-size: 1.2em;">📚</span>
+                    <span style="font-weight: 600; font-size: 1.1em;">Saved Registries</span>
+                </label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="savedRegistriesDropdown" class="form-group input" style="flex: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; background: white;">
+                        <option value="">-- Select a saved registry to load --</option>
+                    </select>
+                    <button id="loadRegistryBtn" class="btn btn-secondary" onclick="loadSavedRegistry()" style="padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                        📥 Load
+                    </button>
+                    <button id="deleteRegistryBtn" class="btn btn-secondary" onclick="deleteSavedRegistry()" style="padding: 12px 24px; background: #dc3545; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; display: none;">
+                        🗑️ Delete
+                    </button>
+                </div>
+                <p style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                    💡 Select a saved registry from the dropdown and click "Load" to populate the form
+                </p>
+            </div>
             
             <div class="input-section">
                 <div class="form-group">
@@ -496,9 +543,30 @@
         <div id="resultsSection" class="ai-card results-section">
             <div class="results-header">
                 <h3>✨ Parsing Results</h3>
-                <button id="downloadBtn" class="download-button" onclick="downloadJSON()" style="display: none;">
-                    📥 Download JSON Registry
-                </button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="saveBtn" class="download-button" onclick="saveRegistry()" style="display: none; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);">
+                        💾 Save Registry
+                    </button>
+                    <button id="downloadBtn" class="download-button" onclick="downloadJSON()" style="display: none;">
+                        📥 Download JSON Registry
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Save Registry Form (shown after parsing) -->
+            <div id="saveRegistryForm" style="display: none; margin-bottom: 20px; padding: 20px; background: #f0f7ff; border-radius: 12px; border: 2px solid #667eea;">
+                <h4 style="color: #667eea; margin-bottom: 15px;">💾 Save Registry</h4>
+                <div style="display: flex; gap: 10px; align-items: flex-end;">
+                    <div style="flex: 1;">
+                        <label for="registryName" style="display: block; font-weight: 600; margin-bottom: 5px; color: #333;">Registry Name (URL or PageName):</label>
+                        <input type="text" id="registryName" placeholder="e.g., home, login, https://example.com/page" style="width: 100%; padding: 12px; border: 2px solid #667eea; border-radius: 8px; font-size: 1em;">
+                        <p style="margin-top: 5px; font-size: 0.85em; color: #666;">This name will be used to identify and load the registry later</p>
+                    </div>
+                    <button onclick="saveRegistry()" style="padding: 12px 30px; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; height: fit-content;">
+                        💾 Save
+                    </button>
+                </div>
+                <div id="saveError" style="display: none; margin-top: 10px; padding: 10px; background: #ffebee; color: #c62828; border-radius: 8px; border: 1px solid #ef5350;"></div>
             </div>
             
             <div class="success-message" id="successMessage" style="display: none;">
@@ -532,6 +600,174 @@
     
     <script>
         let currentRegistry = null;
+        
+        // Load saved registries on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSavedRegistriesList();
+        });
+        
+        // Load list of saved registries into dropdown
+        async function loadSavedRegistriesList() {
+            try {
+                const response = await fetch('/api/parser/list');
+                const data = await response.json();
+                
+                if (data.success && data.registries) {
+                    const dropdown = document.getElementById('savedRegistriesDropdown');
+                    // Clear existing options except the first one
+                    dropdown.innerHTML = '<option value="">-- Select a saved registry to load --</option>';
+                    
+                    data.registries.forEach(registry => {
+                        const option = document.createElement('option');
+                        option.value = registry.name;
+                        const displayText = registry.page_name 
+                            ? `${registry.name} (${registry.page_name}) - ${registry.element_count} elements`
+                            : `${registry.name} - ${registry.element_count} elements`;
+                        option.textContent = displayText;
+                        dropdown.appendChild(option);
+                    });
+                    
+                    // Show/hide delete button based on selection
+                    dropdown.addEventListener('change', function() {
+                        document.getElementById('deleteRegistryBtn').style.display = 
+                            this.value ? 'block' : 'none';
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading registries list:', error);
+            }
+        }
+        
+        // Load a saved registry
+        async function loadSavedRegistry() {
+            const dropdown = document.getElementById('savedRegistriesDropdown');
+            const registryName = dropdown.value;
+            
+            if (!registryName) {
+                alert('Please select a registry from the dropdown');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/parser/load/${encodeURIComponent(registryName)}`);
+                const data = await response.json();
+                
+                if (data.success && data.registry) {
+                    // Populate form fields
+                    document.getElementById('pageUrl').value = data.url || '';
+                    document.getElementById('pageName').value = data.page_name || '';
+                    
+                    // Display the registry
+                    currentRegistry = data.registry;
+                    displayResults(data.registry);
+                    
+                    // Scroll to results
+                    document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    alert('Error loading registry: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error loading registry: ' + error.message);
+                console.error('Load error:', error);
+            }
+        }
+        
+        // Delete a saved registry
+        async function deleteSavedRegistry() {
+            const dropdown = document.getElementById('savedRegistriesDropdown');
+            const registryName = dropdown.value;
+            
+            if (!registryName) {
+                alert('Please select a registry to delete');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete registry "${registryName}"?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/parser/delete/${encodeURIComponent(registryName)}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Registry "${registryName}" deleted successfully`);
+                    // Reload the dropdown
+                    loadSavedRegistriesList();
+                    // Reset dropdown
+                    dropdown.value = '';
+                    document.getElementById('deleteRegistryBtn').style.display = 'none';
+                } else {
+                    alert('Error deleting registry: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error deleting registry: ' + error.message);
+                console.error('Delete error:', error);
+            }
+        }
+        
+        // Save current registry
+        async function saveRegistry() {
+            if (!currentRegistry) {
+                alert('No registry to save. Please parse HTML first.');
+                return;
+            }
+            
+            const registryName = document.getElementById('registryName').value.trim();
+            if (!registryName) {
+                document.getElementById('saveError').textContent = 'Please enter a registry name';
+                document.getElementById('saveError').style.display = 'block';
+                return;
+            }
+            
+            // Clear previous error
+            document.getElementById('saveError').style.display = 'none';
+            
+            // Disable save button
+            const saveBtn = document.querySelector('#saveBtn, button[onclick="saveRegistry()"]');
+            if (saveBtn) saveBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/parser/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        registry: currentRegistry,
+                        name: registryName,
+                        url: document.getElementById('pageUrl').value.trim(),
+                        page_name: document.getElementById('pageName').value.trim()
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Registry "${registryName}" saved successfully!`);
+                    // Clear the name input
+                    document.getElementById('registryName').value = '';
+                    // Reload the dropdown
+                    loadSavedRegistriesList();
+                    // Hide save form
+                    document.getElementById('saveRegistryForm').style.display = 'none';
+                } else {
+                    if (data.duplicate) {
+                        document.getElementById('saveError').textContent = data.error;
+                        document.getElementById('saveError').style.display = 'block';
+                    } else {
+                        alert('Error saving registry: ' + (data.error || 'Unknown error'));
+                    }
+                }
+            } catch (error) {
+                alert('Error saving registry: ' + error.message);
+                console.error('Save error:', error);
+            } finally {
+                if (saveBtn) saveBtn.disabled = false;
+            }
+        }
         
         async function parseHTML() {
             const htmlInput = document.getElementById('htmlInput').value.trim();
@@ -596,6 +832,14 @@
             document.getElementById('resultsSection').classList.add('active');
             document.getElementById('successMessage').style.display = 'block';
             document.getElementById('downloadBtn').style.display = 'block';
+            document.getElementById('saveBtn').style.display = 'block';
+            document.getElementById('saveRegistryForm').style.display = 'block';
+            
+            // Auto-populate registry name with page name if available
+            const pageName = document.getElementById('pageName').value.trim();
+            if (pageName && !document.getElementById('registryName').value.trim()) {
+                document.getElementById('registryName').value = pageName;
+            }
             
             // Display stats
             const stats = registry.statistics || {};
