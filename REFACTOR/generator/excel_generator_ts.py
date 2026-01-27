@@ -186,6 +186,157 @@ def generate_wait_code_ts(step: str, wait_time: int, indent: int = 12, previous_
     return code
 
 
+def generate_wait_for_code_ts(step: str, xpath: str, url: str, element_name: str, wait_type: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, wait_time: Optional[int] = None, is_modal: bool = False, text_value: Optional[str] = None) -> str:
+    """Generate TypeScript code to wait for an element to be visible/clickable/enabled
+    
+    Args:
+        step: Step number/identifier
+        xpath: Element XPath
+        url: Page URL (for backward compatibility, not used for lookup)
+        element_name: Element name/description
+        wait_type: Type of wait: 'visible', 'clickable', or 'enabled'
+        is_optional: Whether step is optional
+        indent: Indentation level
+        element_id: Element ID from registry (optional)
+        wait_time: Timeout in milliseconds (default 10000ms)
+        is_modal: Whether element is in a modal dialog
+        text_value: Text value for dynamic XPath replacement
+    """
+    ind = ' ' * indent
+    xpath_escaped = escape_xpath(xpath)
+    safe_name = re.sub(r'[^\w\s-]', '', element_name).replace(' ', '_')[:30] if element_name else 'element'
+    timeout_ms = int(wait_time) if wait_time else 10000
+    
+    # Replace {text_value} placeholder if text_value is provided
+    if text_value and '{text_value}' in xpath:
+        text_value_escaped = escape_xpath(text_value)
+        xpath_escaped = xpath_escaped.replace('{text_value}', text_value_escaped)
+    
+    # Normalize wait_type
+    wait_type_lower = wait_type.lower().strip() if wait_type else 'visible'
+    if wait_type_lower not in ['visible', 'clickable', 'enabled']:
+        wait_type_lower = 'visible'  # Default to visible
+    
+    code = f"{ind}// Step {step}: Wait for {element_name or 'element'} to be {wait_type_lower}\n"
+    
+    if is_optional:
+        code += f"{ind}// Optional step - continue if element not found\n"
+        code += f"{ind}try {{\n"
+    else:
+        code += f"{ind}try {{\n"
+    
+    # Use registry lookup if element_id is available
+    code += f"{ind}    let element;\n"
+    if element_id:
+        element_id_escaped = escape_xpath(element_id)
+        code += f"{ind}    // Try registry lookup first\n"
+        code += f"{ind}    try {{\n"
+        code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+        code += f"{ind}        let xpath = getXpathById('{element_id_escaped}');\n"
+        # Replace {text_value} placeholder if text_value is provided
+        if text_value:
+            text_value_escaped = escape_xpath(text_value)
+            code += f"{ind}        // Replace {{text_value}} placeholder with actual value from Excel\n"
+            code += f"{ind}        if (xpath.includes('{{text_value}}')) {{\n"
+            code += f"{ind}            xpath = xpath.replace(/\\{{text_value\\}}/g, '{text_value_escaped}');\n"
+            code += f"{ind}            console.log(`✅ Step {step}: Replaced {{text_value}} with: {text_value_escaped}`);\n"
+            code += f"{ind}        }}\n"
+        code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
+        if is_modal:
+            code += f"{ind}        // Scope element lookup to modal context\n"
+            code += f"{ind}        element = modalContext.locator(selector).nth(0);\n"
+        else:
+            code += f"{ind}        element = page.locator(selector).nth(0);\n"
+        code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
+        code += f"{ind}    }} catch (registry_error) {{\n"
+        code += f"{ind}        // Registry lookup failed - test must fail\n"
+        code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+        code += f"{ind}    }}\n"
+    else:
+        # No element_id - use XPath directly
+        code += f"{ind}    const selector = `xpath={xpath_escaped}`;\n"
+        if is_modal:
+            code += f"{ind}    // Scope element lookup to modal context\n"
+            code += f"{ind}    element = modalContext.locator(selector).nth(0);\n"
+        else:
+            code += f"{ind}    element = page.locator(selector).nth(0);\n"
+    
+    # Generate wait logic based on wait_type
+    if wait_type_lower == 'visible':
+        code += f"{ind}    // Wait for element to be visible\n"
+        code += f"{ind}    await element.waitFor({{ state: 'visible', timeout: {timeout_ms} }});\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Element is visible`);\n"
+    
+    elif wait_type_lower == 'clickable':
+        code += f"{ind}    // Wait for element to be clickable (visible + enabled)\n"
+        code += f"{ind}    await element.waitFor({{ state: 'visible', timeout: {timeout_ms} }});\n"
+        code += f"{ind}    // Check if element is enabled (not disabled)\n"
+        code += f"{ind}    let elementEnabled = false;\n"
+        code += f"{ind}    const maxAttempts = Math.floor({timeout_ms} / 200);  // Poll every 200ms\n"
+        code += f"{ind}    for (let attempt = 0; attempt < maxAttempts; attempt++) {{\n"
+        code += f"{ind}        try {{\n"
+        code += f"{ind}            const isDisabled = await element.evaluate('el => el.disabled || el.hasAttribute(\"disabled\")');\n"
+        code += f"{ind}            if (!isDisabled) {{\n"
+        code += f"{ind}                elementEnabled = true;\n"
+        code += f"{ind}                console.log(`✅ Step {step}: Element is clickable (attempt ${{attempt + 1}})`);\n"
+        code += f"{ind}                break;\n"
+        code += f"{ind}            }} else {{\n"
+        code += f"{ind}                if (attempt % 10 === 0) {{  // Print every 2 seconds\n"
+        code += f"{ind}                    console.log(`⏳ Step {step}: Waiting for element to be enabled... (attempt ${{attempt + 1}}/${{maxAttempts}})`);\n"
+        code += f"{ind}                }}\n"
+        code += f"{ind}            }}\n"
+        code += f"{ind}        }} catch (check_error) {{\n"
+        code += f"{ind}            console.log(`⚠️  Step {step}: Error checking element state: ${{check_error}}`);\n"
+        code += f"{ind}        }}\n"
+        code += f"{ind}        await page.waitForTimeout(200);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    \n"
+        code += f"{ind}    if (!elementEnabled) {{\n"
+        code += f"{ind}        throw new Error(`Step {step}: Element did not become clickable within {timeout_ms}ms timeout`);\n"
+        code += f"{ind}    }}\n"
+    
+    elif wait_type_lower == 'enabled':
+        code += f"{ind}    // Wait for element to be enabled (not disabled)\n"
+        code += f"{ind}    await element.waitFor({{ state: 'visible', timeout: {timeout_ms} }});\n"
+        code += f"{ind}    let elementEnabled = false;\n"
+        code += f"{ind}    const maxAttempts = Math.floor({timeout_ms} / 200);  // Poll every 200ms\n"
+        code += f"{ind}    for (let attempt = 0; attempt < maxAttempts; attempt++) {{\n"
+        code += f"{ind}        try {{\n"
+        code += f"{ind}            const isDisabled = await element.evaluate('el => el.disabled || el.hasAttribute(\"disabled\")');\n"
+        code += f"{ind}            if (!isDisabled) {{\n"
+        code += f"{ind}                elementEnabled = true;\n"
+        code += f"{ind}                console.log(`✅ Step {step}: Element is enabled (attempt ${{attempt + 1}})`);\n"
+        code += f"{ind}                break;\n"
+        code += f"{ind}            }} else {{\n"
+        code += f"{ind}                if (attempt % 10 === 0) {{  // Print every 2 seconds\n"
+        code += f"{ind}                    console.log(`⏳ Step {step}: Waiting for element to be enabled... (attempt ${{attempt + 1}}/${{maxAttempts}})`);\n"
+        code += f"{ind}                }}\n"
+        code += f"{ind}            }}\n"
+        code += f"{ind}        }} catch (check_error) {{\n"
+        code += f"{ind}            console.log(`⚠️  Step {step}: Error checking element state: ${{check_error}}`);\n"
+        code += f"{ind}        }}\n"
+        code += f"{ind}        await page.waitForTimeout(200);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    \n"
+        code += f"{ind}    if (!elementEnabled) {{\n"
+        code += f"{ind}        throw new Error(`Step {step}: Element did not become enabled within {timeout_ms}ms timeout`);\n"
+        code += f"{ind}    }}\n"
+    
+    code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_wait_for.png' }});\n"
+    code += f"{ind}}} catch (e) {{\n"
+    if is_optional:
+        code += f"{ind}    console.log(`⚠️  Step {step}: Wait for element failed (optional step, continuing): ${{e}}`);\n"
+    else:
+        code += f"{ind}    console.log(`❌ Step {step}: Wait for element failed: ${{e}}`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_wait_for_failed.png' }});\n"
+        code += f"{ind}    throw new Error(`Step {step}: Element did not become {wait_type_lower} within timeout: ${{e}}`);\n"
+    code += f"{ind}}}\n"
+    
+    return code
+
+
 def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None, functions: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware
     
@@ -215,6 +366,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     # Detect file upload step from functions column (e.g., "File Upload:storage/test_files")
     is_file_upload = False
     file_path = None
+    is_folder_upload = False
     if functions:
         func_str = str(functions).strip()
         if 'file upload' in func_str.lower():
@@ -228,6 +380,14 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
                     # Handle both folder and file paths
                     if path_part:
                         file_path = path_part
+                        # Check if filename is empty, "*", or "all" - indicates folder upload
+                        if len(parts) >= 3:
+                            filename_part = parts[2].strip()
+                            if not filename_part or filename_part in ['*', 'all', 'ALL']:
+                                is_folder_upload = True
+                        elif len(parts) == 2:
+                            # Only folder path provided, no filename - treat as folder upload
+                            is_folder_upload = True
     
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     if is_file_upload:
@@ -248,8 +408,41 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         # Resolve file path (handle both relative and absolute paths)
         code += f"{ind}// Resolve file path (relative to project root: storage/excel_tests/../../)\n"
         code += f"{ind}const projectRoot = path.resolve(__dirname, '../../');\n"
-        code += f"{ind}const resolvedFilePath = path.resolve(projectRoot, '{file_path}');\n"
-        code += f"{ind}console.log(`📁 Step {step}: File upload - resolved path: ${{resolvedFilePath}}`);\n"
+        code += f"{ind}const resolvedPath = path.resolve(projectRoot, '{file_path}');\n"
+        if is_folder_upload:
+            code += f"{ind}// Folder upload - get all files in folder\n"
+            code += f"{ind}const fs = require('fs');\n"
+            code += f"{ind}let resolvedFilePaths: string[] = [];\n"
+            code += f"{ind}try {{\n"
+            code += f"{ind}    const folderStats = fs.statSync(resolvedPath);\n"
+            code += f"{ind}    if (folderStats.isDirectory()) {{\n"
+            code += f"{ind}        const files = fs.readdirSync(resolvedPath);\n"
+            code += f"{ind}        resolvedFilePaths = files\n"
+            code += f"{ind}            .map((file: string) => path.resolve(resolvedPath, file))\n"
+            code += f"{ind}            .filter((filePath: string) => {{\n"
+            code += f"{ind}                try {{\n"
+            code += f"{ind}                    return fs.statSync(filePath).isFile();\n"
+            code += f"{ind}                }} catch {{\n"
+            code += f"{ind}                    return false;\n"
+            code += f"{ind}                }}\n"
+            code += f"{ind}            }});\n"
+            code += f"{ind}        console.log(`📁 Step {step}: Folder upload - found ${{resolvedFilePaths.length}} file(s) in folder: ${{resolvedPath}}`);\n"
+            code += f"{ind}        if (resolvedFilePaths.length === 0) {{\n"
+            code += f"{ind}            throw new Error(`No files found in folder: ${{resolvedPath}}`);\n"
+            code += f"{ind}        }}\n"
+            code += f"{ind}    }} else {{\n"
+            code += f"{ind}        // Single file upload\n"
+            code += f"{ind}        resolvedFilePaths = [resolvedPath];\n"
+            code += f"{ind}        console.log(`📁 Step {step}: File upload - resolved path: ${{resolvedPath}}`);\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}}} catch (pathError) {{\n"
+            code += f"{ind}    // Fallback to single file if folder check fails\n"
+            code += f"{ind}    resolvedFilePaths = [resolvedPath];\n"
+            code += f"{ind}    console.log(`📁 Step {step}: File upload - resolved path: ${{resolvedPath}}`);\n"
+            code += f"{ind}}}\n"
+        else:
+            code += f"{ind}const resolvedFilePath = resolvedPath;\n"
+            code += f"{ind}console.log(`📁 Step {step}: File upload - resolved path: ${{resolvedFilePath}}`);\n"
     
     # Modal detection: Wait for modal to be visible and scope element lookup to modal context
     if is_modal:
@@ -469,16 +662,31 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}            fileChooserPromise,\n"
         code += f"{ind}            new Promise<FileChooser>((_, reject) => setTimeout(() => reject(new Error('FileChooser timeout')), 5000))\n"
         code += f"{ind}        ]);\n"
-        code += f"{ind}        await fileChooser.setFiles(resolvedFilePath);\n"
-        code += f"{ind}        console.log(`✅ Step {step}: File uploaded successfully: ${{resolvedFilePath}}`);\n"
+        if is_folder_upload:
+            code += f"{ind}        // Upload all files from folder\n"
+            code += f"{ind}        await fileChooser.setFiles(resolvedFilePaths);\n"
+            code += f"{ind}        console.log(`✅ Step {step}: Successfully uploaded ${{resolvedFilePaths.length}} file(s) from folder:`);\n"
+            code += f"{ind}        resolvedFilePaths.forEach((filePath: string, index: number) => {{\n"
+            code += f"{ind}            console.log(`  ${{index + 1}}. ${{filePath}}`);\n"
+            code += f"{ind}        }});\n"
+        else:
+            code += f"{ind}        await fileChooser.setFiles(resolvedFilePath);\n"
+            code += f"{ind}        console.log(`✅ Step {step}: File uploaded successfully: ${{resolvedFilePath}}`);\n"
         code += f"{ind}        await page.waitForTimeout(500);  // Brief wait after file upload\n"
         code += f"{ind}    }} catch (fileUploadError) {{\n"
         code += f"{ind}        console.log(`⚠️  Step {step}: File upload handling failed: ${{fileUploadError}}`);\n"
         code += f"{ind}        // Try alternative: find file input directly and set files\n"
         code += f"{ind}        try {{\n"
         code += f"{ind}            const fileInput = page.locator('input[type=\"file\"]').first;\n"
-        code += f"{ind}            await fileInput.setInputFiles(resolvedFilePath);\n"
-        code += f"{ind}            console.log(`✅ Step {step}: File uploaded via direct file input: ${{resolvedFilePath}}`);\n"
+        if is_folder_upload:
+            code += f"{ind}            await fileInput.setInputFiles(resolvedFilePaths);\n"
+            code += f"{ind}            console.log(`✅ Step {step}: Successfully uploaded ${{resolvedFilePaths.length}} file(s) via direct file input:`);\n"
+            code += f"{ind}            resolvedFilePaths.forEach((filePath: string, index: number) => {{\n"
+            code += f"{ind}                console.log(`  ${{index + 1}}. ${{filePath}}`);\n"
+            code += f"{ind}            }});\n"
+        else:
+            code += f"{ind}            await fileInput.setInputFiles(resolvedFilePath);\n"
+            code += f"{ind}            console.log(`✅ Step {step}: File uploaded via direct file input: ${{resolvedFilePath}}`);\n"
         code += f"{ind}            await page.waitForTimeout(500);\n"
         code += f"{ind}        }} catch (directUploadError) {{\n"
         code += f"{ind}            console.log(`❌ Step {step}: Direct file input upload also failed: ${{directUploadError}}`);\n"
@@ -1028,10 +1236,10 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
     - URL: Page URL
     - XPath: Element XPath
     - Object Type: button/input/link/etc. (optional)
-    - Action: click/fill/verify/wait/navigate
-    - Functions: TOTP, etc. (optional)
+    - Action: click/fill/verify/wait/wait_for/navigate
+    - Functions: TOTP, etc. (optional). For wait_for: visible/clickable/enabled
     - Text Value: For fill actions (optional)
-    - Wait Time: For wait actions in ms (optional)
+    - Wait Time: For wait actions in ms (optional). For wait_for: timeout in ms (default 10000ms)
     - Optional: true/false (optional)
     
     Returns:
@@ -1117,6 +1325,39 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                 # Follow Excel wait_time exactly - no hard-coded logic
                 test_body += generate_wait_code_ts(step, wait_time or 1000, previous_was_click=previous_was_click)
                 previous_action = 'wait'
+            
+            elif action == 'wait_for':
+                if xpath and xpath != 'N/A':
+                    element_name = object_type or 'element'
+                    
+                    # Parse wait type from Functions column (visible/clickable/enabled)
+                    wait_type = 'visible'  # Default
+                    if functions:
+                        func_str = str(functions).strip().lower()
+                        if 'clickable' in func_str:
+                            wait_type = 'clickable'
+                        elif 'enabled' in func_str:
+                            wait_type = 'enabled'
+                        elif 'visible' in func_str:
+                            wait_type = 'visible'
+                    
+                    # Lookup element_id from registry by XPath (URL-free approach)
+                    element_id = lookup_element_id_by_xpath(xpath, registry_files, element_maps_dir) if registry_files else None
+                    
+                    # row_url still needed for generate_wait_for_code_ts signature (for backward compatibility), but not used for lookup
+                    row_url = url if url and url != 'N/A' else current_url or ''
+                    # Pass wait_time from Excel as timeout (default 10000ms)
+                    timeout_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
+                    # Pass text_value for dynamic XPath replacement (e.g., {text_value} placeholder)
+                    wait_text_value = str(text_value).strip() if pd.notna(text_value) and text_value else None
+                    
+                    test_body += generate_wait_for_code_ts(
+                        step, xpath, row_url, element_name, wait_type, is_optional,
+                        element_id=element_id, wait_time=timeout_ms, is_modal=is_modal, text_value=wait_text_value
+                    )
+                    previous_action = 'wait_for'
+                else:
+                    errors.append(f"Step {step}: Wait_for action requires XPath")
             
             elif action == 'click':
                 if xpath and xpath != 'N/A':

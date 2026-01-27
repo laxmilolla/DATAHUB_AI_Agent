@@ -103,7 +103,7 @@ def _validate_row(row: pd.Series, row_num: int) -> List[str]:
     # Validate Action (if present)
     if 'action' in row.index and pd.notna(row.get('action')):
         action = str(row['action']).strip().lower()
-        valid_actions = ['navigate', 'click', 'fill', 'verify', 'wait']
+        valid_actions = ['navigate', 'click', 'fill', 'verify', 'wait', 'wait_for']
         if action and action not in valid_actions:
             errors.append(f"Row {row_num}: Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}")
     
