@@ -8,3 +8,5 @@ groq>=0.4.0  # FREE cloud LLM (no local resources)
 
 pyotp==2.9.0
 beautifulsoup4==4.12.3
+pandas>=2.0.0
+openpyxl>=3.1.0
