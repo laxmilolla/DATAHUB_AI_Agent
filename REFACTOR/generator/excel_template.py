@@ -85,6 +85,16 @@ def generate_excel_template(output_path: Path, include_examples: bool = True) ->
     ws_credentials = wb.create_sheet("Credentials", 2)
     _add_credentials_sheet(ws_credentials)
     
+    # Create expected results tabs
+    ws_expected_upload = wb.create_sheet("Expected_Upload_Activities", 3)
+    _add_expected_results_tab(ws_expected_upload, "Upload Activities", "Expected_Upload_Activities")
+    
+    ws_expected_validation = wb.create_sheet("Expected_Validation_Results", 4)
+    _add_expected_results_tab(ws_expected_validation, "Validation Results", "Expected_Validation_Results")
+    
+    ws_expected_data_view = wb.create_sheet("Expected_Data_View", 5)
+    _add_expected_results_tab(ws_expected_data_view, "Data View", "Expected_Data_View")
+    
     # Save workbook
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -288,6 +298,84 @@ def _add_instructions(ws):
     # Auto-adjust column widths
     ws.column_dimensions['A'].width = 30
     ws.column_dimensions['B'].width = 60
+
+
+def _add_expected_results_tab(ws, tab_description: str, tab_name: str):
+    """
+    Add Expected_* tab with standard columns and example data.
+    
+    Args:
+        ws: Worksheet to populate
+        tab_description: Description of what this tab validates (e.g., "Upload Activities")
+        tab_name: Excel tab name (e.g., "Expected_Upload_Activities")
+    """
+    # Define column headers
+    headers = [
+        'Row Number',
+        'Column Name',
+        'Expected Value',
+        'Match Type',
+        'Action on Error'
+    ]
+    
+    # Write headers
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Add example rows (generic examples - user should replace with actual values)
+    example_rows = [
+        ['1', 'Status', 'Pass', 'exact', 'fail'],
+        ['1', 'Errors', 'empty', 'empty_check', 'click_link'],
+        ['1', 'Count', '1', 'exact', 'fail'],
+        ['*', 'Row Count', '1', 'exact', 'fail'],
+    ]
+    
+    for row_num, row_data in enumerate(example_rows, start=2):
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num, value=value)
+            if row_num <= len(example_rows) + 1:
+                cell.fill = PatternFill(start_color="E7F3FF", end_color="E7F3FF", fill_type="solid")
+    
+    # Add instructions
+    instruction_row = len(example_rows) + 3
+    ws.cell(row=instruction_row, column=1, value="Instructions:").font = Font(bold=True)
+    instruction_row += 1
+    instructions = [
+        f"This tab contains expected results for validating table data.",
+        "",
+        "Column Descriptions:",
+        "- Row Number: Table row to validate (1 = first row, * = file-level check like Row Count)",
+        "- Column Name: Name of the table column to check (must match UI table header exactly or partially)",
+        "- Expected Value: The value that should appear in that cell (or 'empty' for empty check)",
+        "- Match Type: How to match - 'exact' (exact match), 'empty_check' (cell should be empty), 'contains' (partial match)",
+        "- Action on Error: What to do if validation fails - 'fail' (fail test), 'click_link' (click error link if present)",
+        "",
+        "Usage in Test Steps:",
+        f"- For UI table validation: Functions=Validation(\"Tab Name\", \"{tab_name}\")",
+        "- For file validation: Functions=Validate_file(\"storage/test_files/file.tsv\", \"{tab_name}\")",
+        "",
+        "Note: Replace example values with your actual expected results. Column names must match your UI table headers.",
+    ]
+    
+    for instruction in instructions:
+        ws.cell(row=instruction_row, column=1, value=instruction)
+        instruction_row += 1
+    
+    # Auto-adjust column widths
+    for col_num, header in enumerate(headers, 1):
+        col_letter = get_column_letter(col_num)
+        max_length = len(header)
+        for row_num in range(2, len(example_rows) + 2):
+            cell_value = ws.cell(row=row_num, column=col_num).value
+            if cell_value:
+                max_length = max(max_length, len(str(cell_value)))
+        ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
 
 
 def _add_credentials_sheet(ws):

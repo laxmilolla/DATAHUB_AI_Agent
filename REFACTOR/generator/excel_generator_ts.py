@@ -25,6 +25,476 @@ from REFACTOR.generator.excel_generator import (
 )
 
 
+def read_expected_results_tabs(excel_file: Path) -> Dict[str, List[Dict]]:
+    """
+    Read Expected_* tabs from Excel file and parse expected results.
+    
+    Args:
+        excel_file: Path to Excel file
+        
+    Returns:
+        Dict mapping tab names to lists of expected result dictionaries
+        Format: {
+            "Expected_Upload_Activities": [
+                {"row_number": 1, "column_name": "Status", "expected_value": "Pass", "match_type": "exact", "action_on_error": "fail"},
+                ...
+            ],
+            ...
+        }
+    """
+    expected_results = {}
+    
+    try:
+        # Get all sheet names
+        excel_file_obj = pd.ExcelFile(excel_file)
+        
+        # Find all Expected_* tabs
+        expected_tabs = [name for name in excel_file_obj.sheet_names if name.startswith('Expected_')]
+        
+        for tab_name in expected_tabs:
+            try:
+                df = pd.read_excel(excel_file, sheet_name=tab_name)
+                
+                # Normalize column names
+                df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+                
+                # Map column name variations to standard names
+                column_mapping = {
+                    'row': 'row_number',
+                    'row_num': 'row_number',
+                    'row_number': 'row_number',
+                    'column': 'column_name',
+                    'col': 'column_name',
+                    'column_name': 'column_name',
+                    'expected': 'expected_value',
+                    'value': 'expected_value',
+                    'expected_value': 'expected_value',
+                    'match': 'match_type',
+                    'type': 'match_type',
+                    'match_type': 'match_type',
+                    'action': 'action_on_error',
+                    'error_action': 'action_on_error',
+                    'action_on_error': 'action_on_error',
+                    'required': 'required'
+                }
+                
+                # Apply column mapping
+                df.columns = [column_mapping.get(col, col) for col in df.columns]
+                
+                # Check required columns
+                required_columns = ['row_number', 'column_name', 'expected_value']
+                missing = [col for col in required_columns if col not in df.columns]
+                
+                if missing:
+                    print(f"⚠️  Tab '{tab_name}' missing required columns: {missing}. Skipping.")
+                    continue
+                
+                # Set defaults for optional columns
+                if 'match_type' not in df.columns:
+                    df['match_type'] = 'exact'
+                if 'action_on_error' not in df.columns:
+                    df['action_on_error'] = 'fail'
+                
+                # Parse rows into list of dictionaries
+                results = []
+                for idx, row in df.iterrows():
+                    row_num = str(row.get('row_number', '')).strip()
+                    column_name = str(row.get('column_name', '')).strip() if pd.notna(row.get('column_name')) else ''
+                    expected_value = str(row.get('expected_value', '')).strip() if pd.notna(row.get('expected_value')) else ''
+                    match_type = str(row.get('match_type', 'exact')).strip().lower() if pd.notna(row.get('match_type')) else 'exact'
+                    action_on_error = str(row.get('action_on_error', 'fail')).strip().lower() if pd.notna(row.get('action_on_error')) else 'fail'
+                    
+                    if column_name and expected_value:
+                        results.append({
+                            'row_number': row_num,
+                            'column_name': column_name,
+                            'expected_value': expected_value,
+                            'match_type': match_type,
+                            'action_on_error': action_on_error
+                        })
+                
+                if results:
+                    expected_results[tab_name] = results
+                    print(f"✅ Loaded {len(results)} expected results from '{tab_name}' tab")
+                else:
+                    print(f"⚠️  Tab '{tab_name}' has no valid expected results")
+                    
+            except Exception as e:
+                print(f"⚠️  Error reading tab '{tab_name}': {e}. Skipping.")
+                continue
+                
+    except Exception as e:
+        print(f"⚠️  Error reading expected results tabs: {e}")
+    
+    return expected_results
+
+
+def build_validation_functions_code(expected_results: Dict[str, List[Dict]]) -> str:
+    """
+    Build TypeScript code for Validation() and Validate_file() functions.
+    
+    Args:
+        expected_results: Dict mapping tab names to expected results
+        
+    Returns:
+        String containing TypeScript validation functions code
+    """
+    if not expected_results:
+        return ""
+    
+    # Convert expected_results to JavaScript object
+    expected_results_js = "{\n"
+    for tab_name, results in expected_results.items():
+        tab_name_escaped = tab_name.replace("'", "\\'").replace('"', '\\"')
+        expected_results_js += f"    '{tab_name_escaped}': [\n"
+        for result in results:
+            row_num = result['row_number'].replace("'", "\\'").replace('"', '\\"')
+            col_name = result['column_name'].replace("'", "\\'").replace('"', '\\"')
+            exp_value = result['expected_value'].replace("'", "\\'").replace('"', '\\"')
+            match_type = result['match_type'].replace("'", "\\'").replace('"', '\\"')
+            action_on_error = result['action_on_error'].replace("'", "\\'").replace('"', '\\"')
+            expected_results_js += f"        {{ row_number: '{row_num}', column_name: '{col_name}', expected_value: '{exp_value}', match_type: '{match_type}', action_on_error: '{action_on_error}' }},\n"
+        expected_results_js += "    ],\n"
+    expected_results_js += "}"
+    
+    code = f'''// ============================================================================
+// VALIDATION FUNCTIONS
+// ============================================================================
+// Expected results from Excel Expected_* tabs
+const EXPECTED_RESULTS: {{ [key: string]: Array<{{ row_number: string, column_name: string, expected_value: string, match_type: string, action_on_error: string }}> }} = {expected_results_js};
+
+// Helper function to find column index in table headers
+function findColumnIndex(headers: string[], columnName: string): number {{
+    // Try exact match first (case-insensitive)
+    for (let i = 0; i < headers.length; i++) {{
+        if (headers[i].toLowerCase().trim() === columnName.toLowerCase().trim()) {{
+            return i;
+        }}
+    }}
+    
+    // Try partial match
+    for (let i = 0; i < headers.length; i++) {{
+        if (headers[i].toLowerCase().includes(columnName.toLowerCase())) {{
+            return i;
+        }}
+    }}
+    
+    return -1; // Not found
+}}
+
+// Helper function to match values based on match type
+function matchValue(actual: string, expected: string, matchType: string): boolean {{
+    const actualTrimmed = (actual || '').trim();
+    const expectedTrimmed = (expected || '').trim();
+    
+    if (matchType === 'empty_check') {{
+        return !actualTrimmed || actualTrimmed === '' || actualTrimmed.toLowerCase().includes('0 errors');
+    }} else if (matchType === 'exact') {{
+        return actualTrimmed.toLowerCase() === expectedTrimmed.toLowerCase();
+    }} else if (matchType === 'contains') {{
+        return actualTrimmed.toLowerCase().includes(expectedTrimmed.toLowerCase());
+    }}
+    
+    // Default to exact match
+    return actualTrimmed.toLowerCase() === expectedTrimmed.toLowerCase();
+}}
+
+// Helper function to switch to a web tab
+async function switchToWebTab(page: any, tabName: string): Promise<void> {{
+    try {{
+        // Find tab button by text (case-insensitive partial match)
+        const tabNameLower = tabName.toLowerCase();
+        const tabButton = page.locator(`//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${{tabNameLower}}')]`).first();
+        await tabButton.waitFor({{ state: 'visible', timeout: 5000 }});
+        await tabButton.click();
+        await page.waitForTimeout(1000); // Wait for tab content to load
+        console.log(`✅ Switched to tab: ${{tabName}}`);
+    }} catch (e) {{
+        throw new Error(`Failed to switch to tab "${{tabName}}": ${{e}}`);
+    }}
+}}
+
+// Helper function to wait for table to be stable
+async function waitForTableStable(page: any): Promise<void> {{
+    // Wait for table rows to be visible
+    await page.waitForSelector('tbody tr', {{ state: 'visible', timeout: 10000 }});
+    
+    // Wait a bit more for any animations/transitions
+    await page.waitForTimeout(1000);
+}}
+
+// Helper function to read table from UI
+async function readTableFromUI(page: any): Promise<{{ headers: string[], rows: string[][] }}> {{
+    // Find table using generic pattern (first visible table)
+    const table = page.locator('table').first();
+    await table.waitFor({{ state: 'visible', timeout: 10000 }});
+    
+    // Read table headers (generic: thead th or thead td)
+    const headerElements = await table.locator('thead th, thead td').all();
+    const headers: string[] = [];
+    for (const header of headerElements) {{
+        const text = (await header.textContent() || '').trim();
+        if (text) headers.push(text);
+    }}
+    
+    // Read table rows (generic: tbody tr)
+    const rowElements = await table.locator('tbody tr').all();
+    const rows: string[][] = [];
+    
+    for (const rowElement of rowElements) {{
+        const cellElements = await rowElement.locator('td').all();
+        const row: string[] = [];
+        for (const cell of cellElements) {{
+            const text = (await cell.textContent() || '').trim();
+            row.push(text);
+        }}
+        if (row.length > 0) rows.push(row);
+    }}
+    
+    return {{ headers, rows }};
+}}
+
+// Helper function to click error link and validate error details
+async function clickErrorLinkAndValidate(page: any, rowIndex: number, columnIndex: number): Promise<void> {{
+    try {{
+        // Find the error link in the specified cell
+        const row = page.locator(`tbody tr:nth-child(${{rowIndex + 1}})`);
+        const cell = row.locator(`td:nth-child(${{columnIndex + 1}})`);
+        const link = cell.locator('a').first();
+        
+        // Click the link
+        await link.click();
+        
+        // Wait for error details to appear (modal)
+        // Use generic ARIA dialog pattern (W3C standard)
+        await page.waitForSelector('[role="dialog"]', {{ timeout: 5000 }});
+        
+        // Extract error details
+        const errorText = await page.locator('[role="dialog"]').first().textContent();
+        console.log(`Error details: ${{errorText}}`);
+        
+        // Close dialog if it's a modal
+        const closeButton = page.locator('[role="dialog"] button[aria-label*="Close"]').first();
+        await closeButton.click();
+        await page.waitForTimeout(500);
+    }} catch (e) {{
+        throw new Error(`Failed to click error link: ${{e}}`);
+    }}
+}}
+
+// Validation function for UI table data
+async function Validation(page: any, webTabName: string, excelTabName: string): Promise<boolean> {{
+    console.log(`🔍 Validation: Validating "${{webTabName}}" tab against "${{excelTabName}}" expected results`);
+    
+    // Get expected results
+    const expectedResults = EXPECTED_RESULTS[excelTabName];
+    if (!expectedResults || expectedResults.length === 0) {{
+        throw new Error(`No expected results found for tab: ${{excelTabName}}`);
+    }}
+    
+    // Step 1: Switch to web tab
+    await switchToWebTab(page, webTabName);
+    
+    // Step 2: Wait for table to be stable
+    await waitForTableStable(page);
+    
+    // Step 3: Read current table from UI
+    const table = await readTableFromUI(page);
+    
+    if (table.headers.length === 0) {{
+        throw new Error('Table has no headers');
+    }}
+    
+    if (table.rows.length === 0) {{
+        throw new Error('Table has no rows');
+    }}
+    
+    // Step 4: Validate file-level checks (row count, etc.)
+    const fileLevelChecks = expectedResults.filter(e => e.row_number === '*');
+    for (const check of fileLevelChecks) {{
+        if (check.column_name.toLowerCase() === 'row count') {{
+            const expectedCount = parseInt(check.expected_value);
+            if (table.rows.length !== expectedCount) {{
+                throw new Error(`Row count mismatch: expected ${{expectedCount}}, got ${{table.rows.length}}`);
+            }}
+        }}
+    }}
+    
+    // Step 5: Validate row-by-row data
+    const rowChecks = expectedResults.filter(e => e.row_number !== '*');
+    for (const check of rowChecks) {{
+        const rowIndex = parseInt(check.row_number) - 1; // Convert to 0-based
+        
+        if (rowIndex < 0 || rowIndex >= table.rows.length) {{
+            throw new Error(`Row ${{check.row_number}} not found in table (table has ${{table.rows.length}} rows)`);
+        }}
+        
+        const columnIndex = findColumnIndex(table.headers, check.column_name);
+        if (columnIndex === -1) {{
+            throw new Error(`Column "${{check.column_name}}" not found in table. Available columns: ${{table.headers.join(', ')}}`);
+        }}
+        
+        if (columnIndex >= table.rows[rowIndex].length) {{
+            throw new Error(`Column index ${{columnIndex}} out of range for row ${{check.row_number}}`);
+        }}
+        
+        const actualValue = table.rows[rowIndex][columnIndex];
+        
+        if (!matchValue(actualValue, check.expected_value, check.match_type)) {{
+            // Handle error action
+            if (check.action_on_error === 'click_link') {{
+                await clickErrorLinkAndValidate(page, rowIndex, columnIndex);
+            }}
+            throw new Error(`Row ${{check.row_number}}, Column "${{check.column_name}}": expected "${{check.expected_value}}" (match type: ${{check.match_type}}), got "${{actualValue}}"`);
+        }}
+    }}
+    
+    console.log(`✅ Validation passed: All checks for "${{excelTabName}}" passed`);
+    return true;
+}}
+
+// Helper function to parse TSV file
+function parseTSV(content: string): {{ headers: string[], rows: string[][] }} {{
+    const lines = content.split('\\n').filter(line => line.trim());
+    if (lines.length === 0) {{
+        throw new Error('File is empty');
+    }}
+    
+    // First line is headers
+    const headers = lines[0].split('\\t').map(h => h.trim());
+    
+    // Remaining lines are data rows
+    const rows: string[][] = [];
+    for (let i = 1; i < lines.length; i++) {{
+        const values = lines[i].split('\\t').map(v => v.trim());
+        rows.push(values);
+    }}
+    
+    return {{ headers, rows }};
+}}
+
+// Helper function to parse CSV file
+function parseCSV(content: string): {{ headers: string[], rows: string[][] }} {{
+    const lines = content.split('\\n').filter(line => line.trim());
+    if (lines.length === 0) {{
+        throw new Error('File is empty');
+    }}
+    
+    // Simple CSV parsing (handles quoted values)
+    function parseCSVLine(line: string): string[] {{
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {{
+            const char = line[i];
+            if (char === '"') {{
+                inQuotes = !inQuotes;
+            }} else if (char === ',' && !inQuotes) {{
+                result.push(current.trim());
+                current = '';
+            }} else {{
+                current += char;
+            }}
+        }}
+        result.push(current.trim());
+        return result;
+    }}
+    
+    // First line is headers
+    const headers = parseCSVLine(lines[0]);
+    
+    // Remaining lines are data rows
+    const rows: string[][] = [];
+    for (let i = 1; i < lines.length; i++) {{
+        const values = parseCSVLine(lines[i]);
+        rows.push(values);
+    }}
+    
+    return {{ headers, rows }};
+}}
+
+// Validation function for file content
+async function Validate_file(fileLocation: string, excelTabName: string): Promise<boolean> {{
+    console.log(`🔍 Validate_file: Validating file "${{fileLocation}}" against "${{excelTabName}}" expected results`);
+    
+    // Step 1: Resolve file path
+    const projectRoot = path.resolve(__dirname, '../../');
+    const filePath = path.resolve(projectRoot, fileLocation);
+    
+    // Step 2: Check file exists
+    if (!fs.existsSync(filePath)) {{
+        throw new Error(`File not found: ${{filePath}}`);
+    }}
+    
+    // Step 3: Read and parse file
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const extension = path.extname(filePath).toLowerCase();
+    
+    let fileData: {{ headers: string[], rows: string[][] }};
+    if (extension === '.tsv') {{
+        fileData = parseTSV(fileContent);
+    }} else if (extension === '.csv') {{
+        fileData = parseCSV(fileContent);
+    }} else {{
+        throw new Error(`Unsupported file type: ${{extension}}. Supported: .tsv, .csv`);
+    }}
+    
+    // Step 4: Get expected results
+    const expectedResults = EXPECTED_RESULTS[excelTabName];
+    if (!expectedResults || expectedResults.length === 0) {{
+        throw new Error(`No expected results found for tab: ${{excelTabName}}`);
+    }}
+    
+    // Step 5: Validate file-level checks
+    const fileLevelChecks = expectedResults.filter(e => e.row_number === '*');
+    for (const check of fileLevelChecks) {{
+        if (check.column_name.toLowerCase() === 'row count') {{
+            const expectedCount = parseInt(check.expected_value);
+            if (fileData.rows.length !== expectedCount) {{
+                throw new Error(`Row count mismatch: expected ${{expectedCount}}, got ${{fileData.rows.length}}`);
+            }}
+        }} else if (check.column_name.toLowerCase() === 'column count') {{
+            const expectedCount = parseInt(check.expected_value);
+            if (fileData.headers.length !== expectedCount) {{
+                throw new Error(`Column count mismatch: expected ${{expectedCount}}, got ${{fileData.headers.length}}`);
+            }}
+        }}
+    }}
+    
+    // Step 6: Validate row-by-row data
+    const rowChecks = expectedResults.filter(e => e.row_number !== '*');
+    for (const check of rowChecks) {{
+        const rowIndex = parseInt(check.row_number) - 1; // Convert to 0-based
+        
+        if (rowIndex < 0 || rowIndex >= fileData.rows.length) {{
+            throw new Error(`Row ${{check.row_number}} not found in file (file has ${{fileData.rows.length}} rows)`);
+        }}
+        
+        const columnIndex = findColumnIndex(fileData.headers, check.column_name);
+        if (columnIndex === -1) {{
+            throw new Error(`Column "${{check.column_name}}" not found in file. Available columns: ${{fileData.headers.join(', ')}}`);
+        }}
+        
+        if (columnIndex >= fileData.rows[rowIndex].length) {{
+            throw new Error(`Column index ${{columnIndex}} out of range for row ${{check.row_number}}`);
+        }}
+        
+        const actualValue = fileData.rows[rowIndex][columnIndex];
+        
+        if (!matchValue(actualValue, check.expected_value, check.match_type)) {{
+            throw new Error(`Row ${{check.row_number}}, Column "${{check.column_name}}": expected "${{check.expected_value}}" (match type: ${{check.match_type}}), got "${{actualValue}}"`);
+        }}
+    }}
+    
+    console.log(`✅ Validate_file passed: All checks for "${{excelTabName}}" passed`);
+    return true;
+}}
+'''
+    
+    return code
+
+
 def build_registry_code_ts(registry_files: List[str]) -> str:
     """
     Build TypeScript registry loading code and helper functions
@@ -1049,9 +1519,34 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     
     # Determine verification type from functions column
     verification_type = 'visibility'  # Default
+    is_validation_function = False
+    is_validate_file_function = False
+    validation_params = None
+    
     if functions:
-        functions_upper = str(functions).strip().upper()
-        if 'TABLE' in functions_upper:
+        functions_str = str(functions).strip()
+        functions_upper = functions_str.upper()
+        
+        # Check for Validation() function call
+        validation_match = re.match(r'Validation\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
+        if validation_match:
+            is_validation_function = True
+            web_tab_name = validation_match.group(1)
+            excel_tab_name = validation_match.group(2)
+            verification_type = 'validation'
+            validation_params = {'web_tab_name': web_tab_name, 'excel_tab_name': excel_tab_name}
+        
+        # Check for Validate_file() function call
+        validate_file_match = re.match(r'Validate_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
+        if validate_file_match:
+            is_validate_file_function = True
+            file_location = validate_file_match.group(1)
+            excel_tab_name = validate_file_match.group(2)
+            verification_type = 'validate_file'
+            validation_params = {'file_location': file_location, 'excel_tab_name': excel_tab_name}
+        
+        # Legacy table/text verification
+        elif 'TABLE' in functions_upper:
             verification_type = 'table'
         elif 'TEXT' in functions_upper:
             verification_type = 'text'
@@ -1064,93 +1559,127 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         code += f" (text verification)"
     elif verification_type == 'table':
         code += f" (table verification)"
+    elif verification_type == 'validation':
+        code += f" (UI table validation)"
+    elif verification_type == 'validate_file':
+        code += f" (file content validation)"
     code += f"\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     code += f"{ind}try {{\n"
     
-    # TABLE VERIFICATION
-    if verification_type == 'table':
-        # Parse Text Value: "ColumnName=ExpectedValue"
-        if not text_value or '=' not in text_value:
-            code += f"{ind}    throw new Error(`Step {step}: Table verification requires Text Value in format 'ColumnName=ExpectedValue'`);\n"
-        else:
-            parts = text_value.split('=', 1)
-            column_name = parts[0].strip()
-            expected_value = parts[1].strip()
-            column_name_escaped = column_name.replace("'", "\\'").replace('"', '\\"')
-            expected_value_escaped = expected_value.replace("'", "\\'").replace('"', '\\"')
-            
-            # Determine table selector from XPath
-            table_selector = xpath.strip() if xpath and xpath != 'N/A' else 'visible_table'
-            table_selector_escaped = table_selector.replace("'", "\\'").replace('"', '\\"')
-            
-            code += f"{ind}    // Table verification: Check all rows in '{column_name}' column contain '{expected_value}'\n"
-            code += f"{ind}    const columnName = '{column_name_escaped}';\n"
-            code += f"{ind}    const expectedValue = '{expected_value_escaped}';\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    // Find table\n"
-            if table_selector == 'visible_table':
-                code += f"{ind}    const table = page.locator('table').first();\n"
+    # VALIDATION FUNCTION CALL
+    if verification_type == 'validation' and validation_params:
+        web_tab_name = validation_params['web_tab_name']
+        excel_tab_name = validation_params['excel_tab_name']
+        web_tab_escaped = web_tab_name.replace("'", "\\'").replace('"', '\\"')
+        excel_tab_escaped = excel_tab_name.replace("'", "\\'").replace('"', '\\"')
+        code += f"{ind}    // Call Validation function\n"
+        code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}');\n"
+        code += f"{ind}    if (!validationResult) {{\n"
+        code += f"{ind}        throw new Error(`Step {step}: Validation failed for tab '{web_tab_escaped}'`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Validation passed for '{web_tab_escaped}' tab`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_validation.png' }});\n"
+    
+    # VALIDATE_FILE FUNCTION CALL
+    elif verification_type == 'validate_file' and validation_params:
+        file_location = validation_params['file_location']
+        excel_tab_name = validation_params['excel_tab_name']
+        file_location_escaped = file_location.replace("'", "\\'").replace('"', '\\"')
+        excel_tab_escaped = excel_tab_name.replace("'", "\\'").replace('"', '\\"')
+        code += f"{ind}    // Call Validate_file function\n"
+        code += f"{ind}    const validationResult = await Validate_file('{file_location_escaped}', '{excel_tab_escaped}');\n"
+        code += f"{ind}    if (!validationResult) {{\n"
+        code += f"{ind}        throw new Error(`Step {step}: File validation failed for '{file_location_escaped}'`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    console.log(`✅ Step {step}: File validation passed for '{file_location_escaped}'`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_file_validation.png' }});\n"
+    
+    # LEGACY TABLE/TEXT/VISIBILITY VERIFICATION
+    elif verification_type in ['table', 'text', 'visibility']:
+        # TABLE VERIFICATION
+        if verification_type == 'table':
+            # Parse Text Value: "ColumnName=ExpectedValue"
+            if not text_value or '=' not in text_value:
+                code += f"{ind}    throw new Error(`Step {step}: Table verification requires Text Value in format 'ColumnName=ExpectedValue'`);\n"
             else:
-                # Check if XPath or CSS selector
-                if table_selector.startswith('//') or table_selector.startswith('('):
-                    code += f"{ind}    const table = page.locator(`xpath={table_selector_escaped}`).first();\n"
+                parts = text_value.split('=', 1)
+                column_name = parts[0].strip()
+                expected_value = parts[1].strip()
+                column_name_escaped = column_name.replace("'", "\\'").replace('"', '\\"')
+                expected_value_escaped = expected_value.replace("'", "\\'").replace('"', '\\"')
+                
+                # Determine table selector from XPath
+                table_selector = xpath.strip() if xpath and xpath != 'N/A' else 'visible_table'
+                table_selector_escaped = table_selector.replace("'", "\\'").replace('"', '\\"')
+                
+                code += f"{ind}    // Table verification: Check all rows in '{column_name}' column contain '{expected_value}'\n"
+                code += f"{ind}    const columnName = '{column_name_escaped}';\n"
+                code += f"{ind}    const expectedValue = '{expected_value_escaped}';\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    // Find table\n"
+                if table_selector == 'visible_table':
+                    code += f"{ind}    const table = page.locator('table').first();\n"
                 else:
-                    code += f"{ind}    const table = page.locator('{table_selector_escaped}').first();\n"
-            
-            code += f"{ind}    await table.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    // Find column index by header text\n"
-            code += f"{ind}    const headers = await table.locator('thead th, thead td').allTextContents();\n"
-            code += f"{ind}    let columnIndex = -1;\n"
-            code += f"{ind}    for (let i = 0; i < headers.length; i++) {{\n"
-            code += f"{ind}        if (headers[i].toLowerCase().includes(columnName.toLowerCase())) {{\n"
-            code += f"{ind}            columnIndex = i;\n"
-            code += f"{ind}            break;\n"
-            code += f"{ind}        }}\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    if (columnIndex === -1) {{\n"
-            code += f"{ind}        throw new Error(`Step {step}: Column \\\"${{columnName}}\\\" not found. Available columns: ${{headers.join(', ')}}`);\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    // Verify all rows contain expected value\n"
-            code += f"{ind}    const rows = await table.locator('tbody tr').all();\n"
-            code += f"{ind}    const totalRows = rows.length;\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    if (totalRows === 0) {{\n"
-            code += f"{ind}        throw new Error(`Step {step}: Table has no rows to verify`);\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    let matchingRows = 0;\n"
-            code += f"{ind}    const mismatches = [];\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    for (let i = 0; i < totalRows; i++) {{\n"
-            code += f"{ind}        const cells = await rows[i].locator('td').all();\n"
-            code += f"{ind}        if (columnIndex < cells.length) {{\n"
-            code += f"{ind}            const cellText = (await cells[columnIndex].textContent() || '').trim();\n"
-            code += f"{ind}            if (cellText.toLowerCase().includes(expectedValue.toLowerCase())) {{\n"
-            code += f"{ind}                matchingRows++;\n"
-            code += f"{ind}            }} else {{\n"
-            code += f"{ind}                mismatches.push(`Row ${{i+1}}: \\\"${{cellText}}\\\"`);\n"
-            code += f"{ind}            }}\n"
-            code += f"{ind}        }}\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    \n"
-            code += f"{ind}    if (matchingRows !== totalRows) {{\n"
-            code += f"{ind}        const mismatchDetails = mismatches.slice(0, 5).join('; ');\n"
-            code += f"{ind}        throw new Error(`Step {step}: Table verification failed: ${{matchingRows}}/${{totalRows}} rows match. Mismatches: ${{mismatchDetails}}`);\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    \n"
+                    # Check if XPath or CSS selector
+                    if table_selector.startswith('//') or table_selector.startswith('('):
+                        code += f"{ind}    const table = page.locator(`xpath={table_selector_escaped}`).first();\n"
+                    else:
+                        code += f"{ind}    const table = page.locator('{table_selector_escaped}').first();\n"
+                
+                code += f"{ind}    await table.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    // Find column index by header text\n"
+                code += f"{ind}    const headers = await table.locator('thead th, thead td').allTextContents();\n"
+                code += f"{ind}    let columnIndex = -1;\n"
+                code += f"{ind}    for (let i = 0; i < headers.length; i++) {{\n"
+                code += f"{ind}        if (headers[i].toLowerCase().includes(columnName.toLowerCase())) {{\n"
+                code += f"{ind}            columnIndex = i;\n"
+                code += f"{ind}            break;\n"
+                code += f"{ind}        }}\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    if (columnIndex === -1) {{\n"
+                code += f"{ind}        throw new Error(`Step {step}: Column \\\"${{columnName}}\\\" not found. Available columns: ${{headers.join(', ')}}`);\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    // Verify all rows contain expected value\n"
+                code += f"{ind}    const rows = await table.locator('tbody tr').all();\n"
+                code += f"{ind}    const totalRows = rows.length;\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    if (totalRows === 0) {{\n"
+                code += f"{ind}        throw new Error(`Step {step}: Table has no rows to verify`);\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    let matchingRows = 0;\n"
+                code += f"{ind}    const mismatches = [];\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    for (let i = 0; i < totalRows; i++) {{\n"
+                code += f"{ind}        const cells = await rows[i].locator('td').all();\n"
+                code += f"{ind}        if (columnIndex < cells.length) {{\n"
+                code += f"{ind}            const cellText = (await cells[columnIndex].textContent() || '').trim();\n"
+                code += f"{ind}            if (cellText.toLowerCase().includes(expectedValue.toLowerCase())) {{\n"
+                code += f"{ind}                matchingRows++;\n"
+                code += f"{ind}            }} else {{\n"
+                code += f"{ind}                mismatches.push(`Row ${{i+1}}: \\\"${{cellText}}\\\"`);\n"
+                code += f"{ind}            }}\n"
+                code += f"{ind}        }}\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
+                code += f"{ind}    if (matchingRows !== totalRows) {{\n"
+                code += f"{ind}        const mismatchDetails = mismatches.slice(0, 5).join('; ');\n"
+                code += f"{ind}        throw new Error(`Step {step}: Table verification failed: ${{matchingRows}}/${{totalRows}} rows match. Mismatches: ${{mismatchDetails}}`);\n"
+                code += f"{ind}    }}\n"
+                code += f"{ind}    \n"
             code += f"{ind}    console.log(`✅ Step {step}: Table verification passed: All ${{totalRows}} rows in \\\"${{columnName}}\\\" column contain \\\"${{expectedValue}}\\\"`);\n"
             code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_table.png' }});\n"
-    
-    # TEXT VERIFICATION
-    elif verification_type == 'text':
-        if not text_value:
-            code += f"{ind}    throw new Error(`Step {step}: Text verification requires Text Value`);\n"
-        else:
-            expected_text = text_value.strip().strip('"').strip("'")
+        
+        # TEXT VERIFICATION
+        elif verification_type == 'text':
+            if not text_value:
+                code += f"{ind}    throw new Error(`Step {step}: Text verification requires Text Value`);\n"
+            else:
+                expected_text = text_value.strip().strip('"').strip("'")
             expected_text_escaped = expected_text.replace("'", "\\'").replace('"', '\\"')
             
             # Use registry lookup if element_id is available
@@ -1185,40 +1714,44 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
             else:
                 code += f"{ind}    // Element not found in registry - test must fail\n"
                 code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
-    
-    # VISIBILITY VERIFICATION (default)
-    else:
-        # Use registry lookup if element_id is available
-        if element_id:
-            element_id_escaped = escape_xpath(element_id)
-            # URL-free approach: Lookup by element_id only (searches all registries)
-            # Declare element variable outside try block so it's in scope
-            code += f"{ind}    let element;\n"
-            code += f"{ind}    // Try registry lookup first\n"
-            code += f"{ind}    try {{\n"
-            code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
-            code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
-            code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
-            code += f"{ind}        element = page.locator(selector).nth(0);\n"
-            code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
-            code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
-            code += f"{ind}    }} catch (registry_error) {{\n"
-            code += f"{ind}        // Registry lookup failed - test must fail\n"
-            code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
-            code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
-            code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
-            code += f"{ind}    }}\n"
-        else:
-            # No element_id - test must fail (element not in registry)
-            code += f"{ind}    // Element not found in registry - test must fail\n"
-            code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
-        element_display = element_name or 'element'
-        code += f"{ind}    console.log(`✅ Step {step}: Verified {element_display} is visible`);\n"
-        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
+        
+        # VISIBILITY VERIFICATION (default)
+        elif verification_type == 'visibility':
+            # Use registry lookup if element_id is available
+            if element_id:
+                element_id_escaped = escape_xpath(element_id)
+                # URL-free approach: Lookup by element_id only (searches all registries)
+                # Declare element variable outside try block so it's in scope
+                code += f"{ind}    let element;\n"
+                code += f"{ind}    // Try registry lookup first\n"
+                code += f"{ind}    try {{\n"
+                code += f"{ind}        // URL-free lookup: search all registries by element_id\n"
+                code += f"{ind}        const xpath = getXpathById('{element_id_escaped}');\n"
+                code += f"{ind}        const selector = `xpath=${{xpath}}`;\n"
+                code += f"{ind}        element = page.locator(selector).nth(0);\n"
+                code += f"{ind}        await element.waitFor({{ state: 'visible', timeout: 10000 }});\n"
+                code += f"{ind}        console.log(`✅ Step {step}: Using registry element_id: {element_id_escaped}`);\n"
+                code += f"{ind}    }} catch (registry_error) {{\n"
+                code += f"{ind}        // Registry lookup failed - test must fail\n"
+                code += f"{ind}        console.log(`❌ Step {step}: Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+                code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_registry_failed.png' }});\n"
+                code += f"{ind}        throw new Error(`Registry lookup failed for element_id {element_id_escaped}: ${{registry_error}}`);\n"
+                code += f"{ind}    }}\n"
+            else:
+                # No element_id - test must fail (element not in registry)
+                code += f"{ind}    // Element not found in registry - test must fail\n"
+                code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
+            element_display = element_name or 'element'
+            code += f"{ind}    console.log(`✅ Step {step}: Verified {element_display} is visible`);\n"
+            code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}.png' }});\n"
     
     code += f"{ind}}} catch (e) {{\n"
     element_display = element_name or 'element'
     verification_type_display = verification_type if verification_type != 'visibility' else ''
+    if verification_type == 'validation':
+        verification_type_display = 'UI table validation'
+    elif verification_type == 'validate_file':
+        verification_type_display = 'file validation'
     code += f"{ind}    console.log(`❌ Step {step}: Failed to verify {element_display}{' (' + verification_type_display + ')' if verification_type_display else ''}: ${{e}}`);\n"
     code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_failed.png' }});\n"
     code += f"{ind}    criticalFailures.push(`Step {step}: Verify failed`);\n"
@@ -1270,6 +1803,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             # Credentials tab doesn't exist - that's okay, will use .env fallback
             print("ℹ️  No 'Credentials' tab found - will use .env file for TOTP secrets")
         
+        # Read Expected_* tabs for validation functions
+        expected_results = read_expected_results_tabs(excel_file)
+        
         # Normalize column names (case-insensitive, handle spaces)
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
         
@@ -1284,6 +1820,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         
         # Generate registry code
         registry_code = build_registry_code_ts(registry_files)
+        
+        # Generate validation functions code
+        validation_functions_code = build_validation_functions_code(expected_results)
         
         # Generate code
         test_body = ""
@@ -1511,6 +2050,8 @@ const CREDENTIALS: {{ [key: string]: string }} = {{
 }};
 
 {registry_code}
+
+{validation_functions_code}
 
 test('{test_name}', async ({{ page }}) => {{
     /* Auto-generated test from Excel file */
