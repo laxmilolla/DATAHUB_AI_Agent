@@ -1,0 +1,33 @@
+{
+  "excel_id": "excel_20260123_103518_fc30c2a1",
+  "filename": "test_case.xlsx",
+  "saved_filename": "excel_20260123_103518_fc30c2a1.xlsx",
+  "uploaded_at": "2026-01-23T10:35:18.814887",
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "warnings": [
+      "Column 'xpath' has 2 empty values"
+    ],
+    "row_count": 19
+  },
+  "file_path": "storage/excel_files/excel_20260123_103518_fc30c2a1.xlsx",
+  "generated_test_ts": {
+    "test_name": "test_excel_excel_20260123_103518_fc30c2a1",
+    "test_file": "storage/excel_tests/test_excel_excel_20260123_103518_fc30c2a1.spec.ts",
+    "generated_at": "2026-01-23T10:35:20.882621",
+    "generation_result": {
+      "success": false,
+      "output_file": "/Users/sohilz2/Documents/AI-Automation/01-23-2026/DATAHUB_AI_Agent/storage/excel_tests/test_excel_excel_20260123_103518_fc30c2a1.spec.ts",
+      "rows_processed": 19,
+      "errors": [
+        "TypeScript validation failed: Found Python syntax pattern 'if\\s+.*\\s+in\\s+[^:]+:': ['if element_id exists in current page registry\\n            if (elementId in currentIdIndex) {\\n                const registryKey = currentIdIndex[elementId];\\n                if (registryKey in currentRegistry) {\\n                    const xpath = currentRegistry[registryKey].xpath;\\n                    if (xpath) {\\n                        return xpath;\\n                    }\\n                }\\n            }\\n        }\\n    }\\n    \\n    // STEP 2:', 'if (elementId in idIndex) {\\n                    const registryKey = idIndex[elementId];\\n                    if (registryKey in elements) {\\n                        const xpath = elements[registryKey].xpath;\\n                        if (xpath) {\\n                            return xpath;\\n                        }\\n                    }\\n                }\\n            }\\n        }\\n    }\\n    \\n    // STEP 3:', \"if (elementId in idIndex) {\\n            const registryKey = idIndex[elementId];\\n            if (registryKey in elements) {\\n                const xpath = elements[registryKey].xpath;\\n                if (xpath) {\\n                    return xpath;\\n                }\\n            }\\n        }\\n    }\\n    \\n    // Not found in any registry\\n    throw new Error(`\u274c element_id '${elementId}' not found in any registry id_index`);\\n}\\n\\n\\n\\ntest('test_excel_generated', async ({ page }) => {\\n    /* Auto-generated test from Excel file */\\n    // Set test timeout to 5 minutes (300000ms) to allow for multiple steps with waits\\n    test.setTimeout(300000);\\n    \\n    const criticalFailures:\"]",
+        "TypeScript validation failed: Found criticalFailures.push without closing brace"
+      ],
+      "validation_warnings": [
+        "Found Python syntax pattern 'if\\s+.*\\s+in\\s+[^:]+:': ['if element_id exists in current page registry\\n            if (elementId in currentIdIndex) {\\n                const registryKey = currentIdIndex[elementId];\\n                if (registryKey in currentRegistry) {\\n                    const xpath = currentRegistry[registryKey].xpath;\\n                    if (xpath) {\\n                        return xpath;\\n                    }\\n                }\\n            }\\n        }\\n    }\\n    \\n    // STEP 2:', 'if (elementId in idIndex) {\\n                    const registryKey = idIndex[elementId];\\n                    if (registryKey in elements) {\\n                        const xpath = elements[registryKey].xpath;\\n                        if (xpath) {\\n                            return xpath;\\n                        }\\n                    }\\n                }\\n            }\\n        }\\n    }\\n    \\n    // STEP 3:', \"if (elementId in idIndex) {\\n            const registryKey = idIndex[elementId];\\n            if (registryKey in elements) {\\n                const xpath = elements[registryKey].xpath;\\n                if (xpath) {\\n                    return xpath;\\n                }\\n            }\\n        }\\n    }\\n    \\n    // Not found in any registry\\n    throw new Error(`\u274c element_id '${elementId}' not found in any registry id_index`);\\n}\\n\\n\\n\\ntest('test_excel_generated', async ({ page }) => {\\n    /* Auto-generated test from Excel file */\\n    // Set test timeout to 5 minutes (300000ms) to allow for multiple steps with waits\\n    test.setTimeout(300000);\\n    \\n    const criticalFailures:\"]",
+        "Found criticalFailures.push without closing brace"
+      ]
+    }
+  }
+}
