@@ -713,6 +713,191 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
     console.log(`✅ Validate_file passed: All checks for "${{excelTabName}}" passed`);
     return {{ success: true, matches: matches }};
 }}
+
+// Validation function for data view - automatically validates all node types
+async function Validate_data_view(page: any, folderPath: string, dropdownXPath: string, tableXPath?: string, step?: string, executionId?: string): Promise<{{ success: boolean, nodeResults?: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> }}> {{
+    console.log(`🔍 Validate_data_view: Validating data view for folder "${{folderPath}}"`);
+    
+    const nodeResults: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> = [];
+    
+    // Step 1: Resolve folder path
+    const projectRoot = path.resolve(__dirname, '../../');
+    const resolvedFolderPath = path.resolve(projectRoot, folderPath);
+    
+    // Step 2: Check folder exists
+    if (!fs.existsSync(resolvedFolderPath)) {{
+        throw new Error(`Folder not found: ${{resolvedFolderPath}}`);
+    }}
+    
+    if (!fs.statSync(resolvedFolderPath).isDirectory()) {{
+        throw new Error(`Path is not a directory: ${{resolvedFolderPath}}`);
+    }}
+    
+    // Step 3: Find all TSV files in folder
+    const files = fs.readdirSync(resolvedFolderPath);
+    const tsvFiles = files.filter(f => f.toLowerCase().endsWith('.tsv'));
+    
+    if (tsvFiles.length === 0) {{
+        throw new Error(`No TSV files found in folder: ${{resolvedFolderPath}}`);
+    }}
+    
+    console.log(`📁 Found ${{tsvFiles.length}} TSV file(s): ${{tsvFiles.join(', ')}}`);
+    
+    // Step 4: Extract node types from filenames (e.g., "study.tsv" -> "study")
+    const nodeTypes = tsvFiles.map(f => path.basename(f, '.tsv').toLowerCase());
+    
+    // Step 5: Click dropdown to open it
+    console.log(`🖱️  Clicking dropdown: ${{dropdownXPath}}`);
+    const dropdown = page.locator(`xpath=${{dropdownXPath}}`).first();
+    await dropdown.waitFor({{ state: 'visible', timeout: 10000 }});
+    await dropdown.click();
+    await page.waitForTimeout(500); // Wait for dropdown menu to appear
+    
+    // Step 6: For each node type, select it and validate
+    for (let i = 0; i < nodeTypes.length; i++) {{
+        const nodeType = nodeTypes[i];
+        const tsvFile = tsvFiles[i];
+        const tsvFilePath = path.join(resolvedFolderPath, tsvFile);
+        
+        console.log(`\\n📊 Validating node type: ${{nodeType}} (file: ${{tsvFile}})`);
+        
+        try {{
+            // Select the node type option from dropdown
+            // Material-UI Select: options are in a listbox, find by text content
+            const optionXPath = `//li[contains(@role, 'option') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${{nodeType}}')]`;
+            const option = page.locator(`xpath=${{optionXPath}}`).first();
+            await option.waitFor({{ state: 'visible', timeout: 5000 }});
+            await option.click();
+            await page.waitForTimeout(1000); // Wait for selection to apply
+            
+            // Wait for table to update after dropdown selection
+            await waitForTableStable(page);
+            
+            // Read table from UI
+            const uiTable = await readTableFromUI(page, tableXPath);
+            console.log(`✅ Read UI table: ${{uiTable.headers.length}} columns, ${{uiTable.rows.length}} rows`);
+            
+            // Read TSV file
+            const tsvContent = fs.readFileSync(tsvFilePath, 'utf-8');
+            const tsvData = parseTSV(tsvContent);
+            console.log(`✅ Read TSV file: ${{tsvData.headers.length}} columns, ${{tsvData.rows.length}} rows`);
+            
+            // Compare data
+            const mismatches: Array<{{ row: number, column: string, expected: string, actual: string }}> = [];
+            
+            // Compare headers (case-insensitive)
+            if (uiTable.headers.length !== tsvData.headers.length) {{
+                mismatches.push({{
+                    row: 0,
+                    column: 'Header Count',
+                    expected: String(tsvData.headers.length),
+                    actual: String(uiTable.headers.length),
+                    matchType: 'exact'
+                }});
+            }}
+            
+            // Compare row count
+            if (uiTable.rows.length !== tsvData.rows.length) {{
+                mismatches.push({{
+                    row: 0,
+                    column: 'Row Count',
+                    expected: String(tsvData.rows.length),
+                    actual: String(uiTable.rows.length),
+                    matchType: 'exact'
+                }});
+            }}
+            
+            // Compare data rows (only if headers and row counts match)
+            if (uiTable.headers.length === tsvData.headers.length && uiTable.rows.length === tsvData.rows.length) {{
+                // Map TSV headers to UI table headers (case-insensitive)
+                const headerMap: number[] = [];
+                for (const tsvHeader of tsvData.headers) {{
+                    const uiIndex = uiTable.headers.findIndex(h => h.toLowerCase() === tsvHeader.toLowerCase());
+                    headerMap.push(uiIndex >= 0 ? uiIndex : -1);
+                }}
+                
+                // Compare each row
+                for (let rowIdx = 0; rowIdx < Math.min(uiTable.rows.length, tsvData.rows.length); rowIdx++) {{
+                    const uiRow = uiTable.rows[rowIdx];
+                    const tsvRow = tsvData.rows[rowIdx];
+                    
+                    for (let colIdx = 0; colIdx < tsvData.headers.length; colIdx++) {{
+                        const uiColIdx = headerMap[colIdx];
+                        if (uiColIdx >= 0 && uiColIdx < uiRow.length) {{
+                            const expected = (tsvRow[colIdx] || '').trim();
+                            const actual = (uiRow[uiColIdx] || '').trim();
+                            
+                            if (expected !== actual) {{
+                                mismatches.push({{
+                                    row: rowIdx + 1,
+                                    column: tsvData.headers[colIdx],
+                                    expected: expected,
+                                    actual: actual,
+                                    matchType: 'exact'
+                                }});
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            
+            // Store results
+            if (mismatches.length > 0) {{
+                console.log(`❌ Node type "${{nodeType}}" validation failed: ${{mismatches.length}} mismatch(es)`);
+                nodeResults.push({{
+                    nodeType: nodeType,
+                    success: false,
+                    mismatches: mismatches.map(m => ({{
+                        row: m.row,
+                        column: m.column,
+                        expected: m.expected,
+                        actual: m.actual
+                    }}))
+                }});
+            }} else {{
+                console.log(`✅ Node type "${{nodeType}}" validation passed`);
+                nodeResults.push({{
+                    nodeType: nodeType,
+                    success: true
+                }});
+            }}
+            
+            // Write results to JSON file if step and executionId provided
+            if (step && executionId) {{
+                await writeValidationResults(executionId, step, tsvFilePath, nodeType, mismatches, []);
+            }}
+            
+        }} catch (error: any) {{
+            console.log(`❌ Error validating node type "${{nodeType}}": ${{error.message}}`);
+            nodeResults.push({{
+                nodeType: nodeType,
+                success: false,
+                error: error.message
+            }});
+        }}
+        
+        // Re-open dropdown for next iteration (if not last)
+        if (i < nodeTypes.length - 1) {{
+            await dropdown.click();
+            await page.waitForTimeout(500);
+        }}
+    }}
+    
+    // Step 7: Determine overall success
+    const allSuccess = nodeResults.every(r => r.success);
+    const successCount = nodeResults.filter(r => r.success).length;
+    
+    if (allSuccess) {{
+        console.log(`✅ Validate_data_view passed: All ${{nodeResults.length}} node type(s) validated successfully`);
+    }} else {{
+        console.log(`❌ Validate_data_view failed: ${{successCount}}/${{nodeResults.length}} node type(s) passed`);
+    }}
+    
+    return {{
+        success: allSuccess,
+        nodeResults: nodeResults
+    }};
+}}
 '''
     
     return code
