@@ -384,8 +384,8 @@
       "last_updated": "2026-01-28T00:58:42.572830Z"
     },
     "table_24_upload_activities": {
-      "xpath": "//tbody[@data-testid=\"generic-table-body\"]",
-      "selector": "//tbody[@data-testid=\"generic-table-body\"]",
+      "xpath": "//table[@data-testid=\"generic-table\"]",
+      "selector": "//table[@data-testid=\"generic-table\"]",
       "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
       "element_id": "ID_88ce6780",
       "usage_count": 0,
@@ -394,7 +394,7 @@
       "object_type": "table",
       "action": "verify",
       "discovered_at": "2026-01-28T00:58:42.572830Z",
-      "last_updated": "2026-01-28T00:58:42.572830Z"
+      "last_updated": "2026-01-28T01:25:00.000000Z"
     },
     "button_25_validate": {
       "xpath": "//button[@data-testid=\"validate-controls-validate-button\"]",
