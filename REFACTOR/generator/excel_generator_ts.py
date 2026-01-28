@@ -1260,12 +1260,13 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         
         if func_str:
             # Check for Validate_data_view() function call
-            validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', func_str, re.IGNORECASE)
+            # Use a more flexible regex that handles quotes inside strings
+            validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']((?:[^"\'\\]|\\.)+)["\']\s*,\s*["\']((?:[^"\'\\]|\\.)+)["\'](?:\s*,\s*["\']((?:[^"\'\\]|\\.)+)["\'])?\s*\)', func_str, re.IGNORECASE)
             if validate_data_view_match:
                 is_validate_data_view = True
-                folder_path = validate_data_view_match.group(1)
-                dropdown_xpath = validate_data_view_match.group(2)
-                table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+                folder_path = validate_data_view_match.group(1).replace('\\"', '"').replace("\\'", "'")
+                dropdown_xpath = validate_data_view_match.group(2).replace('\\"', '"').replace("\\'", "'")
+                table_xpath = validate_data_view_match.group(3).replace('\\"', '"').replace("\\'", "'") if validate_data_view_match.lastindex >= 3 and validate_data_view_match.group(3) else None
                 validate_data_view_params = {
                     'folder_path': folder_path,
                     'dropdown_xpath': dropdown_xpath,
@@ -2023,12 +2024,14 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
             
             # Check for Validate_data_view() function call
             elif re.match(r'Validate_data_view\s*\(', functions_str, re.IGNORECASE):
-                validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', functions_str, re.IGNORECASE)
+                # Use a more flexible regex that handles quotes inside strings
+                # Match: Validate_data_view("path", "xpath", "optional_xpath")
+                validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']((?:[^"\'\\]|\\.)+)["\']\s*,\s*["\']((?:[^"\'\\]|\\.)+)["\'](?:\s*,\s*["\']((?:[^"\'\\]|\\.)+)["\'])?\s*\)', functions_str, re.IGNORECASE)
                 if validate_data_view_match:
                     verification_type = 'validate_data_view'
-                    folder_path = validate_data_view_match.group(1)
-                    dropdown_xpath = validate_data_view_match.group(2)
-                    table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+                    folder_path = validate_data_view_match.group(1).replace('\\"', '"').replace("\\'", "'")
+                    dropdown_xpath = validate_data_view_match.group(2).replace('\\"', '"').replace("\\'", "'")
+                    table_xpath = validate_data_view_match.group(3).replace('\\"', '"').replace("\\'", "'") if validate_data_view_match.lastindex >= 3 and validate_data_view_match.group(3) else None
                     validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath}
             
             # Legacy table/text verification
