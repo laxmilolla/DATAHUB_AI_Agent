@@ -224,10 +224,26 @@ async function waitForTableStable(page: any): Promise<void> {{
 }}
 
 // Helper function to read table from UI
-async function readTableFromUI(page: any): Promise<{{ headers: string[], rows: string[][] }}> {{
-    // Find table using generic pattern (first visible table)
-    const table = page.locator('table').first();
-    await table.waitFor({{ state: 'visible', timeout: 10000 }});
+async function readTableFromUI(page: any, tableXPath?: string): Promise<{{ headers: string[], rows: string[][] }}> {{
+    let table;
+    
+    // Use provided XPath if available, otherwise use generic pattern
+    if (tableXPath) {{
+        try {{
+            table = page.locator(`xpath=${{tableXPath}}`).first();
+            await table.waitFor({{ state: 'visible', timeout: 5000 }});
+            console.log(`✅ Found table using XPath: ${{tableXPath}}`);
+        }} catch (e) {{
+            console.log(`⚠️  Table not found with XPath ${{tableXPath}}, trying generic selector`);
+            // Fallback to generic table selector
+            table = page.locator('table').first();
+            await table.waitFor({{ state: 'visible', timeout: 10000 }});
+        }}
+    }} else {{
+        // Find table using generic pattern (first visible table)
+        table = page.locator('table').first();
+        await table.waitFor({{ state: 'visible', timeout: 10000 }});
+    }}
     
     // Read table headers (generic: thead th or thead td)
     const headerElements = await table.locator('thead th, thead td').all();
@@ -283,7 +299,7 @@ async function clickErrorLinkAndValidate(page: any, rowIndex: number, columnInde
 }}
 
 // Validation function for UI table data
-async function Validation(page: any, webTabName: string, excelTabName: string): Promise<boolean> {{
+async function Validation(page: any, webTabName: string, excelTabName: string, tableXPath?: string): Promise<boolean> {{
     console.log(`🔍 Validation: Validating "${{webTabName}}" tab against "${{excelTabName}}" expected results`);
     
     // Get expected results
@@ -292,14 +308,40 @@ async function Validation(page: any, webTabName: string, excelTabName: string): 
         throw new Error(`No expected results found for tab: ${{excelTabName}}`);
     }}
     
-    // Step 1: Switch to web tab
-    await switchToWebTab(page, webTabName);
+    // Step 1: Check if table is already visible (if XPath provided)
+    let tableFound = false;
+    if (tableXPath) {{
+        try {{
+            const tableLocator = page.locator(`xpath=${{tableXPath}}`).first();
+            const isVisible = await tableLocator.isVisible({{ timeout: 2000 }});
+            if (isVisible) {{
+                console.log(`✅ Table already visible on current page, skipping tab switch`);
+                tableFound = true;
+            }}
+        }} catch (e) {{
+            console.log(`⚠️  Table not visible on current page, will try switching tabs`);
+        }}
+    }}
     
-    // Step 2: Wait for table to be stable
+    // Step 2: Switch to web tab only if table not found
+    if (!tableFound && webTabName) {{
+        try {{
+            await switchToWebTab(page, webTabName);
+        }} catch (e) {{
+            // If tab switching fails but we have XPath, try reading table anyway
+            if (tableXPath) {{
+                console.log(`⚠️  Tab switch failed, but will try reading table using XPath`);
+            }} else {{
+                throw e; // Re-throw if no XPath fallback
+            }}
+        }}
+    }}
+    
+    // Step 3: Wait for table to be stable
     await waitForTableStable(page);
     
-    // Step 3: Read current table from UI
-    const table = await readTableFromUI(page);
+    // Step 4: Read current table from UI (use XPath if provided)
+    const table = await readTableFromUI(page, tableXPath);
     
     if (table.headers.length === 0) {{
         throw new Error('Table has no headers');
@@ -1573,8 +1615,13 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         excel_tab_name = validation_params['excel_tab_name']
         web_tab_escaped = web_tab_name.replace("'", "\\'").replace('"', '\\"')
         excel_tab_escaped = excel_tab_name.replace("'", "\\'").replace('"', '\\"')
+        # Pass XPath to Validation function if available (for table element)
+        xpath_escaped_for_js = xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if xpath and xpath != 'N/A' else None
         code += f"{ind}    // Call Validation function\n"
-        code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}');\n"
+        if xpath_escaped_for_js:
+            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}', `{xpath_escaped_for_js}`);\n"
+        else:
+            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}');\n"
         code += f"{ind}    if (!validationResult) {{\n"
         code += f"{ind}        throw new Error(`Step {step}: Validation failed for tab '{web_tab_escaped}'`);\n"
         code += f"{ind}    }}\n"
