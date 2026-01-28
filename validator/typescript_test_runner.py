@@ -59,8 +59,10 @@ class TypeScriptTestRunner:
         
         # Check if package.json exists in test directory, if not, create one
         package_json = test_dir / 'package.json'
+        needs_install = False
+        
         if not package_json.exists():
-            # Create minimal package.json for Playwright
+            # Create minimal package.json for Playwright (includes xlsx for Excel reading)
             package_json_content = {
                 "name": "playwright-test",
                 "version": "1.0.0",
@@ -70,16 +72,34 @@ class TypeScriptTestRunner:
                 "dependencies": {
                     "@playwright/test": "^1.40.0",
                     "dotenv": "^16.0.0",
-                    "otplib": "^12.0.0"
+                    "otplib": "^12.0.0",
+                    "xlsx": "^0.18.5"
                 }
             }
             with open(package_json, 'w') as f:
                 json.dump(package_json_content, f, indent=2)
             print(f"✅ Created package.json in {test_dir}")
+            needs_install = True
+        else:
+            # Check if package.json has xlsx dependency (required for Excel reading after refactor)
+            try:
+                with open(package_json, 'r') as f:
+                    existing_package = json.load(f)
+                    dependencies = existing_package.get('dependencies', {})
+                    if 'xlsx' not in dependencies:
+                        # Add xlsx if missing
+                        dependencies['xlsx'] = "^0.18.5"
+                        existing_package['dependencies'] = dependencies
+                        with open(package_json, 'w') as f:
+                            json.dump(existing_package, f, indent=2)
+                        print(f"✅ Updated package.json to include xlsx dependency")
+                        needs_install = True
+            except Exception as e:
+                print(f"⚠️  Could not check/update package.json: {e}")
         
         # Check if node_modules exists, if not, install dependencies
         node_modules = test_dir / 'node_modules'
-        if not node_modules.exists():
+        if not node_modules.exists() or needs_install:
             print(f"📦 Installing dependencies in {test_dir}...")
             install_result = subprocess.run(
                 [npx_executable, 'npm', 'install'],
@@ -91,6 +111,8 @@ class TypeScriptTestRunner:
             if install_result.returncode != 0:
                 print(f"⚠️  npm install failed: {install_result.stderr}")
                 # Continue anyway, Playwright might still work
+            else:
+                print(f"✅ Dependencies installed successfully")
         
         # Install Playwright browsers if needed
         playwright_install_result = subprocess.run(
