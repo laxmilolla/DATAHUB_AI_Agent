@@ -408,6 +408,19 @@
       "action": "click",
       "discovered_at": "2026-01-28T00:58:42.572830Z",
       "last_updated": "2026-01-28T00:58:42.572830Z"
+    },
+    "dropdown_26_node_type": {
+      "xpath": "//div[@id=\"mui-component-select-nodeType\"]",
+      "selector": "//div[@id=\"mui-component-select-nodeType\"]",
+      "url": "https://hub-stage.datacommons.cancer.gov/data-submissions",
+      "element_id": "ID_node_type_dropdown_001",
+      "usage_count": 0,
+      "last_used": null,
+      "source": "manual",
+      "object_type": "dropdown",
+      "action": "click",
+      "discovered_at": "2026-01-28T00:00:00.000000Z",
+      "last_updated": "2026-01-28T00:00:00.000000Z"
     }
   },
   "id_index": {
@@ -441,12 +454,13 @@
     "ID_c0a5d87a": "button_22_5_upload_wait",
     "ID_2312863d": "button_23_upload",
     "ID_88ce6780": "table_24_upload_activities",
-    "ID_abe42b26": "button_25_validate"
+    "ID_abe42b26": "button_25_validate",
+    "ID_node_type_dropdown_001": "dropdown_26_node_type"
   },
   "statistics": {
-    "total_elements": 31,
+    "total_elements": 32,
     "parsed_elements": 0,
     "discovered_elements": 1
   },
-  "last_updated": "2026-01-28T00:58:42.572830Z"
+  "last_updated": "2026-01-28T19:00:00.000000Z"
 }
