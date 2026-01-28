@@ -475,6 +475,109 @@
             border-color: #667eea;
             box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
         }
+        
+        .edit-json-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        .edit-json-btn:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+        }
+        .json-edit-textarea {
+            width: 100%;
+            min-height: 400px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            border: 2px solid #667eea;
+            resize: vertical;
+            white-space: pre;
+            tab-size: 2;
+        }
+        .json-edit-textarea:focus {
+            outline: none;
+            border-color: #764ba2;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+        .json-edit-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 10px;
+        }
+        .json-apply-btn {
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .json-apply-btn:hover { opacity: 0.95; }
+        .json-cancel-btn {
+            padding: 10px 24px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .json-cancel-btn:hover { opacity: 0.95; }
+        .json-edit-error {
+            margin-top: 10px;
+            padding: 12px;
+            background: #ffebee;
+            color: #c62828;
+            border-radius: 8px;
+            border: 1px solid #ef5350;
+        }
+        .filter-elements-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        .filter-elements-btn:hover { opacity: 0.95; }
+        .element-filter-panel {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+        }
+        .element-filter-label {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .element-filter-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 20px;
+        }
+        .filter-check-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        .filter-check-label input.filter-cb { cursor: pointer; }
     </style>
 </head>
 <body>
@@ -578,16 +681,46 @@
             </div>
             
             <div id="elementsPreview" style="display: none;">
-                <h4 style="color: #667eea; margin-bottom: 15px; font-size: 1.3em;">📋 Extracted Elements</h4>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <h4 style="color: #667eea; font-size: 1.3em; margin: 0;">📋 Extracted Elements</h4>
+                    <button type="button" id="filterElementsBtn" class="filter-elements-btn" onclick="toggleFilterPanel()" title="Filter elements by action type">
+                        🔍 Filter
+                    </button>
+                </div>
+                <div id="elementFilterPanel" class="element-filter-panel" style="display: none;">
+                    <div class="element-filter-label">Show elements by action / type:</div>
+                    <div class="element-filter-checkboxes">
+                        <label class="filter-check-label"><input type="checkbox" id="filterAll" class="filter-cb" data-filter="all" checked> All</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterClick" class="filter-cb" data-filter="click"> Click</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterFill" class="filter-cb" data-filter="fill"> Fill</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterSelect" class="filter-cb" data-filter="select"> Dropdown (Select)</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterCheckbox" class="filter-cb" data-filter="checkbox"> Checkbox</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterRadio" class="filter-cb" data-filter="radio"> Radio</label>
+                        <label class="filter-check-label"><input type="checkbox" id="filterSlider" class="filter-cb" data-filter="slider"> Slider</label>
+                    </div>
+                </div>
                 <div class="elements-preview" id="elementsList">
                     <!-- Elements will be populated here -->
                 </div>
             </div>
             
             <div id="jsonPreview" style="display: none;">
-                <h4 style="color: #667eea; margin-bottom: 15px; font-size: 1.3em;">📄 JSON Preview</h4>
-                <div class="json-preview">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <h4 style="color: #667eea; font-size: 1.3em; margin: 0;">📄 JSON Preview</h4>
+                    <button type="button" id="editJsonBtn" class="edit-json-btn" onclick="enterEditJson()" title="Edit JSON: change xpath, ID, or remove elements">
+                        ✏️ Edit JSON
+                    </button>
+                </div>
+                <div id="jsonViewReadOnly" class="json-preview">
                     <pre id="jsonContent"></pre>
+                </div>
+                <div id="jsonViewEdit" style="display: none;">
+                    <textarea id="jsonEditTextarea" class="json-edit-textarea" spellcheck="false"></textarea>
+                    <div class="json-edit-actions">
+                        <button type="button" class="json-apply-btn" onclick="applyJsonEdit()">Apply changes</button>
+                        <button type="button" class="json-cancel-btn" onclick="cancelEditJson()">Cancel</button>
+                    </div>
+                    <div id="jsonEditError" style="display: none;" class="json-edit-error"></div>
                 </div>
             </div>
         </div>
@@ -600,10 +733,12 @@
     
     <script>
         let currentRegistry = null;
+        let selectedActionFilters = ['all']; // 'all' or subset of: click, fill, select, checkbox, radio, slider
         
         // Load saved registries on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadSavedRegistriesList();
+            setupFilterCheckboxes();
         });
         
         // Load list of saved registries into dropdown
@@ -860,12 +995,49 @@
             `;
             statsGrid.style.display = 'grid';
             
-            // Display elements
+            // Display elements (respects filter)
+            renderElementsList();
+            document.getElementById('elementsPreview').style.display = 'block';
+            
+            // Display JSON preview
+            document.getElementById('jsonContent').textContent = JSON.stringify(registry, null, 2);
+            document.getElementById('jsonPreview').style.display = 'block';
+            
+            // Ensure edit mode is off when displaying new results
+            document.getElementById('jsonViewReadOnly').style.display = 'block';
+            document.getElementById('jsonViewEdit').style.display = 'none';
+            document.getElementById('editJsonBtn').style.display = 'block';
+            document.getElementById('jsonEditError').style.display = 'none';
+            
+            // Scroll to results
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function toggleFilterPanel() {
+            const panel = document.getElementById('elementFilterPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function isElementShown(element) {
+            if (selectedActionFilters.length === 0 || selectedActionFilters.includes('all')) return true;
+            const action = (element.action || '').toLowerCase();
+            const objType = (element.object_type || '').toLowerCase();
+            if (selectedActionFilters.includes('click') && action === 'click') return true;
+            if (selectedActionFilters.includes('fill') && action === 'fill') return true;
+            if (selectedActionFilters.includes('select') && action === 'select') return true;
+            if (selectedActionFilters.includes('checkbox') && objType === 'checkbox') return true;
+            if (selectedActionFilters.includes('radio') && objType === 'radio') return true;
+            if (selectedActionFilters.includes('slider') && (objType === 'range' || objType === 'slider')) return true;
+            return false;
+        }
+        
+        function renderElementsList() {
             const elementsList = document.getElementById('elementsList');
             elementsList.innerHTML = '';
-            
-            const elements = registry.elements || {};
+            if (!currentRegistry || !currentRegistry.elements) return;
+            const elements = currentRegistry.elements;
             Object.entries(elements).forEach(([name, element]) => {
+                if (!isElementShown(element)) return;
                 const elementDiv = document.createElement('div');
                 elementDiv.className = 'element-item';
                 elementDiv.innerHTML = `
@@ -879,15 +1051,88 @@
                 `;
                 elementsList.appendChild(elementDiv);
             });
+        }
+        
+        function setupFilterCheckboxes() {
+            const allCb = document.getElementById('filterAll');
+            const others = document.querySelectorAll('.filter-cb:not(#filterAll)');
+            function updateFilters() {
+                const anyOtherChecked = Array.from(others).some(cb => cb.checked);
+                if (anyOtherChecked) allCb.checked = false;
+                if (allCb.checked) {
+                    selectedActionFilters = ['all'];
+                    others.forEach(cb => { cb.checked = false; });
+                } else {
+                    selectedActionFilters = Array.from(others).filter(cb => cb.checked).map(cb => cb.getAttribute('data-filter'));
+                    if (selectedActionFilters.length === 0) {
+                        selectedActionFilters = ['all'];
+                        allCb.checked = true;
+                    }
+                }
+                if (currentRegistry) renderElementsList();
+            }
+            allCb.addEventListener('change', function() {
+                if (this.checked) others.forEach(cb => { cb.checked = false; });
+                updateFilters();
+            });
+            others.forEach(cb => cb.addEventListener('change', updateFilters));
+        }
+        
+        function enterEditJson() {
+            if (!currentRegistry) return;
+            document.getElementById('jsonEditTextarea').value = JSON.stringify(currentRegistry, null, 2);
+            document.getElementById('jsonViewReadOnly').style.display = 'none';
+            document.getElementById('jsonViewEdit').style.display = 'block';
+            document.getElementById('editJsonBtn').style.display = 'none';
+            document.getElementById('jsonEditError').style.display = 'none';
+            document.getElementById('jsonEditTextarea').focus();
+        }
+        
+        function cancelEditJson() {
+            document.getElementById('jsonViewEdit').style.display = 'none';
+            document.getElementById('jsonViewReadOnly').style.display = 'block';
+            document.getElementById('editJsonBtn').style.display = 'block';
+            document.getElementById('jsonEditError').style.display = 'none';
+            document.getElementById('jsonContent').textContent = JSON.stringify(currentRegistry, null, 2);
+        }
+        
+        function applyJsonEdit() {
+            const raw = document.getElementById('jsonEditTextarea').value.trim();
+            const errEl = document.getElementById('jsonEditError');
+            errEl.style.display = 'none';
             
-            document.getElementById('elementsPreview').style.display = 'block';
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (e) {
+                errEl.textContent = 'Invalid JSON: ' + e.message;
+                errEl.style.display = 'block';
+                return;
+            }
             
-            // Display JSON preview
-            document.getElementById('jsonContent').textContent = JSON.stringify(registry, null, 2);
-            document.getElementById('jsonPreview').style.display = 'block';
+            if (!parsed || typeof parsed !== 'object') {
+                errEl.textContent = 'Registry must be a JSON object.';
+                errEl.style.display = 'block';
+                return;
+            }
+            if (!parsed.elements || typeof parsed.elements !== 'object') {
+                errEl.textContent = 'Registry must have an "elements" object.';
+                errEl.style.display = 'block';
+                return;
+            }
             
-            // Scroll to results
-            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+            // Rebuild id_index from elements so it stays in sync after edits
+            const idIndex = {};
+            Object.entries(parsed.elements).forEach(([name, elem]) => {
+                if (elem && elem.element_id) {
+                    idIndex[elem.element_id] = name;
+                }
+            });
+            parsed.id_index = idIndex;
+            
+            currentRegistry = parsed;
+            displayResults(currentRegistry);
+            cancelEditJson();
         }
         
         function downloadJSON() {
