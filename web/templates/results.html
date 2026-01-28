@@ -706,22 +706,27 @@
         }
         
         async function loadStepsTab(results) {
-            console.log('🚀 loadStepsTab CALLED with results:', results);
+            console.log('🚀🚀🚀 loadStepsTab CALLED with results:', results);
+            console.log('🚀🚀🚀 loadStepsTab - execution_id:', results.execution_id);
             const stepsContent = document.getElementById('steps-content');
-            console.log('🚀 stepsContent element:', stepsContent);
+            console.log('🚀🚀🚀 stepsContent element:', stepsContent);
             if (!stepsContent) {
-                console.error('❌ steps-content element not found!');
+                console.error('❌❌❌ steps-content element not found!');
+                alert('ERROR: steps-content element not found!');
                 return;
             }
             
             try {
-                console.log('🚀 Calling renderStepsTab...');
+                console.log('🚀🚀🚀 Calling renderStepsTab NOW...');
                 const stepsHtml = await renderStepsTab(results);
-                console.log('🚀 renderStepsTab returned HTML length:', stepsHtml.length);
+                console.log('🚀🚀🚀 renderStepsTab returned HTML length:', stepsHtml.length);
                 stepsContent.innerHTML = stepsHtml;
+                console.log('🚀🚀🚀 Steps HTML inserted into DOM');
             } catch (error) {
-                console.error('❌ Error loading steps:', error);
-                console.error('❌ Error stack:', error.stack);
+                console.error('❌❌❌ Error loading steps:', error);
+                console.error('❌❌❌ Error message:', error.message);
+                console.error('❌❌❌ Error stack:', error.stack);
+                alert('ERROR loading steps: ' + error.message);
                 stepsContent.innerHTML = '<p style="color: #dc3545;">Error loading steps: ' + error.message + '</p>';
             }
         }
@@ -882,8 +887,9 @@
         }
         
         async function renderStepsTab(results) {
-            console.log('🚀 renderStepsTab CALLED with results:', results);
-            console.log('🚀 results.execution_id:', results.execution_id);
+            console.log('🚀🚀🚀 renderStepsTab CALLED with results:', results);
+            console.log('🚀🚀🚀 renderStepsTab - execution_id:', results.execution_id);
+            console.log('🚀🚀🚀 renderStepsTab - STARTING NOW');
             
             const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
             const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
