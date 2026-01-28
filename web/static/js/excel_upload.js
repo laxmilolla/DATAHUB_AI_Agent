@@ -125,16 +125,27 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const data = await response.json();
             
-            if (!response.ok) {
-                throw new Error(data.error || 'Upload failed');
-            }
-            
-            currentExcelId = data.excel_id;
-            
-            // Show validation results
+            // Show validation results even if upload failed (400 status)
             if (data.validation) {
                 displayValidationResults(data.validation);
             }
+            
+            // Show validation summary if available (includes detailed XPath mismatches)
+            if (data.validation_summary) {
+                displayValidationSummary(data.validation_summary);
+            }
+            
+            if (!response.ok) {
+                // Show error message but keep validation results visible
+                const errorMsg = data.error || 'Upload failed';
+                showMessage('Upload failed: ' + errorMsg, 'error');
+                currentExcelId = null;
+                const generateTsBtn = document.getElementById('generateTsBtn');
+                if (generateTsBtn) generateTsBtn.disabled = true;
+                return; // Exit early, don't throw - validation results are already displayed
+            }
+            
+            currentExcelId = data.excel_id;
             
             if (data.success) {
                 showMessage('File uploaded and validated successfully!', 'success');
@@ -289,6 +300,71 @@ document.addEventListener('DOMContentLoaded', function() {
                 validationContent.innerHTML += `<div class="validation-warning">• ${warning}</div>`;
             });
         }
+        
+        // Display XPath registry validation details
+        if (validation.xpath_validation) {
+            const xpathVal = validation.xpath_validation;
+            const mismatches = xpathVal.xpath_mismatches || [];
+            const totalChecked = xpathVal.total_checked || 0;
+            const totalRegistries = xpathVal.total_registries || 0;
+            
+            if (totalChecked > 0) {
+                validationContent.innerHTML += '<h5 style="margin-top: 15px; color: #dc3545;">🔍 XPath Registry Validation:</h5>';
+                validationContent.innerHTML += `<p><strong>Total XPaths checked:</strong> ${totalChecked}</p>`;
+                validationContent.innerHTML += `<p><strong>Registries searched:</strong> ${totalRegistries}</p>`;
+                validationContent.innerHTML += `<p><strong>XPaths not found in registry:</strong> <span style="color: #dc3545; font-weight: 600;">${mismatches.length}</span></p>`;
+                
+                if (mismatches.length > 0) {
+                    validationContent.innerHTML += '<h6 style="margin-top: 10px; color: #dc3545;">⚠️ XPaths not matching registry:</h6>';
+                    mismatches.forEach((mismatch, index) => {
+                        const step = mismatch.step || 'N/A';
+                        const desc = mismatch.element_description || 'N/A';
+                        const xpath = mismatch.xpath || 'N/A';
+                        validationContent.innerHTML += `
+                            <div style="margin: 8px 0; padding: 8px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px;">
+                                <strong>Step ${step}:</strong> ${desc}<br>
+                                <code style="font-size: 0.85em; color: #856404; word-break: break-all;">${xpath}</code>
+                            </div>
+                        `;
+                    });
+                } else {
+                    validationContent.innerHTML += '<p style="color: #28a745;">✅ All XPaths found in registry!</p>';
+                }
+            }
+        }
+    }
+    
+    // Display validation summary (formatted text summary from backend)
+    function displayValidationSummary(summary) {
+        if (!validationResults || !validationContent) return;
+        validationResults.style.display = 'block';
+        
+        // Convert summary text to HTML (preserve line breaks and formatting)
+        const summaryHtml = summary
+            .split('\n')
+            .map(line => {
+                // Bold headers
+                if (line.match(/^(✅|❌|📊|⚠️|🔍)/)) {
+                    return `<p style="font-weight: 600; margin: 8px 0;">${line}</p>`;
+                }
+                // Indented items
+                if (line.match(/^\s{2,}[•·]/)) {
+                    return `<div style="margin-left: 20px; margin: 4px 0;">${line.trim()}</div>`;
+                }
+                // Regular lines
+                if (line.trim()) {
+                    return `<p style="margin: 4px 0;">${line}</p>`;
+                }
+                return '';
+            })
+            .join('');
+        
+        // Append summary to validation content
+        if (validationContent.innerHTML) {
+            validationContent.innerHTML += '<hr style="margin: 20px 0; border: 1px solid #ddd;">';
+            validationContent.innerHTML += '<h5 style="margin-top: 15px;">Detailed Validation Summary:</h5>';
+        }
+        validationContent.innerHTML += summaryHtml;
     }
     
     // Display generation results
