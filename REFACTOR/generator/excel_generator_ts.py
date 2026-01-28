@@ -202,11 +202,19 @@ function matchValue(actual: string, expected: string, matchType: string): boolea
 // Helper function to switch to a web tab
 async function switchToWebTab(page: any, tabName: string): Promise<void> {{
     try {{
-        // Find tab button by text (case-insensitive partial match)
+        // Find tab by text (case-insensitive partial match)
+        // Supports both button and link elements with role="tab"
         const tabNameLower = tabName.toLowerCase();
-        const tabButton = page.locator(`//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${{tabNameLower}}')]`).first();
-        await tabButton.waitFor({{ state: 'visible', timeout: 5000 }});
-        await tabButton.click();
+        // Try role="tab" first (Material-UI tabs use this)
+        let tabElement = page.locator(`//*[@role="tab" and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${{tabNameLower}}')]`).first();
+        try {{
+            await tabElement.waitFor({{ state: 'visible', timeout: 5000 }});
+        }} catch {{
+            // Fallback to button search if role="tab" not found
+            tabElement = page.locator(`//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${{tabNameLower}}')]`).first();
+            await tabElement.waitFor({{ state: 'visible', timeout: 5000 }});
+        }}
+        await tabElement.click();
         await page.waitForTimeout(1000); // Wait for tab content to load
         console.log(`✅ Switched to tab: ${{tabName}}`);
     }} catch (e) {{
@@ -746,14 +754,24 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
     // Step 4: Extract node types from filenames (e.g., "study.tsv" -> "study")
     const nodeTypes = tsvFiles.map(f => path.basename(f, '.tsv').toLowerCase());
     
-    // Step 5: Click dropdown to open it
+    // Step 5: Switch to "Data View" tab if not already on it
+    try {{
+        await switchToWebTab(page, 'Data View');
+        console.log(`✅ Switched to Data View tab`);
+    }} catch (tabError) {{
+        // Tab might already be active or tab name might be different - continue anyway
+        console.log(`⚠️  Could not switch to Data View tab (may already be active): ${{tabError}}`);
+    }}
+    await page.waitForTimeout(1000); // Wait for tab content to load
+    
+    // Step 6: Click dropdown to open it
     console.log(`🖱️  Clicking dropdown: ${{dropdownXPath}}`);
     const dropdown = page.locator(`xpath=${{dropdownXPath}}`).first();
     await dropdown.waitFor({{ state: 'visible', timeout: 10000 }});
     await dropdown.click();
     await page.waitForTimeout(500); // Wait for dropdown menu to appear
     
-    // Step 6: For each node type, select it and validate
+    // Step 7: For each node type, select it and validate
     for (let i = 0; i < nodeTypes.length; i++) {{
         const nodeType = nodeTypes[i];
         const tsvFile = tsvFiles[i];
@@ -883,7 +901,7 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
         }}
     }}
     
-    // Step 7: Determine overall success
+    // Step 8: Determine overall success
     const allSuccess = nodeResults.every(r => r.success);
     const successCount = nodeResults.filter(r => r.success).length;
     
