@@ -324,7 +324,8 @@ def validate_xpaths_against_registry(df: pd.DataFrame, project_root: Path) -> Di
     for idx, row in df.iterrows():
         step = row.get('step', '')
         xpath = row.get('xpath', '')
-        action = row.get('action', '').strip().lower()
+        action_raw = row.get('action', '')
+        action = str(action_raw).strip().lower() if pd.notna(action_raw) else ''
         
         # Skip if XPath is empty, N/A, or action is navigate/wait
         if pd.isna(xpath) or str(xpath).strip().upper() == 'N/A' or not str(xpath).strip():
@@ -342,7 +343,8 @@ def validate_xpaths_against_registry(df: pd.DataFrame, project_root: Path) -> Di
         
         if not element_id:
             # XPath not found in any registry
-            element_desc = row.get('element_description', row.get('description', '')).strip() if 'element_description' in row.index or 'description' in row.index else ''
+            element_desc_raw = row.get('element_description', row.get('description', ''))
+            element_desc = str(element_desc_raw).strip() if pd.notna(element_desc_raw) and ('element_description' in row.index or 'description' in row.index) else ''
             mismatches.append({
                 'step': str(step),
                 'xpath': xpath_str,

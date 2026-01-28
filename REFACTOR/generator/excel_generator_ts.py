@@ -1066,23 +1066,29 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     validate_data_view_params = None
     
     if functions:
-        func_str = str(functions).strip()
+        # Handle case where functions might be float/NaN - convert to string first
+        if pd.notna(functions):
+            func_str = str(functions).strip()
+        else:
+            func_str = ''
+            functions = None
         
-        # Check for Validate_data_view() function call
-        validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', func_str, re.IGNORECASE)
-        if validate_data_view_match:
-            is_validate_data_view = True
-            folder_path = validate_data_view_match.group(1)
-            dropdown_xpath = validate_data_view_match.group(2)
-            table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
-            validate_data_view_params = {
-                'folder_path': folder_path,
-                'dropdown_xpath': dropdown_xpath,
-                'table_xpath': table_xpath
-            }
-        
-        if 'file upload' in func_str.lower():
-            is_file_upload = True
+        if func_str:
+            # Check for Validate_data_view() function call
+            validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', func_str, re.IGNORECASE)
+            if validate_data_view_match:
+                is_validate_data_view = True
+                folder_path = validate_data_view_match.group(1)
+                dropdown_xpath = validate_data_view_match.group(2)
+                table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+                validate_data_view_params = {
+                    'folder_path': folder_path,
+                    'dropdown_xpath': dropdown_xpath,
+                    'table_xpath': table_xpath
+                }
+            
+            if 'file upload' in func_str.lower():
+                is_file_upload = True
             # Parse file path from functions: "File Upload:storage/test_files" or "File Upload:storage/test_files:filename" or "File Upload:storage/test_files/cds/"
             if ':' in func_str:
                 parts = func_str.split(':')
@@ -1802,10 +1808,17 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
     validation_params = None
     
     if functions:
-        functions_str = str(functions).strip()
-        functions_upper = functions_str.upper()
+        # Handle case where functions might be float/NaN - convert to string first
+        if pd.notna(functions):
+            functions_str = str(functions).strip()
+        else:
+            functions_str = ''
+            functions = None
         
-        # Check for Validation() function call
+        if functions_str:
+            functions_upper = functions_str.upper()
+            
+            # Check for Validation() function call
         validation_match = re.match(r'Validation\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
         if validation_match:
             is_validation_function = True

@@ -3450,7 +3450,8 @@ def get_excel_steps(excel_id):
             url = str(row.get('url', '')).strip() if pd.notna(row.get('url')) else ''
             xpath = str(row.get('xpath', '')).strip() if pd.notna(row.get('xpath')) else ''
             action = str(row.get('action', '')).strip().lower() if pd.notna(row.get('action')) else ''
-            object_type = str(row.get('object_type', '')).strip() if pd.notna(row.get('object_type')) else ''
+            object_type_raw = row.get('object_type', '')
+            object_type = str(object_type_raw).strip() if pd.notna(object_type_raw) and object_type_raw != '' else ''
             text_value = str(row.get('text_value', '')).strip() if pd.notna(row.get('text_value')) else ''
             # Handle wait_time - convert NaN to None for JSON compatibility
             wait_time_raw = row.get('wait_time', None)
