@@ -1060,8 +1060,27 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     is_file_upload = False
     file_path = None
     is_folder_upload = False
+    
+    # Detect Validate_data_view function call
+    is_validate_data_view = False
+    validate_data_view_params = None
+    
     if functions:
         func_str = str(functions).strip()
+        
+        # Check for Validate_data_view() function call
+        validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', func_str, re.IGNORECASE)
+        if validate_data_view_match:
+            is_validate_data_view = True
+            folder_path = validate_data_view_match.group(1)
+            dropdown_xpath = validate_data_view_match.group(2)
+            table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+            validate_data_view_params = {
+                'folder_path': folder_path,
+                'dropdown_xpath': dropdown_xpath,
+                'table_xpath': table_xpath
+            }
+        
         if 'file upload' in func_str.lower():
             is_file_upload = True
             # Parse file path from functions: "File Upload:storage/test_files" or "File Upload:storage/test_files:filename" or "File Upload:storage/test_files/cds/"
@@ -1089,6 +1108,8 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     if is_file_upload:
         code += f"{ind}// File upload step - will handle file dialog\n"
+    if is_validate_data_view:
+        code += f"{ind}// Data View validation step - will validate all node types automatically\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     
     # File upload handling: Set up filechooser listener before clicking
@@ -1210,146 +1231,174 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    // Element not found in registry - test must fail\n"
         code += f"{ind}    throw new Error(`Step {step}: Element not found in registry. XPath: {xpath_escaped}. Please add element to registry first.`);\n"
     
-    # For Create button, wait for it to be enabled and scroll into view
-    is_create_button = 'create-data-submission-dialog-create-button' in xpath_escaped
-    if is_create_button:
-        code += f"{ind}    // Wait for Create button to be enabled (form validation may disable it)\n"
-        code += f"{ind}    // Wait up to 10 seconds for button to become enabled\n"
-        code += f"{ind}    let buttonEnabled = false;\n"
-        code += f"{ind}    for (let attempt = 0; attempt < 50; attempt++) {{  // Wait up to 10 seconds (50 * 200ms)\n"
-        code += f"{ind}        try {{\n"
-        code += f"{ind}            const isDisabled = await element.evaluate('el => el.disabled || el.hasAttribute(\"disabled\")');\n"
-        code += f"{ind}            if (!isDisabled) {{\n"
-        code += f"{ind}                buttonEnabled = true;\n"
-        code += f"{ind}                console.log(`✅ Step {step}: Create button is enabled (attempt ${{attempt + 1}})`);\n"
-        code += f"{ind}                break;\n"
-        code += f"{ind}            }} else {{\n"
-        code += f"{ind}                if (attempt % 10 === 0) {{  // Print every 2 seconds\n"
-        code += f"{ind}                    console.log(`⏳ Step {step}: Waiting for Create button to be enabled... (attempt ${{attempt + 1}}/50)`);\n"
-        code += f"{ind}                }}\n"
-        code += f"{ind}            }}\n"
-        code += f"{ind}        }} catch (check_error) {{\n"
-        code += f"{ind}            console.log(`⚠️  Step {step}: Error checking button state: ${{check_error}}`);\n"
-        code += f"{ind}        }}\n"
-        code += f"{ind}        await page.waitForTimeout(200);\n"
-        code += f"{ind}    }}\n"
-        code += f"{ind}    \n"
-        code += f"{ind}    if (!buttonEnabled) {{\n"
-        code += f"{ind}        console.log(`⚠️  Step {step}: Create button still disabled after 10 seconds, trying force click`);\n"
-        code += f"{ind}        // Scroll into view if needed\n"
-        code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
-        code += f"{ind}        await page.waitForTimeout(500);\n"
-        code += f"{ind}        // Try force click as fallback\n"
-        code += f"{ind}        await element.click({{ force: true }});\n"
-        code += f"{ind}        console.log(`✅ Step {step}: Clicked Create button with {{ force: true }}`);\n"
-        code += f"{ind}    }} else {{\n"
-        code += f"{ind}        // Scroll into view if needed\n"
-        code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
-        code += f"{ind}        await page.waitForTimeout(500);  // Wait after scroll\n"
-        if is_radio_or_checkbox:
-            # Use check() for radio buttons and checkboxes (Playwright best practice)
-            code += f"{ind}        // Use check() for radio-button/checkbox (Playwright best practice)\n"
+    # Skip normal click if Validate_data_view is detected (it handles clicking itself)
+    if not is_validate_data_view:
+        # For Create button, wait for it to be enabled and scroll into view
+        is_create_button = 'create-data-submission-dialog-create-button' in xpath_escaped
+        if is_create_button:
+            code += f"{ind}    // Wait for Create button to be enabled (form validation may disable it)\n"
+            code += f"{ind}    // Wait up to 10 seconds for button to become enabled\n"
+            code += f"{ind}    let buttonEnabled = false;\n"
+            code += f"{ind}    for (let attempt = 0; attempt < 50; attempt++) {{  // Wait up to 10 seconds (50 * 200ms)\n"
             code += f"{ind}        try {{\n"
-            code += f"{ind}            await element.check();\n"
-            code += f"{ind}            console.log(`✅ Step {step}: Check succeeded`);\n"
-            code += f"{ind}        }} catch (check_error) {{\n"
-            code += f"{ind}            console.log(`⚠️  Step {step}: check() failed, trying setChecked(true)...`);\n"
-            code += f"{ind}            try {{\n"
-            code += f"{ind}                await element.setChecked(true);\n"
-            code += f"{ind}                console.log(`✅ Step {step}: setChecked(true) succeeded`);\n"
-            code += f"{ind}            }} catch (setChecked_error) {{\n"
-            code += f"{ind}                console.log(`⚠️  Step {step}: setChecked() failed, trying force check...`);\n"
-            code += f"{ind}                await element.check({{ force: true }});\n"
-            code += f"{ind}                console.log(`✅ Step {step}: Force check succeeded`);\n"
-            code += f"{ind}            }}\n"
-            code += f"{ind}        }}\n"
-        else:
-            # Robust click with fallbacks (JavaScript + force)
-            code += f"{ind}        // Robust click with fallbacks (JavaScript + force)\n"
-            code += f"{ind}        try {{\n"
-            code += f"{ind}            await element.click();\n"
-            code += f"{ind}        }} catch (click_error) {{\n"
-            code += f"{ind}            if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
-            code += f"{ind}                console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
-            code += f"{ind}                try {{\n"
-            code += f"{ind}                    await element.evaluate('el => el.click()');\n"
-            code += f"{ind}                    console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
-            code += f"{ind}                }} catch (js_error) {{\n"
-            code += f"{ind}                    console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
-            code += f"{ind}                    await element.click({{ force: true }});\n"
-            code += f"{ind}                    console.log(`✅ Step {step}: Force click succeeded`);\n"
-            code += f"{ind}                }}\n"
+            code += f"{ind}            const isDisabled = await element.evaluate('el => el.disabled || el.hasAttribute(\"disabled\")');\n"
+            code += f"{ind}            if (!isDisabled) {{\n"
+            code += f"{ind}                buttonEnabled = true;\n"
+            code += f"{ind}                console.log(`✅ Step {step}: Create button is enabled (attempt ${{attempt + 1}})`);\n"
+            code += f"{ind}                break;\n"
             code += f"{ind}            }} else {{\n"
-            code += f"{ind}                console.log(`⚠️  Step {step}: Click failed, trying force click...`);\n"
-            code += f"{ind}                await element.click({{ force: true }});\n"
-            code += f"{ind}                console.log(`✅ Step {step}: Force click succeeded`);\n"
+            code += f"{ind}                if (attempt % 10 === 0) {{  // Print every 2 seconds\n"
+            code += f"{ind}                    console.log(`⏳ Step {step}: Waiting for Create button to be enabled... (attempt ${{attempt + 1}}/50)`);\n"
+            code += f"{ind}                }}\n"
             code += f"{ind}            }}\n"
+            code += f"{ind}        }} catch (check_error) {{\n"
+            code += f"{ind}            console.log(`⚠️  Step {step}: Error checking button state: ${{check_error}}`);\n"
             code += f"{ind}        }}\n"
-        code += f"{ind}    }}\n"
-    else:
-        # Scroll into view if needed
-        code += f"{ind}    // Scroll into view if needed\n"
-        code += f"{ind}    try {{\n"
-        code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
-        code += f"{ind}    }} catch {{\n"
-        code += f"{ind}        // Continue if scroll fails\n"
-        code += f"{ind}    }}\n"
-        code += f"{ind}    await page.waitForTimeout(500);  // Wait after scroll\n"
-        if is_radio_or_checkbox:
-            # Use check() for radio buttons and checkboxes (Playwright best practice)
-            code += f"{ind}    // Use check() for radio-button/checkbox (Playwright best practice)\n"
-            code += f"{ind}    let checkSucceeded = false;\n"
-            code += f"{ind}    try {{\n"
-            code += f"{ind}        await element.check();\n"
-            code += f"{ind}        checkSucceeded = true;\n"
-            code += f"{ind}        console.log(`✅ Step {step}: Check succeeded`);\n"
-            code += f"{ind}    }} catch (check_error) {{\n"
-            code += f"{ind}        console.log(`⚠️  Step {step}: check() failed, trying setChecked(true)...`);\n"
-            code += f"{ind}        try {{\n"
-            code += f"{ind}            await element.setChecked(true);\n"
-            code += f"{ind}            checkSucceeded = true;\n"
-            code += f"{ind}            console.log(`✅ Step {step}: setChecked(true) succeeded`);\n"
-            code += f"{ind}        }} catch (setChecked_error) {{\n"
-            code += f"{ind}            console.log(`⚠️  Step {step}: setChecked() failed, trying force check...`);\n"
-            code += f"{ind}            await element.check({{ force: true }});\n"
-            code += f"{ind}            checkSucceeded = true;\n"
-            code += f"{ind}            console.log(`✅ Step {step}: Force check succeeded`);\n"
+            code += f"{ind}        await page.waitForTimeout(200);\n"
+            code += f"{ind}    }}\n"
+            code += f"{ind}    \n"
+            code += f"{ind}    if (!buttonEnabled) {{\n"
+            code += f"{ind}        console.log(`⚠️  Step {step}: Create button still disabled after 10 seconds, trying force click`);\n"
+            code += f"{ind}        // Scroll into view if needed\n"
+            code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
+            code += f"{ind}        await page.waitForTimeout(500);\n"
+            code += f"{ind}        // Try force click as fallback\n"
+            code += f"{ind}        await element.click({{ force: true }});\n"
+            code += f"{ind}        console.log(`✅ Step {step}: Clicked Create button with {{ force: true }}`);\n"
+            code += f"{ind}    }} else {{\n"
+            code += f"{ind}        // Scroll into view if needed\n"
+            code += f"{ind}        await element.scrollIntoViewIfNeeded();\n"
+            code += f"{ind}        await page.waitForTimeout(500);  // Wait after scroll\n"
+            if is_radio_or_checkbox:
+                # Use check() for radio buttons and checkboxes (Playwright best practice)
+                code += f"{ind}            // Use check() for radio-button/checkbox (Playwright best practice)\n"
+                code += f"{ind}            try {{\n"
+                code += f"{ind}                await element.check();\n"
+                code += f"{ind}                console.log(`✅ Step {step}: Check succeeded`);\n"
+                code += f"{ind}            }} catch (check_error) {{\n"
+                code += f"{ind}                console.log(`⚠️  Step {step}: check() failed, trying setChecked(true)...`);\n"
+                code += f"{ind}                try {{\n"
+                code += f"{ind}                    await element.setChecked(true);\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: setChecked(true) succeeded`);\n"
+                code += f"{ind}                }} catch (setChecked_error) {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: setChecked() failed, trying force check...`);\n"
+                code += f"{ind}                    await element.check({{ force: true }});\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: Force check succeeded`);\n"
+                code += f"{ind}                }}\n"
+                code += f"{ind}            }}\n"
+            else:
+                # Robust click with fallbacks (JavaScript + force)
+                code += f"{ind}            // Robust click with fallbacks (JavaScript + force)\n"
+                code += f"{ind}            try {{\n"
+                code += f"{ind}                await element.click();\n"
+                code += f"{ind}            }} catch (click_error) {{\n"
+                code += f"{ind}                if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
+                code += f"{ind}                    try {{\n"
+                code += f"{ind}                        await element.evaluate('el => el.click()');\n"
+                code += f"{ind}                        console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
+                code += f"{ind}                    }} catch (js_error) {{\n"
+                code += f"{ind}                        console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
+                code += f"{ind}                        await element.click({{ force: true }});\n"
+                code += f"{ind}                        console.log(`✅ Step {step}: Force click succeeded`);\n"
+                code += f"{ind}                    }}\n"
+                code += f"{ind}                }} else {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: Click failed, trying force click...`);\n"
+                code += f"{ind}                    await element.click({{ force: true }});\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: Force click succeeded`);\n"
+                code += f"{ind}                }}\n"
+                code += f"{ind}            }}\n"
             code += f"{ind}        }}\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    if (!checkSucceeded) {{\n"
-            code += f"{ind}        throw new Error(`Step {step}: All check methods failed`);\n"
-            code += f"{ind}    }}\n"
         else:
-            # Robust click with fallbacks (JavaScript + force)
-            code += f"{ind}    // Robust click with fallbacks (JavaScript + force)\n"
-            code += f"{ind}    let clickSucceeded = false;\n"
-            code += f"{ind}    try {{\n"
-            code += f"{ind}        await element.click();\n"
-            code += f"{ind}        clickSucceeded = true;\n"
-            code += f"{ind}        console.log(`✅ Step {step}: Click succeeded`);\n"
-            code += f"{ind}    }} catch (click_error) {{\n"
-            code += f"{ind}        if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
-            code += f"{ind}            console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
-            code += f"{ind}            try {{\n"
-            code += f"{ind}                await element.evaluate('el => el.click()');\n"
-            code += f"{ind}                clickSucceeded = true;\n"
-            code += f"{ind}                console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
-            code += f"{ind}            }} catch (js_error) {{\n"
-            code += f"{ind}                console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
-            code += f"{ind}                await element.click({{ force: true }});\n"
-            code += f"{ind}                clickSucceeded = true;\n"
-            code += f"{ind}                console.log(`✅ Step {step}: Force click succeeded`);\n"
-            code += f"{ind}            }}\n"
-            code += f"{ind}        }} else {{\n"
-            code += f"{ind}            console.log(`⚠️  Step {step}: Click failed, trying force click...`);\n"
-            code += f"{ind}            await element.click({{ force: true }});\n"
-            code += f"{ind}            clickSucceeded = true;\n"
-            code += f"{ind}            console.log(`✅ Step {step}: Force click succeeded`);\n"
+            # Scroll into view if needed
+            code += f"{ind}        // Scroll into view if needed\n"
+            code += f"{ind}        try {{\n"
+            code += f"{ind}            await element.scrollIntoViewIfNeeded();\n"
+            code += f"{ind}        }} catch {{\n"
+            code += f"{ind}            // Continue if scroll fails\n"
             code += f"{ind}        }}\n"
-            code += f"{ind}    }}\n"
-            code += f"{ind}    if (!clickSucceeded) {{\n"
-            code += f"{ind}        throw new Error(`Step {step}: All click methods failed`);\n"
-            code += f"{ind}    }}\n"
+            code += f"{ind}        await page.waitForTimeout(500);  // Wait after scroll\n"
+            if is_radio_or_checkbox:
+                # Use check() for radio buttons and checkboxes (Playwright best practice)
+                code += f"{ind}            // Use check() for radio-button/checkbox (Playwright best practice)\n"
+                code += f"{ind}            let checkSucceeded = false;\n"
+                code += f"{ind}            try {{\n"
+                code += f"{ind}                await element.check();\n"
+                code += f"{ind}                checkSucceeded = true;\n"
+                code += f"{ind}                console.log(`✅ Step {step}: Check succeeded`);\n"
+                code += f"{ind}            }} catch (check_error) {{\n"
+                code += f"{ind}                console.log(`⚠️  Step {step}: check() failed, trying setChecked(true)...`);\n"
+                code += f"{ind}                try {{\n"
+                code += f"{ind}                    await element.setChecked(true);\n"
+                code += f"{ind}                    checkSucceeded = true;\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: setChecked(true) succeeded`);\n"
+                code += f"{ind}                }} catch (setChecked_error) {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: setChecked() failed, trying force check...`);\n"
+                code += f"{ind}                    await element.check({{ force: true }});\n"
+                code += f"{ind}                    checkSucceeded = true;\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: Force check succeeded`);\n"
+                code += f"{ind}                }}\n"
+                code += f"{ind}            }}\n"
+                code += f"{ind}            if (!checkSucceeded) {{\n"
+                code += f"{ind}                throw new Error(`Step {step}: All check methods failed`);\n"
+                code += f"{ind}            }}\n"
+            else:
+                # Robust click with fallbacks (JavaScript + force)
+                code += f"{ind}            // Robust click with fallbacks (JavaScript + force)\n"
+                code += f"{ind}            let clickSucceeded = false;\n"
+                code += f"{ind}            try {{\n"
+                code += f"{ind}                await element.click();\n"
+                code += f"{ind}                clickSucceeded = true;\n"
+                code += f"{ind}                console.log(`✅ Step {step}: Click succeeded`);\n"
+                code += f"{ind}            }} catch (click_error) {{\n"
+                code += f"{ind}                if (click_error.toString().toLowerCase().includes('timeout') || click_error.toString().includes('Timeout')) {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: Click timeout, trying JavaScript click...`);\n"
+                code += f"{ind}                    try {{\n"
+                code += f"{ind}                        await element.evaluate('el => el.click()');\n"
+                code += f"{ind}                        clickSucceeded = true;\n"
+                code += f"{ind}                        console.log(`✅ Step {step}: JavaScript click succeeded`);\n"
+                code += f"{ind}                    }} catch (js_error) {{\n"
+                code += f"{ind}                        console.log(`⚠️  Step {step}: JavaScript click failed, trying force click...`);\n"
+                code += f"{ind}                        await element.click({{ force: true }});\n"
+                code += f"{ind}                        clickSucceeded = true;\n"
+                code += f"{ind}                        console.log(`✅ Step {step}: Force click succeeded`);\n"
+                code += f"{ind}                    }}\n"
+                code += f"{ind}                }} else {{\n"
+                code += f"{ind}                    console.log(`⚠️  Step {step}: Click failed, trying force click...`);\n"
+                code += f"{ind}                    await element.click({{ force: true }});\n"
+                code += f"{ind}                    clickSucceeded = true;\n"
+                code += f"{ind}                    console.log(`✅ Step {step}: Force click succeeded`);\n"
+                code += f"{ind}                }}\n"
+                code += f"{ind}            }}\n"
+                code += f"{ind}            if (!clickSucceeded) {{\n"
+                code += f"{ind}                throw new Error(`Step {step}: All click methods failed`);\n"
+                code += f"{ind}            }}\n"
+    
+    # Validate_data_view function call - automatically validates all node types
+    # This handles clicking dropdown and validating all node types automatically
+    if is_validate_data_view and validate_data_view_params:
+        # Validate_data_view handles everything - no normal click needed
+        folder_path = validate_data_view_params['folder_path']
+        dropdown_xpath = validate_data_view_params['dropdown_xpath']
+        table_xpath = validate_data_view_params.get('table_xpath')
+        
+        folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
+        dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
+        table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
+        
+        code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
+        code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
+        if table_xpath_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{step}', executionId);\n"
+        else:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{step}', executionId);\n"
+        code += f"{ind}    if (!dataViewResult.success) {{\n"
+        code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Step {step}: Data View validation failed for node type(s): ${{failedNodes}}`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Data View validation passed for all node types`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view.png' }});\n"
     
     # File upload handling: Wait for filechooser and set files
     if is_file_upload and file_path:
@@ -1412,7 +1461,9 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         code += f"{ind}    }}\n"
     
     # State-based modal wait: Check if modal exists and wait for it to disappear (generic patterns, no hard-coding)
-    code += f"{ind}    // Check if modal exists and wait for it to disappear (generic patterns)\n"
+    # Skip modal wait if Validate_data_view is detected (it handles its own waits)
+    if not is_validate_data_view:
+        code += f"{ind}    // Check if modal exists and wait for it to disappear (generic patterns)\n"
     code += f"{ind}    try {{\n"
     code += f"{ind}        // Try ARIA dialog pattern first (generic W3C standard)\n"
     code += f"{ind}        const ariaModal = page.locator('[role=\"dialog\"]').first;\n"
@@ -1772,6 +1823,15 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
             verification_type = 'validate_file'
             validation_params = {'file_location': file_location, 'excel_tab_name': excel_tab_name}
         
+        # Check for Validate_data_view() function call
+        validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', functions_str, re.IGNORECASE)
+        if validate_data_view_match:
+            verification_type = 'validate_data_view'
+            folder_path = validate_data_view_match.group(1)
+            dropdown_xpath = validate_data_view_match.group(2)
+            table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+            validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath}
+        
         # Legacy table/text verification
         elif 'TABLE' in functions_upper:
             verification_type = 'table'
@@ -1790,6 +1850,8 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         code += f" (UI table validation)"
     elif verification_type == 'validate_file':
         code += f" (file content validation)"
+    elif verification_type == 'validate_data_view':
+        code += f" (Data View - automatic node type validation)"
     code += f"\n"
     code += f"{ind}await page.waitForTimeout({wait_ms_before});  // Wait before step (from Excel wait_time: {wait_ms_before}ms)\n"
     code += f"{ind}try {{\n"
@@ -1834,6 +1896,30 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         code += f"{ind}    }}\n"
         code += f"{ind}    console.log(`✅ Step {step}: File validation passed for '{file_location_escaped}'`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_file_validation.png' }});\n"
+    
+    # VALIDATE_DATA_VIEW FUNCTION CALL
+    elif verification_type == 'validate_data_view' and validation_params:
+        folder_path = validation_params['folder_path']
+        dropdown_xpath = validation_params['dropdown_xpath']
+        table_xpath = validation_params.get('table_xpath')
+        
+        folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
+        dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
+        table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
+        
+        code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
+        code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
+        if table_xpath_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{step}', executionId);\n"
+        else:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{step}', executionId);\n"
+        code += f"{ind}    if (!dataViewResult.success) {{\n"
+        code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Step {step}: Data View validation failed for node type(s): ${{failedNodes}}`);\n"
+        code += f"{ind}    }}\n"
+        code += f"{ind}    console.log(`✅ Step {step}: Data View validation passed for all node types`);\n"
+        code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view.png' }});\n"
     
     # LEGACY TABLE/TEXT/VISIBILITY VERIFICATION
     elif verification_type in ['table', 'text', 'visibility']:
