@@ -484,12 +484,15 @@
         // ===================================
         
         async function displayResults(results) {
-            const container = document.getElementById('results-content');
-            
-            // Calculate metrics with safe defaults
-            const actions = safeArray(results.actions_taken);
-            console.log('📊 Display Results - Actions count:', actions.length);
-            console.log('📊 Actions data:', actions);
+            try {
+                console.log('🚀 displayResults STARTED with results:', results);
+                const container = document.getElementById('results-content');
+                console.log('🚀 container element:', container);
+                
+                // Calculate metrics with safe defaults
+                const actions = safeArray(results.actions_taken);
+                console.log('📊 Display Results - Actions count:', actions.length);
+                console.log('📊 Actions data:', actions);
             const screenshots = safeArray(results.screenshots);
             const discoveries = safeArray(results.discoveries);
             
@@ -676,16 +679,28 @@
                 </div>
             `;
             
+            console.log('🚀 About to set innerHTML, html length:', html.length);
             container.innerHTML = html;
+            console.log('🚀 innerHTML set successfully');
             
             // Load steps tab content asynchronously (for Excel executions)
             console.log('🚀 About to call loadStepsTab with results:', results);
             console.log('🚀 results.execution_id:', results.execution_id);
             try {
                 loadStepsTab(results);
+                console.log('🚀 loadStepsTab call completed (no immediate error)');
             } catch (error) {
                 console.error('❌ Error calling loadStepsTab:', error);
                 console.error('❌ Error stack:', error.stack);
+            }
+            } catch (error) {
+                console.error('❌ ERROR in displayResults:', error);
+                console.error('❌ Error message:', error.message);
+                console.error('❌ Error stack:', error.stack);
+                const container = document.getElementById('results-content');
+                if (container) {
+                    container.innerHTML = '<div style="color: #dc3545; padding: 20px;">Error displaying results: ' + error.message + '</div>';
+                }
             }
         }
         
