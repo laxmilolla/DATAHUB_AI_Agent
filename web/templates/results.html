@@ -683,14 +683,22 @@
         }
         
         async function loadStepsTab(results) {
+            console.log('🚀 loadStepsTab CALLED with results:', results);
             const stepsContent = document.getElementById('steps-content');
-            if (!stepsContent) return;
+            console.log('🚀 stepsContent element:', stepsContent);
+            if (!stepsContent) {
+                console.error('❌ steps-content element not found!');
+                return;
+            }
             
             try {
+                console.log('🚀 Calling renderStepsTab...');
                 const stepsHtml = await renderStepsTab(results);
+                console.log('🚀 renderStepsTab returned HTML length:', stepsHtml.length);
                 stepsContent.innerHTML = stepsHtml;
             } catch (error) {
-                console.error('Error loading steps:', error);
+                console.error('❌ Error loading steps:', error);
+                console.error('❌ Error stack:', error.stack);
                 stepsContent.innerHTML = '<p style="color: #dc3545;">Error loading steps: ' + error.message + '</p>';
             }
         }
@@ -851,8 +859,13 @@
         }
         
         async function renderStepsTab(results) {
+            console.log('🚀 renderStepsTab CALLED with results:', results);
+            console.log('🚀 results.execution_id:', results.execution_id);
+            
             const isExcelExecution = results.source === 'excel' || results.excel_id || results.excel_metadata;
             const excelId = results.excel_id || (results.excel_metadata && results.excel_metadata.excel_id);
+            
+            console.log('🚀 isExcelExecution:', isExcelExecution, 'excelId:', excelId);
             
             let html = '<h3 style="color: var(--nci-blue); margin-bottom: 20px;">🎬 Test Steps</h3>';
             
