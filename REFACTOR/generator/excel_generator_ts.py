@@ -751,8 +751,24 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
     
     console.log(`📁 Found ${{tsvFiles.length}} TSV file(s): ${{tsvFiles.join(', ')}}`);
     
-    // Step 4: Extract node types from filenames (e.g., "study.tsv" -> "study")
-    const nodeTypes = tsvFiles.map(f => path.basename(f, '.tsv').toLowerCase());
+    // Step 4: Extract node types from filenames
+    // Pattern: "GC_Data_Loading_Template_consent_group_v9.0.0.tsv" -> "consent_group"
+    // Pattern: "study.tsv" -> "study"
+    const nodeTypes = tsvFiles.map(f => {{
+        const basename = path.basename(f, '.tsv').toLowerCase();
+        // Try to extract node type from pattern: GC_Data_Loading_Template_nodeType_vVersion
+        const templateMatch = basename.match(/gc_data_loading_template_(.+?)_v\\d+\\.\\d+\\.\\d+/);
+        if (templateMatch) {{
+            return templateMatch[1]; // Return the node type part
+        }}
+        // If no version pattern, try to extract after "template_" or use whole name
+        const simpleMatch = basename.match(/template_(.+)/);
+        if (simpleMatch) {{
+            return simpleMatch[1];
+        }}
+        // Fallback: use the whole filename without extension
+        return basename;
+    }});
     
     // Step 5: Switch to "Data View" tab if not already on it
     try {{
@@ -764,12 +780,19 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
     }}
     await page.waitForTimeout(1000); // Wait for tab content to load
     
-    // Step 6: Click dropdown to open it
+    // Step 6: Click dropdown to open it (only if not already open)
     console.log(`🖱️  Clicking dropdown: ${{dropdownXPath}}`);
     const dropdown = page.locator(`xpath=${{dropdownXPath}}`).first();
     await dropdown.waitFor({{ state: 'visible', timeout: 10000 }});
-    await dropdown.click();
-    await page.waitForTimeout(500); // Wait for dropdown menu to appear
+    
+    // Check if dropdown is already open
+    const isExpanded = await dropdown.getAttribute('aria-expanded');
+    if (isExpanded !== 'true') {{
+        await dropdown.click();
+        await page.waitForTimeout(500); // Wait for dropdown menu to appear
+    }} else {{
+        console.log(`✅ Dropdown is already open`);
+    }}
     
     // Step 7: For each node type, select it and validate
     for (let i = 0; i < nodeTypes.length; i++) {{
