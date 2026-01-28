@@ -395,8 +395,16 @@ def validate_excel_file(excel_path: Path, project_root: Optional[Path] = None) -
     if project_root:
         xpath_validation = validate_xpaths_against_registry(df, project_root)
     
+    # Check if XPath mismatches exist - these should cause validation to fail
+    xpath_mismatches = xpath_validation.get('xpath_mismatches', [])
+    has_xpath_errors = len(xpath_mismatches) > 0
+    
+    # Add XPath mismatch errors to errors list
+    if has_xpath_errors:
+        errors.append(f"XPath Registry Validation Failed: {len(xpath_mismatches)} XPath(s) not found in registry. Please add missing elements to registry before proceeding.")
+    
     return {
-        'valid': format_result['valid'],
+        'valid': format_result['valid'] and not has_xpath_errors,  # Fail validation if XPath mismatches exist
         'errors': errors + format_result['errors'],
         'warnings': format_result.get('warnings', []),
         'row_count': format_result.get('row_count', 0),
