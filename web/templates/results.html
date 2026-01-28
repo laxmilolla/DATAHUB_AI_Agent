@@ -936,6 +936,9 @@
                         
                         console.log('🔍 Steps Tab: executionId =', executionId);
                         
+                        // Initialize dataViewValidationsMap for data_view validation results
+                        window.dataViewValidationsMap = window.dataViewValidationsMap || {};
+                        
                         // Fetch validation results JSON to get step-specific mismatches and matches
                         // Always try to fetch if executionId exists, even if validation_mismatches is null/empty
                         // (validation results JSON file might exist even if test runner didn't load it into execution file)
@@ -948,12 +951,15 @@
                                     const validationData = await validationResponse.json();
                                     console.log('🔍 Steps Tab: Validation data received:', validationData);
                                     if (validationData.validations && Array.isArray(validationData.validations)) {
+                                        // Store validationData for data_view access
+                                        window.validationDataCache = validationData;
+                                        
                                         validationData.validations.forEach(validation => {
                                             const stepStr = String(validation.step || '');
                                             // Extract step number (handle "24.0" -> 24, "24" -> 24)
                                             const stepNum = parseInt(stepStr) || parseFloat(stepStr);
                                             if (stepNum) {
-                                                // Map mismatches
+                                                // Map mismatches (for regular validations)
                                                 if (validation.mismatches && Array.isArray(validation.mismatches) && validation.mismatches.length > 0) {
                                                     validationMismatchesMap[stepNum] = validation.mismatches;
                                                     console.log(`✅ Mapped ${validation.mismatches.length} mismatches to step ${stepNum} (from step string "${stepStr}")`);
@@ -962,6 +968,14 @@
                                                 if (validation.matches && Array.isArray(validation.matches) && validation.matches.length > 0) {
                                                     validationMatchesMap[stepNum] = validation.matches;
                                                     console.log(`✅ Mapped ${validation.matches.length} matches to step ${stepNum} (from step string "${stepStr}")`);
+                                                }
+                                                // Store data_view validations separately
+                                                if (validation.validationType === 'data_view') {
+                                                    if (!window.dataViewValidationsMap) {
+                                                        window.dataViewValidationsMap = {};
+                                                    }
+                                                    window.dataViewValidationsMap[stepNum] = validation;
+                                                    console.log(`✅ Stored data_view validation for step ${stepNum}`);
                                                 }
                                             }
                                         });
@@ -994,10 +1008,42 @@
                             const functions = step.functions || '';
                             const isOptional = step.optional || false;
                             
+                            // Check if this is a file upload step
+                            const isFileUpload = functions && (functions.toLowerCase().includes('file upload') || functions.toLowerCase().includes('fileupload'));
+                            
+                            // Extract file upload results from stdout if available
+                            let fileUploadResults = null;
+                            if (isFileUpload && pwValidation && pwValidation.stdout) {
+                                const stdout = pwValidation.stdout;
+                                // Match pattern: "Step X.X: Successfully uploaded N file(s)" or "Step X.X: File upload - resolved path: ..."
+                                const stepPattern = new RegExp(`Step ${stepNumRaw}[^\\n]*upload[^\\n]*\\n([^\\n]*)`, 'i');
+                                const match = stdout.match(stepPattern);
+                                if (match) {
+                                    const uploadLine = match[0];
+                                    // Extract file paths from the upload line
+                                    const filePathPattern = /([\/\w\-\.]+\.(tsv|csv|txt|xlsx|xls|json|xml))/g;
+                                    const filePaths = [];
+                                    let fileMatch;
+                                    while ((fileMatch = filePathPattern.exec(uploadLine)) !== null) {
+                                        filePaths.push(fileMatch[1]);
+                                    }
+                                    if (filePaths.length > 0) {
+                                        fileUploadResults = {
+                                            success: uploadLine.includes('Successfully') || uploadLine.includes('✅'),
+                                            fileCount: filePaths.length,
+                                            filePaths: filePaths
+                                        };
+                                    }
+                                }
+                            }
+                            
                             // Check if this step has validation mismatches or matches
                             const stepMismatches = validationMismatchesMap[stepNum] || [];
                             const stepMatches = validationMatchesMap[stepNum] || [];
-                            const hasValidationMismatches = stepMismatches.length > 0 && functions && functions.includes('Validation(');
+                            // Check for data_view validation type
+                            const dataViewValidation = window.dataViewValidationsMap && window.dataViewValidationsMap[stepNum] ? window.dataViewValidationsMap[stepNum] : null;
+                            const hasValidationMismatches = stepMismatches.length > 0 && functions && (functions.includes('Validation(') || functions.includes('Validate_data_view'));
+                            const hasDataViewValidation = dataViewValidation !== null && functions && functions.includes('Validate_data_view');
                             const hasValidationMatches = stepMatches.length > 0 && functions && functions.includes('Validation(') && stepMismatches.length === 0;
                             
                             // Debug logging for step 24
@@ -1085,6 +1131,23 @@
                                                 <span style="color: #6B5B3D; font-size: 0.95em; margin-left: 8px;">${functions}</span>
                                             </div>
                                             ` : ''}
+                                            ${fileUploadResults ? `
+                                            <div style="margin: 10px 0; padding: 10px; background: ${fileUploadResults.success ? '#E8F5E9' : '#FFF3E0'}; border-radius: 6px; border-left: 4px solid ${fileUploadResults.success ? '#28a745' : '#ffc107'};">
+                                                <strong style="font-size: 0.9em; color: ${fileUploadResults.success ? '#155724' : '#856404'};">
+                                                    ${fileUploadResults.success ? '✅' : '⚠️'} File Upload Results:
+                                                </strong>
+                                                <div style="margin-top: 8px; color: ${fileUploadResults.success ? '#155724' : '#856404'}; font-size: 0.9em;">
+                                                    <div style="margin-bottom: 4px;"><strong>Files Uploaded:</strong> ${fileUploadResults.fileCount}</div>
+                                                    <div style="font-family: monospace; font-size: 0.85em; background: white; padding: 8px; border-radius: 4px; margin-top: 4px;">
+                                                        ${fileUploadResults.filePaths.map((path, idx) => `
+                                                            <div style="margin-bottom: ${idx < fileUploadResults.filePaths.length - 1 ? '4px' : '0'};">
+                                                                ${idx + 1}. ${safeString(path)}
+                                                            </div>
+                                                        `).join('')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            ` : ''}
                                         </div>
                                         
                                         <!-- Screenshot and Validation Mismatches (Right Side) -->
@@ -1110,7 +1173,60 @@
                                             </div>
                                             `}
                                             
-                                            ${hasValidationMismatches ? `
+                                            ${hasDataViewValidation ? `
+                                            <div style="border: 2px solid ${dataViewValidation.summary.success ? '#28a745' : '#dc3545'}; border-radius: 8px; overflow: hidden; background: ${dataViewValidation.summary.success ? '#f0fff4' : '#fff5f5'};">
+                                                <div style="background: ${dataViewValidation.summary.success ? '#28a745' : '#dc3545'}; color: white; padding: 8px; text-align: center; font-size: 0.85em; font-weight: 600;">
+                                                    ${dataViewValidation.summary.success ? '✅' : '❌'} Data View Validation (${dataViewValidation.summary.passed}/${dataViewValidation.summary.totalNodeTypes} passed)
+                                                </div>
+                                                <div style="padding: 10px;">
+                                                    <div style="margin-bottom: 10px; font-size: 0.8em; color: #495057;">
+                                                        <strong>Summary:</strong> ${dataViewValidation.summary.totalNodeTypes} node type(s) validated, ${dataViewValidation.summary.passed} passed, ${dataViewValidation.summary.failed} failed
+                                                    </div>
+                                                    ${dataViewValidation.nodeResults && dataViewValidation.nodeResults.length > 0 ? `
+                                                    <div style="margin-bottom: 10px;">
+                                                        <div style="font-size: 0.8em; font-weight: 600; color: #495057; margin-bottom: 5px;">Per-Node Results:</div>
+                                                        <div style="max-height: 200px; overflow-y: auto;">
+                                                            ${dataViewValidation.nodeResults.map((nr, idx) => `
+                                                            <div style="padding: 6px; margin-bottom: 4px; background: ${nr.success ? '#d4edda' : '#f8d7da'}; border-left: 3px solid ${nr.success ? '#28a745' : '#dc3545'}; border-radius: 4px; font-size: 0.75em;">
+                                                                <strong>${nr.success ? '✅' : '❌'}</strong> <strong>${safeString(nr.nodeType)}</strong>
+                                                                ${nr.mismatches && nr.mismatches.length > 0 ? ` - ${nr.mismatches.length} mismatch(es)` : ''}
+                                                                ${nr.error ? ` - Error: ${safeString(nr.error).substring(0, 50)}` : ''}
+                                                            </div>
+                                                            `).join('')}
+                                                        </div>
+                                                    </div>
+                                                    ` : ''}
+                                                    ${dataViewValidation.mismatches && dataViewValidation.mismatches.length > 0 ? `
+                                                    <div style="max-height: 300px; overflow-y: auto;">
+                                                        <div style="font-size: 0.8em; font-weight: 600; color: #721c24; margin-bottom: 5px;">All Mismatches (${dataViewValidation.mismatches.length}):</div>
+                                                        <table style="width: 100%; border-collapse: collapse; font-size: 0.7em;">
+                                                            <thead>
+                                                                <tr style="background: #fee; border-bottom: 1px solid #dc3545;">
+                                                                    <th style="padding: 4px 3px; text-align: left; font-weight: 600; color: #721c24;">Node</th>
+                                                                    <th style="padding: 4px 3px; text-align: left; font-weight: 600; color: #721c24;">Row</th>
+                                                                    <th style="padding: 4px 3px; text-align: left; font-weight: 600; color: #721c24;">Col</th>
+                                                                    <th style="padding: 4px 3px; text-align: left; font-weight: 600; color: #721c24;">Expected</th>
+                                                                    <th style="padding: 4px 3px; text-align: left; font-weight: 600; color: #721c24;">Actual</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                ${dataViewValidation.mismatches.map((mismatch, idx) => `
+                                                                <tr style="border-bottom: 1px solid #fcc; ${idx % 2 === 0 ? 'background: #fff;' : 'background: #fff5f5;'}">
+                                                                    <td style="padding: 4px 3px; font-weight: 600; color: #495057; font-size: 0.7em;">${safeString(mismatch.nodeType || 'N/A')}</td>
+                                                                    <td style="padding: 4px 3px; font-weight: 600; color: #721c24;">${mismatch.row || 'N/A'}</td>
+                                                                    <td style="padding: 4px 3px; color: #721c24; font-size: 0.65em;">${safeString(mismatch.column || 'N/A').substring(0, 15)}</td>
+                                                                    <td style="padding: 4px 3px; color: #2e7d32; font-family: monospace; font-size: 0.65em;">${safeString(mismatch.expected || 'N/A').substring(0, 12)}</td>
+                                                                    <td style="padding: 4px 3px; color: #dc3545; font-family: monospace; font-size: 0.65em; font-weight: 600;">${safeString(mismatch.actual || 'N/A').substring(0, 12)}</td>
+                                                                </tr>
+                                                                `).join('')}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            ` : ''}
+                                            ${hasValidationMismatches && !hasDataViewValidation ? `
                                             <div style="border: 2px solid #dc3545; border-radius: 8px; overflow: hidden; background: #fff5f5;">
                                                 <div style="background: #dc3545; color: white; padding: 8px; text-align: center; font-size: 0.85em; font-weight: 600;">
                                                     ❌ Validation Mismatches (${stepMismatches.length})
