@@ -1514,6 +1514,41 @@
                         </div>
                     </div>
                     
+                    ${validation.validation_mismatches && validation.validation_mismatches.length > 0 ? `
+                    <div style="margin-top: 30px;">
+                        <h4 style="color: var(--error); margin-bottom: 15px;">❌ Data Validation Mismatches</h4>
+                        <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 8px; border-left: 4px solid var(--error);">
+                            <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                                Found <strong>${validation.validation_mismatches.length}</strong> data mismatch(es) during validation:
+                            </p>
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 6px; overflow: hidden;">
+                                    <thead>
+                                        <tr style="background: var(--error); color: white;">
+                                            <th style="padding: 12px; text-align: left; font-weight: 600;">Row</th>
+                                            <th style="padding: 12px; text-align: left; font-weight: 600;">Column</th>
+                                            <th style="padding: 12px; text-align: left; font-weight: 600;">Expected</th>
+                                            <th style="padding: 12px; text-align: left; font-weight: 600;">Actual</th>
+                                            <th style="padding: 12px; text-align: left; font-weight: 600;">Match Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${validation.validation_mismatches.map((mismatch, idx) => `
+                                        <tr style="border-bottom: 1px solid #e0e0e0; ${idx % 2 === 0 ? 'background: #fafafa;' : ''}">
+                                            <td style="padding: 10px; color: var(--text-primary); font-weight: 600;">${mismatch.row || 'N/A'}</td>
+                                            <td style="padding: 10px; color: var(--text-primary);">${safeString(mismatch.column || 'N/A')}</td>
+                                            <td style="padding: 10px; color: #2e7d32; font-family: monospace; font-size: 0.9em;">${safeString(mismatch.expected || 'N/A')}</td>
+                                            <td style="padding: 10px; color: var(--error); font-family: monospace; font-size: 0.9em; font-weight: 600;">${safeString(mismatch.actual || 'N/A')}</td>
+                                            <td style="padding: 10px; color: var(--text-secondary); font-size: 0.85em;">${safeString(mismatch.matchType || 'exact')}</td>
+                                        </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
                     ${status === 'failed' && (validation.stdout || validation.stderr) ? `
                     <div style="margin-top: 30px;">
                         <h4 style="color: var(--error); margin-bottom: 15px;">❌ Test Execution Errors</h4>

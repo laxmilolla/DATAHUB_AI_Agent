@@ -968,7 +968,8 @@ def generate_and_validate(exec_id):
                             'timestamp': test_result.get('timestamp'),
                             'stdout': test_result.get('stdout', ''),
                             'stderr': test_result.get('stderr', ''),
-                            'exit_code': test_result.get('exit_code', 0)
+                            'exit_code': test_result.get('exit_code', 0),
+                            'validation_mismatches': test_result.get('validation_mismatches', [])
                         }
                         exec_data['playwright_screenshots'] = test_result.get('screenshots', [])
                         # Update execution status based on test result
@@ -1074,7 +1075,8 @@ def generate_and_validate(exec_id):
                         'timestamp': test_result.get('timestamp'),
                         'stdout': test_result.get('stdout', ''),
                         'stderr': test_result.get('stderr', ''),
-                        'exit_code': test_result.get('exit_code', 0)
+                        'exit_code': test_result.get('exit_code', 0),
+                        'validation_mismatches': test_result.get('validation_mismatches', [])
                     }
                     exec_data['playwright_comparison'] = comparison
                     
@@ -2273,7 +2275,8 @@ def generate_from_excel():
                     'timestamp': test_result.get('timestamp'),
                     'stdout': test_result.get('stdout', ''),
                     'stderr': test_result.get('stderr', ''),
-                    'exit_code': test_result.get('exit_code', 0)
+                    'exit_code': test_result.get('exit_code', 0),
+                    'validation_mismatches': test_result.get('validation_mismatches', [])
                 }
                 execution_data['completed_at'] = datetime.now().isoformat()
                 

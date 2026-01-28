@@ -298,9 +298,84 @@ async function clickErrorLinkAndValidate(page: any, rowIndex: number, columnInde
     }}
 }}
 
+// Helper function to write validation results to JSON file
+async function writeValidationResults(executionId: string, step: string, webTabName: string, excelTabName: string, mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>): Promise<void> {{
+    try {{
+        const fs = require('fs');
+        const path = require('path');
+        
+        // Get execution_id from environment or generate fallback
+        const execId = process.env.EXECUTION_ID || executionId || `independent_${{Date.now()}}`;
+        
+        // Create validation results directory
+        const resultsDir = path.join(__dirname, '../../storage/validation_results');
+        if (!fs.existsSync(resultsDir)) {{
+            fs.mkdirSync(resultsDir, {{ recursive: true }});
+        }}
+        
+        const resultsFile = path.join(resultsDir, `${{execId}}.json`);
+        
+        // Read existing results or create new
+        let allResults: any = {{}};
+        if (fs.existsSync(resultsFile)) {{
+            try {{
+                allResults = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+            }} catch (e) {{
+                allResults = {{}};
+            }}
+        }}
+        
+        // Add this validation result
+        if (!allResults.validations) {{
+            allResults.validations = [];
+        }}
+        
+        allResults.validations.push({{
+            step: step,
+            webTabName: webTabName,
+            excelTabName: excelTabName,
+            timestamp: new Date().toISOString(),
+            mismatches: mismatches
+        }});
+        
+        // Write back to file
+        fs.writeFileSync(resultsFile, JSON.stringify(allResults, null, 2), 'utf8');
+        console.log(`📝 Validation results written to: ${{resultsFile}}`);
+    }} catch (e) {{
+        console.log(`⚠️  Failed to write validation results: ${{e}}`);
+        // Don't throw - this is non-critical
+    }}
+}}
+
+// Helper function to format mismatches as console table
+function formatMismatchesConsole(step: string, webTabName: string, excelTabName: string, mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>): string {{
+    if (mismatches.length === 0) {{
+        return '';
+    }}
+    
+    let output = `\\n❌ Validation Mismatches (Step ${{step}}, Tab: ${{webTabName}}, Expected: ${{excelTabName}})\\n`;
+    output += '═'.repeat(100) + '\\n';
+    output += `${{'Row'.padEnd(6)}} | ${{'Column'.padEnd(25)}} | ${{'Expected'.padEnd(20)}} | ${{'Actual'.padEnd(20)}} | Match Type\\n`;
+    output += '─'.repeat(100) + '\\n';
+    
+    for (const mismatch of mismatches) {{
+        const row = String(mismatch.row).padEnd(6);
+        const col = mismatch.column.substring(0, 25).padEnd(25);
+        const exp = mismatch.expected.substring(0, 20).padEnd(20);
+        const act = mismatch.actual.substring(0, 20).padEnd(20);
+        const matchType = mismatch.matchType;
+        output += `${{row}} | ${{col}} | ${{exp}} | ${{act}} | ${{matchType}}\\n`;
+    }}
+    
+    output += '═'.repeat(100) + '\\n';
+    return output;
+}}
+
 // Validation function for UI table data
-async function Validation(page: any, webTabName: string, excelTabName: string, tableXPath?: string): Promise<boolean> {{
+async function Validation(page: any, webTabName: string, excelTabName: string, tableXPath?: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
     console.log(`🔍 Validation: Validating "${{webTabName}}" tab against "${{excelTabName}}" expected results`);
+    
+    const mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     
     // Get expected results
     const expectedResults = EXPECTED_RESULTS[excelTabName];
@@ -357,7 +432,14 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
         if (check.column_name.toLowerCase() === 'row count') {{
             const expectedCount = parseInt(check.expected_value);
             if (table.rows.length !== expectedCount) {{
-                throw new Error(`Row count mismatch: expected ${{expectedCount}}, got ${{table.rows.length}}`);
+                // Add as mismatch instead of throwing
+                mismatches.push({{
+                    row: 0,
+                    column: 'Row Count',
+                    expected: String(expectedCount),
+                    actual: String(table.rows.length),
+                    matchType: 'exact'
+                }});
             }}
         }}
     }}
@@ -387,12 +469,32 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
             if (check.action_on_error === 'click_link') {{
                 await clickErrorLinkAndValidate(page, rowIndex, columnIndex);
             }}
-            throw new Error(`Row ${{check.row_number}}, Column "${{check.column_name}}": expected "${{check.expected_value}}" (match type: ${{check.match_type}}), got "${{actualValue}}"`);
+            
+            // Collect mismatch instead of throwing
+            mismatches.push({{
+                row: parseInt(check.row_number),
+                column: check.column_name,
+                expected: check.expected_value,
+                actual: actualValue,
+                matchType: check.match_type
+            }});
         }}
     }}
     
+    // Write results to JSON file if step and executionId provided
+    if (step && executionId) {{
+        await writeValidationResults(executionId, step, webTabName, excelTabName, mismatches);
+    }}
+    
+    // Format and display mismatches in console
+    if (mismatches.length > 0) {{
+        const consoleOutput = formatMismatchesConsole(step || '?', webTabName, excelTabName, mismatches);
+        console.log(consoleOutput);
+        return {{ success: false, mismatches: mismatches }};
+    }}
+    
     console.log(`✅ Validation passed: All checks for "${{excelTabName}}" passed`);
-    return true;
+    return {{ success: true }};
 }}
 
 // Helper function to parse TSV file
@@ -457,8 +559,10 @@ function parseCSV(content: string): {{ headers: string[], rows: string[][] }} {{
 }}
 
 // Validation function for file content
-async function Validate_file(fileLocation: string, excelTabName: string): Promise<boolean> {{
+async function Validate_file(fileLocation: string, excelTabName: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
     console.log(`🔍 Validate_file: Validating file "${{fileLocation}}" against "${{excelTabName}}" expected results`);
+    
+    const mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     
     // Step 1: Resolve file path
     const projectRoot = path.resolve(__dirname, '../../');
@@ -494,12 +598,24 @@ async function Validate_file(fileLocation: string, excelTabName: string): Promis
         if (check.column_name.toLowerCase() === 'row count') {{
             const expectedCount = parseInt(check.expected_value);
             if (fileData.rows.length !== expectedCount) {{
-                throw new Error(`Row count mismatch: expected ${{expectedCount}}, got ${{fileData.rows.length}}`);
+                mismatches.push({{
+                    row: 0,
+                    column: 'Row Count',
+                    expected: String(expectedCount),
+                    actual: String(fileData.rows.length),
+                    matchType: 'exact'
+                }});
             }}
         }} else if (check.column_name.toLowerCase() === 'column count') {{
             const expectedCount = parseInt(check.expected_value);
             if (fileData.headers.length !== expectedCount) {{
-                throw new Error(`Column count mismatch: expected ${{expectedCount}}, got ${{fileData.headers.length}}`);
+                mismatches.push({{
+                    row: 0,
+                    column: 'Column Count',
+                    expected: String(expectedCount),
+                    actual: String(fileData.headers.length),
+                    matchType: 'exact'
+                }});
             }}
         }}
     }}
@@ -525,12 +641,31 @@ async function Validate_file(fileLocation: string, excelTabName: string): Promis
         const actualValue = fileData.rows[rowIndex][columnIndex];
         
         if (!matchValue(actualValue, check.expected_value, check.match_type)) {{
-            throw new Error(`Row ${{check.row_number}}, Column "${{check.column_name}}": expected "${{check.expected_value}}" (match type: ${{check.match_type}}), got "${{actualValue}}"`);
+            // Collect mismatch instead of throwing
+            mismatches.push({{
+                row: parseInt(check.row_number),
+                column: check.column_name,
+                expected: check.expected_value,
+                actual: actualValue,
+                matchType: check.match_type
+            }});
         }}
     }}
     
+    // Write results to JSON file if step and executionId provided
+    if (step && executionId) {{
+        await writeValidationResults(executionId, step, fileLocation, excelTabName, mismatches);
+    }}
+    
+    // Format and display mismatches in console
+    if (mismatches.length > 0) {{
+        const consoleOutput = formatMismatchesConsole(step || '?', fileLocation, excelTabName, mismatches);
+        console.log(consoleOutput);
+        return {{ success: false, mismatches: mismatches }};
+    }}
+    
     console.log(`✅ Validate_file passed: All checks for "${{excelTabName}}" passed`);
-    return true;
+    return {{ success: true }};
 }}
 '''
     
@@ -1618,12 +1753,16 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         # Pass XPath to Validation function if available (for table element)
         xpath_escaped_for_js = xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if xpath and xpath != 'N/A' else None
         code += f"{ind}    // Call Validation function\n"
+        code += f"{ind}    // Get execution_id from environment or generate fallback\n"
+        code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
         if xpath_escaped_for_js:
-            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}', `{xpath_escaped_for_js}`);\n"
+            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}', `{xpath_escaped_for_js}`, '{step}', executionId);\n"
         else:
-            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}');\n"
-        code += f"{ind}    if (!validationResult) {{\n"
-        code += f"{ind}        throw new Error(`Step {step}: Validation failed for tab '{web_tab_escaped}'`);\n"
+            code += f"{ind}    const validationResult = await Validation(page, '{web_tab_escaped}', '{excel_tab_escaped}', undefined, '{step}', executionId);\n"
+        code += f"{ind}    if (!validationResult.success) {{\n"
+        code += f"{ind}        const mismatchCount = validationResult.mismatches ? validationResult.mismatches.length : 0;\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_validation_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Step {step}: Validation failed for tab '{web_tab_escaped}' - ${{mismatchCount}} mismatch(es) found`);\n"
         code += f"{ind}    }}\n"
         code += f"{ind}    console.log(`✅ Step {step}: Validation passed for '{web_tab_escaped}' tab`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_validation.png' }});\n"
@@ -1635,9 +1774,13 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         file_location_escaped = file_location.replace("'", "\\'").replace('"', '\\"')
         excel_tab_escaped = excel_tab_name.replace("'", "\\'").replace('"', '\\"')
         code += f"{ind}    // Call Validate_file function\n"
-        code += f"{ind}    const validationResult = await Validate_file('{file_location_escaped}', '{excel_tab_escaped}');\n"
-        code += f"{ind}    if (!validationResult) {{\n"
-        code += f"{ind}        throw new Error(`Step {step}: File validation failed for '{file_location_escaped}'`);\n"
+        code += f"{ind}    // Get execution_id from environment or generate fallback\n"
+        code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
+        code += f"{ind}    const validationResult = await Validate_file('{file_location_escaped}', '{excel_tab_escaped}', '{step}', executionId);\n"
+        code += f"{ind}    if (!validationResult.success) {{\n"
+        code += f"{ind}        const mismatchCount = validationResult.mismatches ? validationResult.mismatches.length : 0;\n"
+        code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_file_validation_failed.png' }});\n"
+        code += f"{ind}        throw new Error(`Step {step}: File validation failed for '{file_location_escaped}' - ${{mismatchCount}} mismatch(es) found`);\n"
         code += f"{ind}    }}\n"
         code += f"{ind}    console.log(`✅ Step {step}: File validation passed for '{file_location_escaped}'`);\n"
         code += f"{ind}    await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_file_validation.png' }});\n"

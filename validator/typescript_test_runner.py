@@ -104,13 +104,18 @@ class TypeScriptTestRunner:
         
         try:
             # Run the test using npx playwright test
+            # Pass execution_id as environment variable if available
+            env_vars = {**dict(os.environ), 'CI': 'true'}
+            if execution_id:
+                env_vars['EXECUTION_ID'] = execution_id
+            
             result = subprocess.run(
                 [npx_executable, 'playwright', 'test', test_path.name, '--reporter=list'],
                 cwd=str(test_dir),
                 capture_output=True,
                 text=True,
                 timeout=600,  # 10 minute timeout (test has 5 min timeout, allow extra for setup/teardown)
-                env={**dict(os.environ), 'CI': 'true'}  # Set CI mode for headless
+                env=env_vars
             )
             
             duration = time.time() - start_time
@@ -127,6 +132,22 @@ class TypeScriptTestRunner:
             # Extract Playwright screenshots from disk (same as Python runner)
             screenshots = self._collect_screenshots(start_time, duration, execution_id)
             
+            # Read validation results JSON file if it exists
+            validation_mismatches = []
+            if execution_id:
+                validation_results_file = self.project_root / 'storage' / 'validation_results' / f'{execution_id}.json'
+                if validation_results_file.exists():
+                    try:
+                        with open(validation_results_file, 'r') as f:
+                            validation_data = json.load(f)
+                            # Extract all mismatches from all validations
+                            if 'validations' in validation_data:
+                                for validation in validation_data['validations']:
+                                    if 'mismatches' in validation and validation['mismatches']:
+                                        validation_mismatches.extend(validation['mismatches'])
+                    except Exception as e:
+                        print(f"⚠️  Failed to read validation results: {e}")
+            
             test_result = {
                 'status': 'passed' if passed else 'failed',
                 'exit_code': result.returncode,
@@ -138,7 +159,8 @@ class TypeScriptTestRunner:
                 'screenshots': screenshots,
                 'timestamp': datetime.utcnow().isoformat() + 'Z',
                 'test_file': str(test_path.relative_to(self.project_root)),
-                'execution_id': execution_id
+                'execution_id': execution_id,
+                'validation_mismatches': validation_mismatches
             }
             
             if passed:
