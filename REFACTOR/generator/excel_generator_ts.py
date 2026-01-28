@@ -299,7 +299,7 @@ async function clickErrorLinkAndValidate(page: any, rowIndex: number, columnInde
 }}
 
 // Helper function to write validation results to JSON file
-async function writeValidationResults(executionId: string, step: string, webTabName: string, excelTabName: string, mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>): Promise<void> {{
+async function writeValidationResults(executionId: string, step: string, webTabName: string, excelTabName: string, mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>, matches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>): Promise<void> {{
     try {{
         const fs = require('fs');
         const path = require('path');
@@ -335,7 +335,8 @@ async function writeValidationResults(executionId: string, step: string, webTabN
             webTabName: webTabName,
             excelTabName: excelTabName,
             timestamp: new Date().toISOString(),
-            mismatches: mismatches
+            mismatches: mismatches,
+            matches: matches || []
         }});
         
         // Write back to file
@@ -372,10 +373,11 @@ function formatMismatchesConsole(step: string, webTabName: string, excelTabName:
 }}
 
 // Validation function for UI table data
-async function Validation(page: any, webTabName: string, excelTabName: string, tableXPath?: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
+async function Validation(page: any, webTabName: string, excelTabName: string, tableXPath?: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>, matches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
     console.log(`🔍 Validation: Validating "${{webTabName}}" tab against "${{excelTabName}}" expected results`);
     
     const mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
+    const matches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     
     // Get expected results
     const expectedResults = EXPECTED_RESULTS[excelTabName];
@@ -440,6 +442,15 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
                     actual: String(table.rows.length),
                     matchType: 'exact'
                 }});
+            }} else {{
+                // Add as match for success display
+                matches.push({{
+                    row: 0,
+                    column: 'Row Count',
+                    expected: String(expectedCount),
+                    actual: String(table.rows.length),
+                    matchType: 'exact'
+                }});
             }}
         }}
     }}
@@ -478,12 +489,21 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
                 actual: actualValue,
                 matchType: check.match_type
             }});
+        }} else {{
+            // Collect match for success display
+            matches.push({{
+                row: parseInt(check.row_number),
+                column: check.column_name,
+                expected: check.expected_value,
+                actual: actualValue,
+                matchType: check.match_type
+            }});
         }}
     }}
     
     // Write results to JSON file if step and executionId provided
     if (step && executionId) {{
-        await writeValidationResults(executionId, step, webTabName, excelTabName, mismatches);
+        await writeValidationResults(executionId, step, webTabName, excelTabName, mismatches, matches);
     }}
     
     // Format and display mismatches in console
@@ -494,7 +514,7 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
     }}
     
     console.log(`✅ Validation passed: All checks for "${{excelTabName}}" passed`);
-    return {{ success: true }};
+    return {{ success: true, matches: matches }};
 }}
 
 // Helper function to parse TSV file
@@ -559,10 +579,11 @@ function parseCSV(content: string): {{ headers: string[], rows: string[][] }} {{
 }}
 
 // Validation function for file content
-async function Validate_file(fileLocation: string, excelTabName: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
+async function Validate_file(fileLocation: string, excelTabName: string, step?: string, executionId?: string): Promise<{{ success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}>, matches?: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> }}> {{
     console.log(`🔍 Validate_file: Validating file "${{fileLocation}}" against "${{excelTabName}}" expected results`);
     
     const mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
+    const matches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     
     // Step 1: Resolve file path
     const projectRoot = path.resolve(__dirname, '../../');
@@ -605,11 +626,27 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
                     actual: String(fileData.rows.length),
                     matchType: 'exact'
                 }});
+            }} else {{
+                matches.push({{
+                    row: 0,
+                    column: 'Row Count',
+                    expected: String(expectedCount),
+                    actual: String(fileData.rows.length),
+                    matchType: 'exact'
+                }});
             }}
         }} else if (check.column_name.toLowerCase() === 'column count') {{
             const expectedCount = parseInt(check.expected_value);
             if (fileData.headers.length !== expectedCount) {{
                 mismatches.push({{
+                    row: 0,
+                    column: 'Column Count',
+                    expected: String(expectedCount),
+                    actual: String(fileData.headers.length),
+                    matchType: 'exact'
+                }});
+            }} else {{
+                matches.push({{
                     row: 0,
                     column: 'Column Count',
                     expected: String(expectedCount),
@@ -649,12 +686,21 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
                 actual: actualValue,
                 matchType: check.match_type
             }});
+        }} else {{
+            // Collect match for success display
+            matches.push({{
+                row: parseInt(check.row_number),
+                column: check.column_name,
+                expected: check.expected_value,
+                actual: actualValue,
+                matchType: check.match_type
+            }});
         }}
     }}
     
     // Write results to JSON file if step and executionId provided
     if (step && executionId) {{
-        await writeValidationResults(executionId, step, fileLocation, excelTabName, mismatches);
+        await writeValidationResults(executionId, step, fileLocation, excelTabName, mismatches, matches);
     }}
     
     // Format and display mismatches in console
@@ -665,7 +711,7 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
     }}
     
     console.log(`✅ Validate_file passed: All checks for "${{excelTabName}}" passed`);
-    return {{ success: true }};
+    return {{ success: true, matches: matches }};
 }}
 '''
     
