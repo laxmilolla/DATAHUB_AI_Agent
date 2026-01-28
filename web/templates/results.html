@@ -892,7 +892,9 @@
                         const executionId = results.execution_id;
                         
                         // Fetch validation results JSON to get step-specific mismatches
-                        if (executionId && pwValidation && pwValidation.validation_mismatches && Array.isArray(pwValidation.validation_mismatches) && pwValidation.validation_mismatches.length > 0) {
+                        // Always try to fetch if executionId exists, even if validation_mismatches is null/empty
+                        // (validation results JSON file might exist even if test runner didn't load it into execution file)
+                        if (executionId) {
                             try {
                                 const validationResponse = await fetch(`/api/executions/${executionId}/validation-results`);
                                 if (validationResponse.ok) {
@@ -902,11 +904,14 @@
                                             const stepStr = String(validation.step || '');
                                             // Extract step number (handle "24.0" -> 24, "24" -> 24)
                                             const stepNum = parseInt(stepStr) || parseFloat(stepStr);
-                                            if (stepNum && validation.mismatches && validation.mismatches.length > 0) {
+                                            if (stepNum && validation.mismatches && Array.isArray(validation.mismatches) && validation.mismatches.length > 0) {
                                                 validationMismatchesMap[stepNum] = validation.mismatches;
+                                                console.log(`Mapped ${validation.mismatches.length} mismatches to step ${stepNum} (from step string "${stepStr}")`);
                                             }
                                         });
                                     }
+                                } else {
+                                    console.log(`Validation results fetch failed: ${validationResponse.status} ${validationResponse.statusText}`);
                                 }
                             } catch (e) {
                                 console.log('Could not fetch validation results:', e);
