@@ -679,7 +679,14 @@
             container.innerHTML = html;
             
             // Load steps tab content asynchronously (for Excel executions)
-            loadStepsTab(results);
+            console.log('🚀 About to call loadStepsTab with results:', results);
+            console.log('🚀 results.execution_id:', results.execution_id);
+            try {
+                loadStepsTab(results);
+            } catch (error) {
+                console.error('❌ Error calling loadStepsTab:', error);
+                console.error('❌ Error stack:', error.stack);
+            }
         }
         
         async function loadStepsTab(results) {
