@@ -985,9 +985,13 @@
                             // Debug logging for step 24
                             if (stepNum === 24) {
                                 console.log(`🔍 Step ${stepNum}: stepMismatches =`, stepMismatches);
+                                console.log(`🔍 Step ${stepNum}: stepMismatches.length =`, stepMismatches.length);
                                 console.log(`🔍 Step ${stepNum}: functions =`, functions);
+                                console.log(`🔍 Step ${stepNum}: functions type =`, typeof functions);
+                                console.log(`🔍 Step ${stepNum}: functions.includes('Validation(') =`, functions && functions.includes('Validation('));
                                 console.log(`🔍 Step ${stepNum}: hasValidationMismatches =`, hasValidationMismatches);
                                 console.log(`🔍 Step ${stepNum}: validationMismatchesMap[${stepNum}] =`, validationMismatchesMap[stepNum]);
+                                console.log(`🔍 Step ${stepNum}: FULL validationMismatchesMap =`, validationMismatchesMap);
                             }
                             
                             // Find screenshot for this step (prefer non-failed screenshot)
