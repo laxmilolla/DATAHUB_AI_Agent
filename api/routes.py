@@ -2078,8 +2078,8 @@ def upload_excel():
         excel_path = excel_files_dir / excel_filename
         file.save(str(excel_path))
         
-        # Validate Excel file
-        validation_result = validate_excel_file(excel_path)
+        # Validate Excel file (with registry validation)
+        validation_result = validate_excel_file(excel_path, project_root=project_root)
         
         # Save metadata
         metadata = {

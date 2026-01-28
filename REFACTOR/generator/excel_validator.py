@@ -5,9 +5,15 @@ All validation is generic - no application-specific hard-coding.
 """
 import pandas as pd
 import re
+import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from urllib.parse import urlparse
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from REFACTOR.generator.excel_generator import lookup_element_id_by_xpath
 
 
 def validate_excel_format(df: pd.DataFrame) -> Dict[str, Any]:
@@ -273,12 +279,92 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def validate_excel_file(excel_path: Path) -> Dict[str, Any]:
+def validate_xpaths_against_registry(df: pd.DataFrame, project_root: Path) -> Dict[str, Any]:
+    """
+    Validate XPaths in Excel file against registry files.
+    
+    Args:
+        df: Pandas DataFrame from Excel file
+        project_root: Project root directory (parent of element_maps)
+        
+    Returns:
+        Dict with 'xpath_mismatches' (list) and 'total_checked' (int)
+    """
+    mismatches: List[Dict[str, Any]] = []
+    
+    element_maps_dir = project_root / 'element_maps'
+    if not element_maps_dir.exists():
+        return {
+            'xpath_mismatches': [],
+            'total_checked': 0,
+            'warning': 'Element maps directory not found - skipping XPath registry validation'
+        }
+    
+    # Find all registry files (exclude deleted/version files)
+    registry_files: List[str] = []
+    for registry_file in element_maps_dir.rglob('*.json'):
+        # Skip deleted files and version files
+        if 'deleted' in str(registry_file) or 'versions' in str(registry_file):
+            continue
+        # Get relative path from project_root (should start with 'element_maps/')
+        relative_path = registry_file.relative_to(project_root)
+        registry_files.append(str(relative_path).replace('\\', '/'))
+    
+    if not registry_files:
+        return {
+            'xpath_mismatches': [],
+            'total_checked': 0,
+            'warning': 'No registry files found - skipping XPath registry validation'
+        }
+    
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+    
+    # Check each row's XPath against registries
+    total_checked = 0
+    for idx, row in df.iterrows():
+        step = row.get('step', '')
+        xpath = row.get('xpath', '')
+        action = row.get('action', '').strip().lower()
+        
+        # Skip if XPath is empty, N/A, or action is navigate/wait
+        if pd.isna(xpath) or str(xpath).strip().upper() == 'N/A' or not str(xpath).strip():
+            continue
+        
+        if action in ['navigate', 'wait']:
+            continue  # These don't need XPath registry matching
+        
+        xpath_str = str(xpath).strip()
+        total_checked += 1
+        
+        # Look up element_id in registries (lookup function expects element_maps directory, not project root)
+        element_maps_dir = project_root / 'element_maps'
+        element_id = lookup_element_id_by_xpath(xpath_str, registry_files, element_maps_dir)
+        
+        if not element_id:
+            # XPath not found in any registry
+            element_desc = row.get('element_description', row.get('description', '')).strip() if 'element_description' in row.index or 'description' in row.index else ''
+            mismatches.append({
+                'step': str(step),
+                'xpath': xpath_str,
+                'element_description': element_desc if element_desc else 'N/A',
+                'action': action
+            })
+    
+    return {
+        'xpath_mismatches': mismatches,
+        'total_checked': total_checked,
+        'total_registries': len(registry_files)
+    }
+
+
+def validate_excel_file(excel_path: Path, project_root: Optional[Path] = None) -> Dict[str, Any]:
     """
     Validate Excel file (file existence and format).
     
     Args:
         excel_path: Path to Excel file
+        project_root: Optional project root directory (for registry validation)
         
     Returns:
         Dict with validation results
@@ -305,11 +391,17 @@ def validate_excel_file(excel_path: Path) -> Dict[str, Any]:
     # Validate format
     format_result = validate_excel_format(df)
     
+    # Validate XPaths against registries (if project_root provided)
+    xpath_validation = {}
+    if project_root:
+        xpath_validation = validate_xpaths_against_registry(df, project_root)
+    
     return {
         'valid': format_result['valid'],
         'errors': errors + format_result['errors'],
         'warnings': format_result.get('warnings', []),
-        'row_count': format_result.get('row_count', 0)
+        'row_count': format_result.get('row_count', 0),
+        'xpath_validation': xpath_validation
     }
 
 
@@ -342,6 +434,36 @@ def get_validation_summary(validation_result: Dict[str, Any]) -> str:
         lines.append(f"\n⚠️  Warnings ({len(validation_result['warnings'])}):")
         for warning in validation_result['warnings']:
             lines.append(f"  • {warning}")
+    
+    # Add XPath registry validation summary
+    xpath_validation = validation_result.get('xpath_validation', {})
+    if xpath_validation:
+        total_checked = xpath_validation.get('total_checked', 0)
+        mismatches = xpath_validation.get('xpath_mismatches', [])
+        total_registries = xpath_validation.get('total_registries', 0)
+        
+        if total_checked > 0:
+            lines.append(f"\n🔍 XPath Registry Validation:")
+            lines.append(f"  • Total XPaths checked: {total_checked}")
+            lines.append(f"  • Registries searched: {total_registries}")
+            lines.append(f"  • XPaths not found in registry: {len(mismatches)}")
+            
+            if mismatches:
+                lines.append(f"\n  ⚠️  XPaths not matching registry ({len(mismatches)}):")
+                for mismatch in mismatches[:10]:  # Show first 10
+                    step = mismatch.get('step', 'N/A')
+                    xpath = mismatch.get('xpath', 'N/A')
+                    desc = mismatch.get('element_description', 'N/A')
+                    lines.append(f"    • Step {step}: {desc}")
+                    lines.append(f"      XPath: {xpath}")
+                
+                if len(mismatches) > 10:
+                    lines.append(f"    ... and {len(mismatches) - 10} more")
+            else:
+                lines.append(f"  ✅ All XPaths found in registry!")
+        
+        if xpath_validation.get('warning'):
+            lines.append(f"\n  ⚠️  {xpath_validation['warning']}")
     
     return "\n".join(lines)
 
