@@ -13,7 +13,7 @@ import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from REFACTOR.generator.excel_generator import lookup_element_id_by_xpath
+from REFACTOR.generator.excel_generator import lookup_element_id_by_xpath, detect_registry_files_from_urls
 
 
 def validate_excel_format(df: pd.DataFrame) -> Dict[str, Any]:
@@ -300,21 +300,20 @@ def validate_xpaths_against_registry(df: pd.DataFrame, project_root: Path) -> Di
             'warning': 'Element maps directory not found - skipping XPath registry validation'
         }
     
-    # Find all registry files (exclude deleted/version files)
-    registry_files: List[str] = []
-    for registry_file in element_maps_dir.rglob('*.json'):
-        # Skip deleted files and version files
-        if 'deleted' in str(registry_file) or 'versions' in str(registry_file):
-            continue
-        # Get relative path from project_root (should start with 'element_maps/')
-        relative_path = registry_file.relative_to(project_root)
-        registry_files.append(str(relative_path).replace('\\', '/'))
+    # Use the SAME registry detection logic as code generator
+    # Extract URLs from Excel to match generator's behavior
+    urls = []
+    if 'url' in df.columns:
+        urls = df['url'].dropna().unique().tolist()
+    
+    # Use detect_registry_files_from_urls() - same as generator uses
+    registry_files = detect_registry_files_from_urls(urls, element_maps_dir)
     
     if not registry_files:
         return {
             'xpath_mismatches': [],
             'total_checked': 0,
-            'warning': 'No registry files found - skipping XPath registry validation'
+            'warning': 'No registry files detected (using same logic as code generator) - skipping XPath registry validation'
         }
     
     # Normalize column names
