@@ -18,10 +18,112 @@ from REFACTOR.generator.excel_validator import validate_excel_file, get_validati
 from REFACTOR.generator.excel_template import generate_excel_template, get_template_path
 from REFACTOR.generator.excel_registry_helper import extract_elements_from_excel, compare_with_registry
 import uuid
+import pandas as pd
+import shutil
 
 bp = Blueprint('api', __name__)
 active_executions = {}
 active_excel_generations = {}
+
+
+def extract_file_upload_paths_from_excel(excel_path: Path) -> list:
+    """
+    Extract file upload paths from Excel file by parsing Functions column.
+    
+    Args:
+        excel_path: Path to Excel file
+        
+    Returns:
+        List of file paths (e.g., ['storage/test_files/file1.tsv', 'storage/test_files/file2.tsv'])
+    """
+    file_paths = []
+    try:
+        df = pd.read_excel(excel_path)
+        
+        # Normalize column names
+        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+        
+        if 'functions' not in df.columns:
+            return file_paths
+        
+        for idx, row in df.iterrows():
+            functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else ''
+            
+            if functions and 'file upload' in functions.lower():
+                # Parse file path from functions: "File Upload:storage/test_files/file.tsv"
+                if ':' in functions:
+                    parts = functions.split(':')
+                    if len(parts) >= 2:
+                        # Get path after "File Upload:"
+                        path_part = ':'.join(parts[1:]).strip()
+                        if path_part and path_part not in file_paths:
+                            file_paths.append(path_part)
+    
+    except Exception as e:
+        print(f"⚠️  Error extracting file upload paths from Excel: {e}")
+    
+    return file_paths
+
+
+def upload_test_files_to_server(test_files: list, project_root: Path) -> dict:
+    """
+    Upload test files to server, creating folder structure as needed.
+    
+    Args:
+        test_files: List of file objects from request.files.getlist('test_files')
+        project_root: Project root directory
+        
+    Returns:
+        Dict with upload results: {'uploaded': [...], 'errors': [...]}
+    """
+    results = {'uploaded': [], 'errors': []}
+    test_files_dir = project_root / 'storage' / 'test_files'
+    
+    # Create test_files directory if it doesn't exist
+    test_files_dir.mkdir(parents=True, exist_ok=True)
+    
+    for file in test_files:
+        if file.filename == '':
+            continue
+        
+        try:
+            # Extract relative path from filename if it contains directory structure
+            # e.g., "test_files/subfolder/file.tsv" -> create subfolder structure
+            filename = file.filename
+            if '/' in filename or '\\' in filename:
+                # Handle both forward and backslash separators
+                parts = filename.replace('\\', '/').split('/')
+                # Remove 'test_files' prefix if present (we're already in test_files_dir)
+                if parts[0].lower() == 'test_files':
+                    parts = parts[1:]
+                
+                # Create subdirectory structure
+                if len(parts) > 1:
+                    subdir = test_files_dir / '/'.join(parts[:-1])
+                    subdir.mkdir(parents=True, exist_ok=True)
+                    target_path = subdir / parts[-1]
+                else:
+                    target_path = test_files_dir / parts[0]
+            else:
+                # Simple filename, save directly in test_files_dir
+                target_path = test_files_dir / filename
+            
+            # Save file
+            file.save(str(target_path))
+            relative_path = str(target_path.relative_to(project_root))
+            results['uploaded'].append({
+                'filename': filename,
+                'server_path': relative_path,
+                'full_path': str(target_path)
+            })
+            print(f"✅ Uploaded test file: {filename} -> {relative_path}")
+        
+        except Exception as e:
+            error_msg = f"Failed to upload {file.filename}: {str(e)}"
+            results['errors'].append(error_msg)
+            print(f"❌ {error_msg}")
+    
+    return results
 
 
 @bp.route('/execute', methods=['POST'])
@@ -2054,13 +2156,14 @@ def update_registry_tree():
 @bp.route('/excel/upload', methods=['POST'])
 def upload_excel():
     """
-    Upload and validate Excel file.
+    Upload and validate Excel file, and optionally upload test files referenced in Excel.
     
     Expected form data:
     - file: Excel file (.xlsx or .xls)
+    - test_files: (optional) Multiple test files for file upload steps
     
     Returns:
-        JSON with excel_id and validation results
+        JSON with excel_id, validation results, and test file upload status
     """
     try:
         # Check if file is present
@@ -2093,6 +2196,19 @@ def upload_excel():
         excel_path = excel_files_dir / excel_filename
         file.save(str(excel_path))
         
+        # Extract file upload paths from Excel
+        file_upload_paths = extract_file_upload_paths_from_excel(excel_path)
+        print(f"📁 Found {len(file_upload_paths)} file upload reference(s) in Excel: {file_upload_paths}")
+        
+        # Handle test file uploads if provided
+        test_files_upload_result = {'uploaded': [], 'errors': [], 'referenced_paths': file_upload_paths}
+        if 'test_files' in request.files:
+            test_files = request.files.getlist('test_files')
+            if test_files and any(f.filename for f in test_files):
+                print(f"📤 Uploading {len([f for f in test_files if f.filename])} test file(s)...")
+                upload_result = upload_test_files_to_server(test_files, project_root)
+                test_files_upload_result.update(upload_result)
+        
         # Validate Excel file (with registry validation)
         validation_result = validate_excel_file(excel_path, project_root=project_root)
         
@@ -2103,7 +2219,9 @@ def upload_excel():
             'saved_filename': excel_filename,
             'uploaded_at': datetime.now().isoformat(),
             'validation': validation_result,
-            'file_path': str(excel_path.relative_to(project_root))
+            'file_path': str(excel_path.relative_to(project_root)),
+            'file_upload_paths': file_upload_paths,
+            'test_files_uploaded': test_files_upload_result
         }
         
         metadata_file = metadata_dir / f"{excel_id}.json"
@@ -2116,7 +2234,9 @@ def upload_excel():
             'excel_id': excel_id,
             'filename': file.filename,
             'validation': validation_result,
-            'uploaded_at': metadata['uploaded_at']
+            'uploaded_at': metadata['uploaded_at'],
+            'file_upload_paths': file_upload_paths,
+            'test_files_upload': test_files_upload_result
         }
         
         if not validation_result['valid']:

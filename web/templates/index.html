@@ -157,6 +157,22 @@
                     <strong>Selected file:</strong> <span id="fileName"></span>
                 </div>
 
+                <!-- Test Files Upload Section -->
+                <div style="margin-top: 20px; padding: 15px; background: #E8DDD4; border-radius: 8px; border: 2px dashed #A0826D;">
+                    <h4 style="margin-top: 0; color: #6B5B3D;">📁 Test Files (Optional)</h4>
+                    <p style="color: #6B5B3D; font-size: 0.9em; margin-bottom: 10px;">
+                        If your Excel references test files (e.g., "File Upload:storage/test_files/file.tsv"), 
+                        upload them here. Folder structure will be preserved.
+                    </p>
+                    <input type="file" id="testFilesInput" multiple style="display: none;" 
+                           accept=".tsv,.csv,.txt,.json,.xml,.xlsx,.xls">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('testFilesInput').click()" 
+                            style="margin-right: 10px;">
+                        📁 Select Test Files
+                    </button>
+                    <span id="testFilesInfo" style="color: #6B5B3D; font-size: 0.9em;"></span>
+                </div>
+
                 <!-- Validation Results -->
                 <div class="validation-results" id="validationResults" style="display: none;">
                     <h4>Validation Results:</h4>

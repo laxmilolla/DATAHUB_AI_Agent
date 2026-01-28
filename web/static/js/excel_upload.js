@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     let currentExcelId = null;
     let uploadedFile = null;
+    let testFiles = [];
     
     // File input click handler
     dropZone.addEventListener('click', () => {
@@ -147,8 +148,27 @@ document.addEventListener('DOMContentLoaded', function() {
             
             currentExcelId = data.excel_id;
             
+            // Show test files upload status if available
+            if (data.test_files_upload) {
+                const uploadResult = data.test_files_upload;
+                if (uploadResult.uploaded && uploadResult.uploaded.length > 0) {
+                    const uploadedMsg = `✅ Uploaded ${uploadResult.uploaded.length} test file(s) to server`;
+                    console.log(uploadedMsg, uploadResult.uploaded);
+                }
+                if (uploadResult.errors && uploadResult.errors.length > 0) {
+                    console.warn('⚠️ Test file upload errors:', uploadResult.errors);
+                }
+                if (uploadResult.referenced_paths && uploadResult.referenced_paths.length > 0) {
+                    console.log(`📁 Found ${uploadResult.referenced_paths.length} file upload reference(s) in Excel:`, uploadResult.referenced_paths);
+                }
+            }
+            
             if (data.success) {
-                showMessage('File uploaded and validated successfully!', 'success');
+                let successMsg = 'File uploaded and validated successfully!';
+                if (data.test_files_upload && data.test_files_upload.uploaded && data.test_files_upload.uploaded.length > 0) {
+                    successMsg += ` ${data.test_files_upload.uploaded.length} test file(s) uploaded.`;
+                }
+                showMessage(successMsg, 'success');
                 const generateTsBtn = document.getElementById('generateTsBtn');
                 if (generateTsBtn) generateTsBtn.disabled = false;
             } else {
