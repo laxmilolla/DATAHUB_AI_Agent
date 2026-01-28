@@ -886,6 +886,33 @@
                             }
                         });
                         
+                        // Build validation mismatches mapping by step number
+                        const validationMismatchesMap = {};
+                        const pwValidation = safeGet(results, 'playwright_validation');
+                        const executionId = results.execution_id;
+                        
+                        // Fetch validation results JSON to get step-specific mismatches
+                        if (executionId && pwValidation && pwValidation.validation_mismatches && Array.isArray(pwValidation.validation_mismatches) && pwValidation.validation_mismatches.length > 0) {
+                            try {
+                                const validationResponse = await fetch(`/api/executions/${executionId}/validation-results`);
+                                if (validationResponse.ok) {
+                                    const validationData = await validationResponse.json();
+                                    if (validationData.validations && Array.isArray(validationData.validations)) {
+                                        validationData.validations.forEach(validation => {
+                                            const stepStr = String(validation.step || '');
+                                            // Extract step number (handle "24.0" -> 24, "24" -> 24)
+                                            const stepNum = parseInt(stepStr) || parseFloat(stepStr);
+                                            if (stepNum && validation.mismatches && validation.mismatches.length > 0) {
+                                                validationMismatchesMap[stepNum] = validation.mismatches;
+                                            }
+                                        });
+                                    }
+                                }
+                            } catch (e) {
+                                console.log('Could not fetch validation results:', e);
+                            }
+                        }
+                        
                         html += '<div style="display: grid; gap: 15px;">';
                         
                         steps.forEach((step, index) => {
@@ -901,6 +928,10 @@
                             const waitTime = step.wait_time || '';
                             const functions = step.functions || '';
                             const isOptional = step.optional || false;
+                            
+                            // Check if this step has validation mismatches
+                            const stepMismatches = validationMismatchesMap[stepNum] || [];
+                            const hasValidationMismatches = stepMismatches.length > 0 && functions && functions.includes('Validation(');
                             
                             // Find screenshot for this step (prefer non-failed screenshot)
                             // Use normalized integer stepNum for lookup
@@ -977,8 +1008,8 @@
                                             ` : ''}
                                         </div>
                                         
-                                        <!-- Screenshot (Right Side) -->
-                                        <div style="flex: 0 0 300px; min-width: 250px;">
+                                        <!-- Screenshot and Validation Mismatches (Right Side) -->
+                                        <div style="flex: 0 0 300px; min-width: 250px; display: flex; flex-direction: column; gap: 15px;">
                                             ${screenshot ? `
                                             <div style="border: 2px solid ${actionColor}; border-radius: 8px; overflow: hidden; background: #f8f9fa;">
                                                 <div style="background: ${actionColor}; color: white; padding: 8px; text-align: center; font-size: 0.85em; font-weight: 600;">
@@ -999,6 +1030,36 @@
                                                 <div style="font-size: 0.9em;">No screenshot available</div>
                                             </div>
                                             `}
+                                            
+                                            ${hasValidationMismatches ? `
+                                            <div style="border: 2px solid #dc3545; border-radius: 8px; overflow: hidden; background: #fff5f5;">
+                                                <div style="background: #dc3545; color: white; padding: 8px; text-align: center; font-size: 0.85em; font-weight: 600;">
+                                                    ❌ Validation Mismatches (${stepMismatches.length})
+                                                </div>
+                                                <div style="padding: 10px; max-height: 300px; overflow-y: auto;">
+                                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.75em;">
+                                                        <thead>
+                                                            <tr style="background: #fee; border-bottom: 1px solid #dc3545;">
+                                                                <th style="padding: 6px 4px; text-align: left; font-weight: 600; color: #721c24;">Row</th>
+                                                                <th style="padding: 6px 4px; text-align: left; font-weight: 600; color: #721c24;">Col</th>
+                                                                <th style="padding: 6px 4px; text-align: left; font-weight: 600; color: #721c24;">Expected</th>
+                                                                <th style="padding: 6px 4px; text-align: left; font-weight: 600; color: #721c24;">Actual</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            ${stepMismatches.map((mismatch, idx) => `
+                                                            <tr style="border-bottom: 1px solid #fcc; ${idx % 2 === 0 ? 'background: #fff;' : 'background: #fff5f5;'}">
+                                                                <td style="padding: 6px 4px; font-weight: 600; color: #721c24;">${mismatch.row || 'N/A'}</td>
+                                                                <td style="padding: 6px 4px; color: #721c24; font-size: 0.7em;">${safeString(mismatch.column || 'N/A').substring(0, 12)}</td>
+                                                                <td style="padding: 6px 4px; color: #2e7d32; font-family: monospace; font-size: 0.7em;">${safeString(mismatch.expected || 'N/A').substring(0, 10)}</td>
+                                                                <td style="padding: 6px 4px; color: #dc3545; font-family: monospace; font-size: 0.7em; font-weight: 600;">${safeString(mismatch.actual || 'N/A').substring(0, 10)}</td>
+                                                            </tr>
+                                                            `).join('')}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                            ` : ''}
                                         </div>
                                     </div>
                                 </div>

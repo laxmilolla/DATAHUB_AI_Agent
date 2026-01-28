@@ -160,6 +160,19 @@ def get_execution_results(execution_id):
     return jsonify({'error': 'Not found'}), 404
 
 
+@bp.route('/executions/<execution_id>/validation-results', methods=['GET'])
+def get_validation_results(execution_id):
+    """Get validation results JSON file for an execution"""
+    project_root = current_app.config['PROJECT_ROOT']
+    validation_file = project_root / 'storage' / 'validation_results' / f'{execution_id}.json'
+    
+    if validation_file.exists():
+        with open(validation_file) as f:
+            return jsonify(json.load(f)), 200
+    
+    return jsonify({'error': 'Validation results not found', 'validations': []}), 404
+
+
 @bp.route('/executions', methods=['GET'])
 def list_executions():
     project_root = current_app.config['PROJECT_ROOT']
