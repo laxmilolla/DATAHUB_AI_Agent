@@ -2004,37 +2004,38 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
             functions_upper = functions_str.upper()
             
             # Check for Validation() function call
-        validation_match = re.match(r'Validation\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
-        if validation_match:
-            is_validation_function = True
-            web_tab_name = validation_match.group(1)
-            excel_tab_name = validation_match.group(2)
-            verification_type = 'validation'
-            validation_params = {'web_tab_name': web_tab_name, 'excel_tab_name': excel_tab_name}
-        
-        # Check for Validate_file() function call
-        validate_file_match = re.match(r'Validate_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
-        if validate_file_match:
-            is_validate_file_function = True
-            file_location = validate_file_match.group(1)
-            excel_tab_name = validate_file_match.group(2)
-            verification_type = 'validate_file'
-            validation_params = {'file_location': file_location, 'excel_tab_name': excel_tab_name}
-        
-        # Check for Validate_data_view() function call
-        validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', functions_str, re.IGNORECASE)
-        if validate_data_view_match:
-            verification_type = 'validate_data_view'
-            folder_path = validate_data_view_match.group(1)
-            dropdown_xpath = validate_data_view_match.group(2)
-            table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
-            validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath}
-        
-        # Legacy table/text verification
-        elif 'TABLE' in functions_upper:
-            verification_type = 'table'
-        elif 'TEXT' in functions_upper:
-            verification_type = 'text'
+            validation_match = re.match(r'Validation\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
+            if validation_match:
+                is_validation_function = True
+                web_tab_name = validation_match.group(1)
+                excel_tab_name = validation_match.group(2)
+                verification_type = 'validation'
+                validation_params = {'web_tab_name': web_tab_name, 'excel_tab_name': excel_tab_name}
+            
+            # Check for Validate_file() function call
+            elif re.match(r'Validate_file\s*\(', functions_str, re.IGNORECASE):
+                validate_file_match = re.match(r'Validate_file\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)', functions_str, re.IGNORECASE)
+                if validate_file_match:
+                    file_location = validate_file_match.group(1)
+                    excel_tab_name = validate_file_match.group(2)
+                    verification_type = 'validate_file'
+                    validation_params = {'file_location': file_location, 'excel_tab_name': excel_tab_name}
+            
+            # Check for Validate_data_view() function call
+            elif re.match(r'Validate_data_view\s*\(', functions_str, re.IGNORECASE):
+                validate_data_view_match = re.match(r'Validate_data_view\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)', functions_str, re.IGNORECASE)
+                if validate_data_view_match:
+                    verification_type = 'validate_data_view'
+                    folder_path = validate_data_view_match.group(1)
+                    dropdown_xpath = validate_data_view_match.group(2)
+                    table_xpath = validate_data_view_match.group(3) if validate_data_view_match.lastindex >= 3 else None
+                    validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath}
+            
+            # Legacy table/text verification
+            elif 'TABLE' in functions_upper:
+                verification_type = 'table'
+            elif 'TEXT' in functions_upper:
+                verification_type = 'text'
     
     # Use wait_time from Excel if provided, otherwise default to 1000ms
     wait_ms_before = int(wait_time) if wait_time else 1000
