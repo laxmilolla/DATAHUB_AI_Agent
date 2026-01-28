@@ -3052,7 +3052,10 @@ def download_ts_test_zip(excel_id):
             if file_path and file_path not in test_file_paths:
                 test_file_paths.append(file_path)
         
-        # Create package.json content
+        # Get Excel filename for README and ZIP
+        excel_filename = metadata.get('filename', 'test_case.xlsx')
+        
+        # Create package.json content (with xlsx for Excel reading)
         package_json_content = '''{
   "name": "playwright-test",
   "version": "1.0.0",
@@ -3061,7 +3064,8 @@ def download_ts_test_zip(excel_id):
   },
   "dependencies": {
     "@playwright/test": "^1.40.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "xlsx": "^0.18.5"
   }
 }'''
         
@@ -3160,6 +3164,14 @@ def download_ts_test_zip(excel_id):
                         print(f"⚠️  Test file not found: {full_file_path}")
             else:
                 print("ℹ️  No file upload paths found in test file")
+            
+            # Add Excel file (source file for credentials and expected results)
+            excel_path = project_root / metadata['file_path']
+            if excel_path.exists():
+                zip_file.write(excel_path, excel_filename)
+                print(f"✅ Added Excel file to zip: {excel_filename}")
+            else:
+                print(f"⚠️  Excel file not found: {excel_path}")
         
         # Verify zip contents
         zip_buffer.seek(0)

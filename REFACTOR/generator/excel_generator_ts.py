@@ -25,6 +25,134 @@ from REFACTOR.generator.excel_generator import (
 )
 
 
+def build_excel_reading_functions_code(excel_filename: str) -> str:
+    """
+    Build TypeScript code for reading credentials and expected results from Excel file.
+    
+    Args:
+        excel_filename: Name of the Excel file (e.g., 'test_case.xlsx')
+        
+    Returns:
+        String containing TypeScript Excel reading functions
+    """
+    excel_filename_escaped = excel_filename.replace("'", "\\'").replace('"', '\\"')
+    
+    code = f'''// ============================================================================
+// EXCEL READING FUNCTIONS
+// ============================================================================
+// Read credentials and expected results from Excel file at runtime (no hard-coded data)
+
+// Cache for parsed Excel workbook (parse once per test run)
+let excelCache: any = null;
+const EXCEL_FILENAME = '{excel_filename_escaped}';
+
+// Get Excel file path (try multiple locations)
+function getExcelPath(): string {{
+    const testFileDir = __dirname;
+    const possibleLocations = [
+        path.join(testFileDir, EXCEL_FILENAME),  // Same directory as test file
+        path.join(path.dirname(testFileDir), EXCEL_FILENAME),  // Parent directory
+        path.join(testFileDir, '..', '..', EXCEL_FILENAME),  // Two levels up
+    ];
+    
+    for (const loc of possibleLocations) {{
+        if (fs.existsSync(loc)) {{
+            return loc;
+        }}
+    }}
+    
+    throw new Error(`Excel file "${{EXCEL_FILENAME}}" not found. Checked: ${{possibleLocations.join(', ')}}`);
+}}
+
+// Load Excel workbook (cached)
+function loadExcelWorkbook(): any {{
+    if (!excelCache) {{
+        try {{
+            const XLSX = require('xlsx');
+            const excelPath = getExcelPath();
+            excelCache = XLSX.readFile(excelPath);
+            console.log(`✅ Loaded Excel file: ${{excelPath}}`);
+        }} catch (e) {{
+            throw new Error(`Failed to load Excel file: ${{e.message}}`);
+        }}
+    }}
+    return excelCache;
+}}
+
+// Read credentials from Excel "Credentials" tab
+async function readCredentialsFromExcel(): Promise<{{ [key: string]: string }}> {{
+    try {{
+        const workbook = loadExcelWorkbook();
+        const sheet = workbook.Sheets['Credentials'];
+        
+        if (!sheet) {{
+            console.log('⚠️  Credentials tab not found in Excel, using .env fallback');
+            return {{}};
+        }}
+        
+        const XLSX = require('xlsx');
+        const data = XLSX.utils.sheet_to_json(sheet);
+        const credentials: {{ [key: string]: string }} = {{}};
+        
+        for (const row of data) {{
+            const email = String(row['Email'] || row['email'] || '').trim();
+            const secret = String(row['TOTP_secret'] || row['totp_secret'] || '').trim();
+            if (secret) {{
+                credentials[email || ''] = secret;
+            }}
+        }}
+        
+        console.log(`✅ Loaded ${{Object.keys(credentials).length}} credential(s) from Excel`);
+        return credentials;
+    }} catch (e) {{
+        console.log(`⚠️  Failed to read credentials from Excel: ${{e.message}}, using .env fallback`);
+        return {{}};
+    }}
+}}
+
+// Read expected results from Excel Expected_* tab
+async function readExpectedResultsFromExcel(tabName: string): Promise<Array<{{
+    row_number: string;
+    column_name: string;
+    expected_value: string;
+    match_type: string;
+    action_on_error: string;
+}}>> {{
+    try {{
+        const workbook = loadExcelWorkbook();
+        const sheet = workbook.Sheets[tabName];
+        
+        if (!sheet) {{
+            throw new Error(`Tab "${{tabName}}" not found in Excel file`);
+        }}
+        
+        const XLSX = require('xlsx');
+        const data = XLSX.utils.sheet_to_json(sheet);
+        
+        return data.map((row: any) => {{
+            // Handle various column name formats
+            const rowNum = String(row['Row Number'] || row['row_number'] || row['Row'] || row['row'] || '');
+            const colName = String(row['Column Name'] || row['column_name'] || row['Column'] || row['column'] || '');
+            const expValue = String(row['Expected Value'] || row['expected_value'] || row['Expected'] || row['expected'] || '');
+            const matchType = String(row['Match Type'] || row['match_type'] || row['Match'] || row['match'] || 'exact').toLowerCase();
+            const actionOnError = String(row['Action On Error'] || row['action_on_error'] || row['Action'] || row['action'] || 'fail').toLowerCase();
+            
+            return {{
+                row_number: rowNum,
+                column_name: colName,
+                expected_value: expValue,
+                match_type: matchType || 'exact',
+                action_on_error: actionOnError || 'fail'
+            }};
+        }}).filter((r: any) => r.column_name && r.expected_value);
+    }} catch (e) {{
+        throw new Error(`Failed to read expected results from "${{tabName}}": ${{e.message}}`);
+    }}
+}}
+'''
+    return code
+
+
 def read_expected_results_tabs(excel_file: Path) -> Dict[str, List[Dict]]:
     """
     Read Expected_* tabs from Excel file and parse expected results.
@@ -134,7 +262,7 @@ def build_validation_functions_code(expected_results: Dict[str, List[Dict]]) -> 
     Build TypeScript code for Validation() and Validate_file() functions.
     
     Args:
-        expected_results: Dict mapping tab names to expected results
+        expected_results: Dict mapping tab names to expected results (used to determine if validation functions are needed)
         
     Returns:
         String containing TypeScript validation functions code
@@ -142,26 +270,12 @@ def build_validation_functions_code(expected_results: Dict[str, List[Dict]]) -> 
     if not expected_results:
         return ""
     
-    # Convert expected_results to JavaScript object
-    expected_results_js = "{\n"
-    for tab_name, results in expected_results.items():
-        tab_name_escaped = tab_name.replace("'", "\\'").replace('"', '\\"')
-        expected_results_js += f"    '{tab_name_escaped}': [\n"
-        for result in results:
-            row_num = result['row_number'].replace("'", "\\'").replace('"', '\\"')
-            col_name = result['column_name'].replace("'", "\\'").replace('"', '\\"')
-            exp_value = result['expected_value'].replace("'", "\\'").replace('"', '\\"')
-            match_type = result['match_type'].replace("'", "\\'").replace('"', '\\"')
-            action_on_error = result['action_on_error'].replace("'", "\\'").replace('"', '\\"')
-            expected_results_js += f"        {{ row_number: '{row_num}', column_name: '{col_name}', expected_value: '{exp_value}', match_type: '{match_type}', action_on_error: '{action_on_error}' }},\n"
-        expected_results_js += "    ],\n"
-    expected_results_js += "}"
-    
+    # Note: Expected results are now read from Excel at runtime, not embedded as const
+    # We still check expected_results to determine if validation functions are needed
     code = f'''// ============================================================================
 // VALIDATION FUNCTIONS
 // ============================================================================
-// Expected results from Excel Expected_* tabs
-const EXPECTED_RESULTS: {{ [key: string]: Array<{{ row_number: string, column_name: string, expected_value: string, match_type: string, action_on_error: string }}> }} = {expected_results_js};
+// Expected results are read from Excel at runtime (no hard-coded data)
 
 // Helper function to find column index in table headers
 function findColumnIndex(headers: string[], columnName: string): number {{
@@ -387,8 +501,8 @@ async function Validation(page: any, webTabName: string, excelTabName: string, t
     const mismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     const matches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string }}> = [];
     
-    // Get expected results
-    const expectedResults = EXPECTED_RESULTS[excelTabName];
+    // Get expected results from Excel (read at runtime)
+    const expectedResults = await readExpectedResultsFromExcel(excelTabName);
     if (!expectedResults || expectedResults.length === 0) {{
         throw new Error(`No expected results found for tab: ${{excelTabName}}`);
     }}
@@ -616,7 +730,8 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
     }}
     
     // Step 4: Get expected results
-    const expectedResults = EXPECTED_RESULTS[excelTabName];
+    // Get expected results from Excel (read at runtime)
+    const expectedResults = await readExpectedResultsFromExcel(excelTabName);
     if (!expectedResults || expectedResults.length === 0) {{
         throw new Error(`No expected results found for tab: ${{excelTabName}}`);
     }}
@@ -1988,19 +2103,21 @@ def generate_fill_code_ts(step: str, xpath: str, text_value: str, url: str, elem
             code += f"{ind}        // TOTP key is unique per user - lookup key for this email/username\n"
             code += f"{ind}        const userEmail = '{user_email}';\n"
             code += f"{ind}        const emailSanitized = userEmail.replace(/[@.]/g, '_').toUpperCase();\n"
-            code += f"{ind}        // Try embedded credentials first (from Excel Credentials tab), then .env fallback\n"
-            code += f"{ind}        const secretKey = CREDENTIALS[userEmail] || CREDENTIALS[''] || process.env[`TOTP_SECRET_KEY_TS_${{emailSanitized}}`] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
+            code += f"{ind}        // Read credentials from Excel at runtime, then fallback to .env\n"
+            code += f"{ind}        const credentials = await readCredentialsFromExcel();\n"
+            code += f"{ind}        const secretKey = credentials[userEmail] || credentials[''] || process.env[`TOTP_SECRET_KEY_TS_${{emailSanitized}}`] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
             code += f"{ind}        if (!secretKey) {{\n"
-            code += f"{ind}            throw new Error(`TOTP secret not found in CREDENTIALS['${{userEmail}}'] or CREDENTIALS[''] or environment variables (TOTP_SECRET_KEY_TS_${{emailSanitized}}/TOTP_SECRET_KEY_TS/TOTP_SECRET_KEY) for user: ${{userEmail}}`);\n"
+            code += f"{ind}            throw new Error(`TOTP secret not found in Excel credentials['${{userEmail}}'] or credentials[''] or environment variables (TOTP_SECRET_KEY_TS_${{emailSanitized}}/TOTP_SECRET_KEY_TS/TOTP_SECRET_KEY) for user: ${{userEmail}}`);\n"
             code += f"{ind}        }}\n"
             code += f"{ind}        console.log(`🔐 Step {step}: Using TOTP key for user: ${{userEmail}}`);\n"
             code += f"{ind}        // Pass secret key to Python script\n"
             code += f"{ind}        const totpCode = execSync(`python3 ${{scriptPath}} ${{secretKey}}`, {{ encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }}).trim();\n"
         else:
-            code += f"{ind}        // Get secret key from embedded credentials first, then environment (fallback)\n"
-            code += f"{ind}        const secretKey = CREDENTIALS[''] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
+            code += f"{ind}        // Read credentials from Excel at runtime, then fallback to .env\n"
+            code += f"{ind}        const credentials = await readCredentialsFromExcel();\n"
+            code += f"{ind}        const secretKey = credentials[''] || process.env.TOTP_SECRET_KEY_TS || process.env.TOTP_SECRET_KEY;\n"
             code += f"{ind}        if (!secretKey) {{\n"
-            code += f"{ind}            throw new Error('TOTP_SECRET_KEY_TS (or TOTP_SECRET_KEY) not found in environment variables');\n"
+            code += f"{ind}            throw new Error('TOTP_SECRET_KEY_TS (or TOTP_SECRET_KEY) not found in Excel credentials or environment variables');\n"
             code += f"{ind}        }}\n"
             code += f"{ind}        // Pass secret key to Python script\n"
             code += f"{ind}        const totpCode = execSync(`python3 ${{scriptPath}} ${{secretKey}}`, {{ encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }}).trim();\n"
@@ -2421,28 +2538,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
         # Read Excel file (main test steps sheet)
         df = pd.read_excel(excel_file)
         
-        # Read Credentials tab if it exists
-        credentials_dict = {}
-        try:
-            credentials_df = pd.read_excel(excel_file, sheet_name='Credentials')
-            # Normalize column names
-            credentials_df.columns = credentials_df.columns.str.strip().str.lower().str.replace(' ', '_')
-            
-            # Check if required columns exist
-            if 'email' in credentials_df.columns and 'totp_secret' in credentials_df.columns:
-                for idx, row in credentials_df.iterrows():
-                    email = str(row.get('email', '')).strip() if pd.notna(row.get('email')) else ''
-                    totp_secret = str(row.get('totp_secret', '')).strip() if pd.notna(row.get('totp_secret')) else ''
-                    if totp_secret:  # Only add if TOTP secret is provided
-                        credentials_dict[email] = totp_secret
-                print(f"✅ Loaded {len(credentials_dict)} credentials from 'Credentials' tab")
-            else:
-                print("⚠️  'Credentials' tab found but missing 'Email' or 'TOTP_secret' columns")
-        except (ValueError, KeyError):
-            # Credentials tab doesn't exist - that's okay, will use .env fallback
-            print("ℹ️  No 'Credentials' tab found - will use .env file for TOTP secrets")
-        
-        # Read Expected_* tabs for validation functions
+        # Note: Credentials and expected results are now read from Excel at runtime
+        # No need to parse them during code generation - they'll be read by generated code
+        # We still read expected_results here to check if validation functions are needed
         expected_results = read_expected_results_tabs(excel_file)
         
         # Normalize column names (case-insensitive, handle spaces)
@@ -2621,21 +2719,14 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             else:
                 errors.append(f"Step {step}: Unknown action '{action}'")
         
-        # Build credentials object code
-        credentials_code = ""
-        if credentials_dict:
-            credentials_lines = []
-            for email, totp_secret in sorted(credentials_dict.items()):
-                # Escape single quotes in email and secret
-                email_escaped = email.replace("'", "\\'")
-                totp_secret_escaped = totp_secret.replace("'", "\\'")
-                credentials_lines.append(f"  '{email_escaped}': '{totp_secret_escaped}',")
-            credentials_code = "\n".join(credentials_lines)
-        else:
-            credentials_code = "  // No credentials tab found - using .env fallback"
-        
         # Build full test script
+        # Note: Credentials are now read from Excel at runtime, not embedded in code
         test_name = "test_excel_generated"
+        excel_filename = excel_file.name
+        
+        # Generate Excel reading helper functions
+        excel_reading_code = build_excel_reading_functions_code(excel_filename)
+        
         test_script = f'''/*Excel-Generated Playwright Test
 Generated from: {excel_file.name}*/
 
@@ -2682,11 +2773,7 @@ try {{
   }}
 }}
 
-// Credentials from Excel "Credentials" tab (embedded for portability)
-// Format: {{ "email": "totp_secret", "": "default_secret" }}
-const CREDENTIALS: {{ [key: string]: string }} = {{
-{credentials_code}
-}};
+{excel_reading_code}
 
 {registry_code}
 
