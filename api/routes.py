@@ -29,12 +29,13 @@ active_excel_generations = {}
 def extract_file_upload_paths_from_excel(excel_path: Path) -> list:
     """
     Extract file upload paths from Excel file by parsing Functions column.
+    Supports both file paths and folder paths (ending with /).
     
     Args:
         excel_path: Path to Excel file
         
     Returns:
-        List of file paths (e.g., ['storage/test_files/file1.tsv', 'storage/test_files/file2.tsv'])
+        List of file/folder paths (e.g., ['storage/test_files/file1.tsv', 'storage/test_files/cds/'])
     """
     file_paths = []
     try:
@@ -50,14 +51,18 @@ def extract_file_upload_paths_from_excel(excel_path: Path) -> list:
             functions = str(row.get('functions', '')).strip() if pd.notna(row.get('functions')) else ''
             
             if functions and 'file upload' in functions.lower():
-                # Parse file path from functions: "File Upload:storage/test_files/file.tsv"
+                # Parse file path from functions: "File Upload:storage/test_files/file.tsv" or "File Upload:storage/test_files/cds/"
                 if ':' in functions:
                     parts = functions.split(':')
                     if len(parts) >= 2:
                         # Get path after "File Upload:"
                         path_part = ':'.join(parts[1:]).strip()
-                        if path_part and path_part not in file_paths:
-                            file_paths.append(path_part)
+                        if path_part:
+                            # Normalize folder paths to end with /
+                            if path_part.endswith('/'):
+                                path_part = path_part.rstrip('/') + '/'
+                            if path_part not in file_paths:
+                                file_paths.append(path_part)
     
     except Exception as e:
         print(f"⚠️  Error extracting file upload paths from Excel: {e}")
@@ -65,27 +70,117 @@ def extract_file_upload_paths_from_excel(excel_path: Path) -> list:
     return file_paths
 
 
-def upload_test_files_to_server(test_files: list, project_root: Path) -> dict:
+def upload_test_files_to_server(test_files: list, project_root: Path, referenced_paths: list = None) -> dict:
     """
     Upload test files to server, creating folder structure as needed.
+    Automatically renames uploaded files to match Excel-referenced paths when there's a 1:1 match.
     
     Args:
         test_files: List of file objects from request.files.getlist('test_files')
         project_root: Project root directory
+        referenced_paths: List of file paths referenced in Excel (e.g., ['storage/test_files/file.tsv'])
         
     Returns:
-        Dict with upload results: {'uploaded': [...], 'errors': [...]}
+        Dict with upload results: {'uploaded': [...], 'errors': [...], 'renamed': [...]}
     """
-    results = {'uploaded': [], 'errors': []}
+    results = {'uploaded': [], 'errors': [], 'renamed': []}
     test_files_dir = project_root / 'storage' / 'test_files'
     
     # Create test_files directory if it doesn't exist
     test_files_dir.mkdir(parents=True, exist_ok=True)
     
-    for file in test_files:
-        if file.filename == '':
-            continue
+    # Filter out empty filenames
+    valid_files = [f for f in test_files if f.filename]
+    
+    # Check if referenced path is a folder (ends with /)
+    if referenced_paths and len(referenced_paths) == 1:
+        referenced_path = referenced_paths[0]
+        is_folder_path = referenced_path.endswith('/')
         
+        if is_folder_path:
+            # Folder path: save all uploaded files to this folder
+            # e.g., "storage/test_files/cds/" -> save all files to storage/test_files/cds/
+            if referenced_path.startswith('storage/test_files/'):
+                folder_relative = referenced_path.replace('storage/test_files/', '')
+            elif referenced_path.startswith('test_files/'):
+                folder_relative = referenced_path.replace('test_files/', '')
+            else:
+                # Remove leading storage/ if present
+                folder_relative = referenced_path.replace('storage/', '', 1) if referenced_path.startswith('storage/') else referenced_path
+            
+            # Remove trailing /
+            folder_relative = folder_relative.rstrip('/')
+            
+            # Create target folder
+            target_folder = test_files_dir / folder_relative
+            target_folder.mkdir(parents=True, exist_ok=True)
+            
+            # Save all uploaded files to this folder
+            for file in valid_files:
+                try:
+                    target_path = target_folder / file.filename
+                    file.save(str(target_path))
+                    relative_path = str(target_path.relative_to(project_root))
+                    results['uploaded'].append({
+                        'filename': file.filename,
+                        'server_path': relative_path,
+                        'full_path': str(target_path),
+                        'saved_to_folder': relative_path
+                    })
+                    print(f"✅ Uploaded test file to folder: {file.filename} -> {relative_path}")
+                except Exception as e:
+                    error_msg = f"Failed to upload {file.filename}: {str(e)}"
+                    results['errors'].append(error_msg)
+                    print(f"❌ {error_msg}")
+            
+            return results
+        
+        elif len(valid_files) == 1:
+            # Single file path: auto-rename to match Excel reference
+            file = valid_files[0]
+            
+            # Extract filename from referenced path (e.g., "storage/test_files/file.tsv" -> "file.tsv")
+            # But keep the directory structure
+            if referenced_path.startswith('storage/test_files/'):
+                target_relative = referenced_path.replace('storage/test_files/', '')
+            elif referenced_path.startswith('test_files/'):
+                target_relative = referenced_path.replace('test_files/', '')
+            else:
+                # Use referenced path as-is, but ensure it's relative to test_files_dir
+                target_relative = referenced_path.split('/')[-1] if '/' in referenced_path else referenced_path
+            
+            # Create directory structure if needed
+            if '/' in target_relative:
+                parts = target_relative.split('/')
+                subdir = test_files_dir / '/'.join(parts[:-1])
+                subdir.mkdir(parents=True, exist_ok=True)
+                target_path = subdir / parts[-1]
+            else:
+                target_path = test_files_dir / target_relative
+            
+            try:
+                file.save(str(target_path))
+                relative_path = str(target_path.relative_to(project_root))
+                results['uploaded'].append({
+                    'filename': file.filename,
+                    'server_path': relative_path,
+                    'full_path': str(target_path),
+                    'renamed_to': relative_path
+                })
+                results['renamed'].append({
+                    'original': file.filename,
+                    'renamed_to': relative_path
+                })
+                print(f"✅ Uploaded and renamed test file: {file.filename} -> {relative_path} (matched Excel reference)")
+            except Exception as e:
+                error_msg = f"Failed to upload {file.filename}: {str(e)}"
+                results['errors'].append(error_msg)
+                print(f"❌ {error_msg}")
+            
+            return results
+    
+    # Multiple files or no referenced paths - upload with original names
+    for file in valid_files:
         try:
             # Extract relative path from filename if it contains directory structure
             # e.g., "test_files/subfolder/file.tsv" -> create subfolder structure
@@ -2201,12 +2296,13 @@ def upload_excel():
         print(f"📁 Found {len(file_upload_paths)} file upload reference(s) in Excel: {file_upload_paths}")
         
         # Handle test file uploads if provided
-        test_files_upload_result = {'uploaded': [], 'errors': [], 'referenced_paths': file_upload_paths}
+        test_files_upload_result = {'uploaded': [], 'errors': [], 'referenced_paths': file_upload_paths, 'renamed': []}
         if 'test_files' in request.files:
             test_files = request.files.getlist('test_files')
             if test_files and any(f.filename for f in test_files):
                 print(f"📤 Uploading {len([f for f in test_files if f.filename])} test file(s)...")
-                upload_result = upload_test_files_to_server(test_files, project_root)
+                print(f"📁 Excel references {len(file_upload_paths)} file path(s): {file_upload_paths}")
+                upload_result = upload_test_files_to_server(test_files, project_root, referenced_paths=file_upload_paths)
                 test_files_upload_result.update(upload_result)
         
         # Validate Excel file (with registry validation)

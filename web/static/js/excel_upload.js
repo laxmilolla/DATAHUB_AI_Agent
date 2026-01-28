@@ -14,10 +14,24 @@ document.addEventListener('DOMContentLoaded', function() {
     const validationContent = document.getElementById('validationContent');
     const resultsSection = document.getElementById('resultsSection');
     const resultsContent = document.getElementById('resultsContent');
+    const testFilesInput = document.getElementById('testFilesInput');
+    const testFilesInfo = document.getElementById('testFilesInfo');
+    const expectedFilesInfo = document.getElementById('expectedFilesInfo');
+    const expectedFilesList = document.getElementById('expectedFilesList');
+    
+    // Debug: Log element availability
+    console.log('🔍 UI Elements check:', {
+        statusMessage: !!statusMessage,
+        validationResults: !!validationResults,
+        validationContent: !!validationContent,
+        uploadBtn: !!uploadBtn,
+        testFilesInput: !!testFilesInput
+    });
     
     let currentExcelId = null;
     let uploadedFile = null;
     let testFiles = [];
+    let expectedFilePaths = [];
     
     // File input click handler
     dropZone.addEventListener('click', () => {
@@ -65,6 +79,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Reset state
         currentExcelId = null;
+        testFiles = [];
+        expectedFilePaths = [];
+        if (testFilesInput) testFilesInput.value = '';
+        if (testFilesInfo) testFilesInfo.textContent = '';
+        if (expectedFilesInfo) expectedFilesInfo.style.display = 'none';
         const generateTsBtn = document.getElementById('generateTsBtn');
         if (generateTsBtn) generateTsBtn.disabled = true;
         if (validationResults) validationResults.style.display = 'none';
@@ -103,10 +122,32 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.href = '/api/excel/template?include_examples=true';
     });
     
+    // Handle test files selection
+    if (testFilesInput) {
+        testFilesInput.addEventListener('change', (e) => {
+            testFiles = Array.from(e.target.files);
+            if (testFiles.length > 0) {
+                const fileNames = testFiles.map(f => f.name).join(', ');
+                if (testFilesInfo) {
+                    testFilesInfo.textContent = `Selected: ${testFiles.length} file(s) - ${fileNames}`;
+                }
+            } else {
+                if (testFilesInfo) testFilesInfo.textContent = '';
+            }
+        });
+    }
+    
     // Upload file
     async function uploadFile() {
         const formData = new FormData();
         formData.append('file', uploadedFile);
+        
+        // Add test files if selected
+        if (testFiles && testFiles.length > 0) {
+            testFiles.forEach(file => {
+                formData.append('test_files', file);
+            });
+        }
         
         // Disable button and show loading
         uploadBtn.disabled = true;
@@ -119,12 +160,24 @@ document.addEventListener('DOMContentLoaded', function() {
         if (validationResults) validationResults.style.display = 'none';
         
         try {
+            console.log('📤 Starting file upload...', uploadedFile?.name);
             const response = await fetch('/api/excel/upload', {
                 method: 'POST',
                 body: formData
             });
             
-            const data = await response.json();
+            console.log('📥 Response received:', response.status, response.statusText);
+            
+            let data;
+            try {
+                data = await response.json();
+                console.log('📦 Response data:', data);
+            } catch (jsonError) {
+                const text = await response.text();
+                console.error('❌ Failed to parse JSON response:', text);
+                showMessage('Server error: Invalid response format', 'error');
+                return;
+            }
             
             // Show validation results even if upload failed (400 status)
             if (data.validation) {
@@ -151,15 +204,65 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show test files upload status if available
             if (data.test_files_upload) {
                 const uploadResult = data.test_files_upload;
+                
+                // Show expected file paths from Excel
+                expectedFilePaths = uploadResult.referenced_paths || [];
+                if (expectedFilePaths && expectedFilePaths.length > 0) {
+                    const expectedFilesMsg = `📁 Excel expects ${expectedFilePaths.length} file path(s):\n${expectedFilePaths.map(p => `  • ${p}`).join('\n')}`;
+                    console.log(expectedFilesMsg);
+                    
+                    // Display expected files/folders in UI
+                    if (expectedFilesInfo && expectedFilesList) {
+                        expectedFilesInfo.style.display = 'block';
+                        expectedFilesList.innerHTML = expectedFilePaths.map(path => {
+                            const isFolder = path.endsWith('/');
+                            if (isFolder) {
+                                const folderName = path.replace(/\/$/, '').split('/').pop() || path;
+                                return `<li>📁 <strong>Folder:</strong> <code style="background: #fff; padding: 2px 6px; border-radius: 3px;">${folderName}/</code> <span style="color: #856404;">(${path})</span><br><span style="font-size: 0.85em; color: #6B5B3D; margin-left: 20px;">Upload multiple files - they will be saved to this folder</span></li>`;
+                            } else {
+                                const filename = path.split('/').pop();
+                                return `<li>📄 <strong>File:</strong> <code style="background: #fff; padding: 2px 6px; border-radius: 3px;">${filename}</code> <span style="color: #856404;">(${path})</span></li>`;
+                            }
+                        }).join('');
+                    }
+                    
+                    // Check if any path is a folder
+                    const hasFolderPath = expectedFilePaths.some(p => p.endsWith('/'));
+                    
+                    // Show in UI if files were renamed or saved to folder
+                    if (uploadResult.renamed && uploadResult.renamed.length > 0) {
+                        uploadResult.renamed.forEach(rename => {
+                            const renameMsg = `✅ Automatically renamed "${rename.original}" → "${rename.renamed_to}" to match Excel reference`;
+                            console.log(renameMsg);
+                            showMessage(`✅ File renamed: "${rename.original}" → "${rename.renamed_to}"`, 'success');
+                        });
+                    } else if (hasFolderPath && uploadResult.uploaded && uploadResult.uploaded.length > 0) {
+                        // Show success message for folder uploads
+                        const folderPath = expectedFilePaths.find(p => p.endsWith('/'));
+                        showMessage(`✅ Uploaded ${uploadResult.uploaded.length} file(s) to folder: ${folderPath}`, 'success');
+                    } else if (expectedFilePaths.length === 1 && (!uploadResult.uploaded || uploadResult.uploaded.length === 0)) {
+                        // Show info if Excel expects a file/folder but none was uploaded
+                        const expectedPath = expectedFilePaths[0];
+                        const isFolder = expectedPath.endsWith('/');
+                        const msg = isFolder 
+                            ? `ℹ️ Excel expects files in folder: ${expectedPath}. Upload files in the "Test Files" section above.`
+                            : `ℹ️ Excel expects file: ${expectedPath}. Upload it in the "Test Files" section above.`;
+                        showMessage(msg, 'info');
+                    }
+                } else {
+                    // Hide expected files section if none
+                    if (expectedFilesInfo) expectedFilesInfo.style.display = 'none';
+                }
+                
                 if (uploadResult.uploaded && uploadResult.uploaded.length > 0) {
                     const uploadedMsg = `✅ Uploaded ${uploadResult.uploaded.length} test file(s) to server`;
                     console.log(uploadedMsg, uploadResult.uploaded);
                 }
                 if (uploadResult.errors && uploadResult.errors.length > 0) {
                     console.warn('⚠️ Test file upload errors:', uploadResult.errors);
-                }
-                if (uploadResult.referenced_paths && uploadResult.referenced_paths.length > 0) {
-                    console.log(`📁 Found ${uploadResult.referenced_paths.length} file upload reference(s) in Excel:`, uploadResult.referenced_paths);
+                    uploadResult.errors.forEach(error => {
+                        showMessage(`❌ ${error}`, 'error');
+                    });
                 }
             }
             
@@ -176,6 +279,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
         } catch (error) {
+            console.error('❌ Upload error:', error);
             showMessage('Upload failed: ' + error.message, 'error');
             currentExcelId = null;
             const generateTsBtn = document.getElementById('generateTsBtn');
@@ -427,10 +531,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Show message
     function showMessage(message, type) {
+        console.log('💬 showMessage called:', message, type);
         if (statusMessage) {
             statusMessage.textContent = message;
             statusMessage.className = 'status-message ' + type;
             statusMessage.style.display = 'block';
+            console.log('✅ Message displayed in UI');
+        } else {
+            console.error('❌ statusMessage element not found!');
         }
     }
     

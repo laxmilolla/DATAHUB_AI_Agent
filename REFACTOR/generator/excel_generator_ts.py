@@ -1064,7 +1064,7 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         func_str = str(functions).strip()
         if 'file upload' in func_str.lower():
             is_file_upload = True
-            # Parse file path from functions: "File Upload:storage/test_files" or "File Upload:storage/test_files:filename"
+            # Parse file path from functions: "File Upload:storage/test_files" or "File Upload:storage/test_files:filename" or "File Upload:storage/test_files/cds/"
             if ':' in func_str:
                 parts = func_str.split(':')
                 if len(parts) >= 2:
@@ -1073,14 +1073,18 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
                     # Handle both folder and file paths
                     if path_part:
                         file_path = path_part
+                        # Check if path ends with / - indicates folder upload
+                        if path_part.endswith('/'):
+                            is_folder_upload = True
                         # Check if filename is empty, "*", or "all" - indicates folder upload
-                        if len(parts) >= 3:
+                        elif len(parts) >= 3:
                             filename_part = parts[2].strip()
                             if not filename_part or filename_part in ['*', 'all', 'ALL']:
                                 is_folder_upload = True
                         elif len(parts) == 2:
-                            # Only folder path provided, no filename - treat as folder upload
-                            is_folder_upload = True
+                            # Only folder path provided, no filename - check if it's a folder by checking if it ends with /
+                            # (This case is already handled above, but keeping for backward compatibility)
+                            pass
     
     code = f"{ind}// Step {step}: Click {element_name or 'element'}\n"
     if is_file_upload:
