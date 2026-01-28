@@ -903,11 +903,6 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
                 }});
             }}
             
-            // Write results to JSON file if step and executionId provided
-            if (step && executionId) {{
-                await writeValidationResults(executionId, step, tsvFilePath, nodeType, mismatches, []);
-            }}
-            
         }} catch (error: any) {{
             console.log(`❌ Error validating node type "${{nodeType}}": ${{error.message}}`);
             nodeResults.push({{
@@ -927,6 +922,81 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
     // Step 8: Determine overall success
     const allSuccess = nodeResults.every(r => r.success);
     const successCount = nodeResults.filter(r => r.success).length;
+    
+    // Step 9: Write comprehensive validation results report
+    if (step && executionId) {{
+        try {{
+            const fs = require('fs');
+            const path = require('path');
+            
+            const execId = process.env.EXECUTION_ID || executionId || `independent_${{Date.now()}}`;
+            const resultsDir = path.join(__dirname, '../../storage/validation_results');
+            if (!fs.existsSync(resultsDir)) {{
+                fs.mkdirSync(resultsDir, {{ recursive: true }});
+            }}
+            
+            const resultsFile = path.join(resultsDir, `${{execId}}.json`);
+            
+            // Read existing results or create new
+            let allResults: any = {{}};
+            if (fs.existsSync(resultsFile)) {{
+                try {{
+                    allResults = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+                }} catch (e) {{
+                    allResults = {{}};
+                }}
+            }}
+            
+            if (!allResults.validations) {{
+                allResults.validations = [];
+            }}
+            
+            // Collect all mismatches from all node types
+            const allMismatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string, nodeType: string }}> = [];
+            const allMatches: Array<{{ row: number, column: string, expected: string, actual: string, matchType: string, nodeType: string }}> = [];
+            
+            nodeResults.forEach(nodeResult => {{
+                if (nodeResult.mismatches) {{
+                    nodeResult.mismatches.forEach(m => {{
+                        allMismatches.push({{
+                            ...m,
+                            matchType: 'exact',
+                            nodeType: nodeResult.nodeType
+                        }});
+                    }});
+                }}
+            }});
+            
+            // Add comprehensive data view validation result
+            allResults.validations.push({{
+                step: step,
+                webTabName: 'Data View',
+                excelTabName: 'Validate_data_view',
+                validationType: 'data_view',
+                timestamp: new Date().toISOString(),
+                summary: {{
+                    totalNodeTypes: nodeResults.length,
+                    passed: successCount,
+                    failed: nodeResults.length - successCount,
+                    success: allSuccess
+                }},
+                nodeResults: nodeResults.map(nr => ({{
+                    nodeType: nr.nodeType,
+                    success: nr.success,
+                    mismatches: nr.mismatches || [],
+                    error: nr.error || null
+                }})),
+                mismatches: allMismatches,
+                matches: allMatches
+            }});
+            
+            // Write back to file
+            fs.writeFileSync(resultsFile, JSON.stringify(allResults, null, 2), 'utf8');
+            console.log(`📝 Comprehensive validation results written to: ${{resultsFile}}`);
+        }} catch (writeError: any) {{
+            console.log(`⚠️  Failed to write validation results: ${{writeError.message}}`);
+        }}
+    }}
     
     if (allSuccess) {{
         console.log(`✅ Validate_data_view passed: All ${{nodeResults.length}} node type(s) validated successfully`);
