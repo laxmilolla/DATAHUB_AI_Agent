@@ -370,6 +370,219 @@ def get_validation_results(execution_id):
     return jsonify({'error': 'Validation results not found', 'validations': []}), 404
 
 
+@bp.route('/executions/<execution_id>/validation-results-excel', methods=['GET'])
+def get_validation_results_excel(execution_id):
+    """Get validation results as Excel file for an execution"""
+    try:
+        from flask import send_file
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        
+        project_root = current_app.config['PROJECT_ROOT']
+        validation_file = project_root / 'storage' / 'validation_results' / f'{execution_id}.json'
+        
+        if not validation_file.exists():
+            return jsonify({'error': 'Validation results not found'}), 404
+        
+        # Load JSON data
+        with open(validation_file) as f:
+            validation_data = json.load(f)
+        
+        # Create Excel workbook in memory
+        wb = Workbook()
+        wb.remove(wb.active)  # Remove default sheet
+        
+        validations = validation_data.get('validations', [])
+        if not validations:
+            return jsonify({'error': 'No validation data found'}), 404
+        
+        # ============================================================================
+        # Sheet 1: Summary
+        # ============================================================================
+        ws_summary = wb.create_sheet("Summary")
+        ws_summary.append(["Validation Summary"])
+        ws_summary.append([])
+        ws_summary.append(["Total Validations", len(validations)])
+        
+        total_mismatches = sum(len(v.get('mismatches', [])) for v in validations)
+        total_matches = sum(len(v.get('matches', [])) for v in validations)
+        ws_summary.append(["Total Mismatches", total_mismatches])
+        ws_summary.append(["Total Matches", total_matches])
+        ws_summary.append([])
+        
+        # Per-validation summary
+        ws_summary.append(["Step", "Tab Name", "Type", "Status", "Mismatches", "Matches", "Timestamp"])
+        for v in validations:
+            step = v.get('step', '')
+            tab_name = v.get('webTabName', '') or v.get('excelTabName', '')
+            val_type = v.get('validationType', 'table')
+            mismatches_count = len(v.get('mismatches', []))
+            matches_count = len(v.get('matches', []))
+            status = "✅ Passed" if mismatches_count == 0 else "❌ Failed"
+            timestamp = v.get('timestamp', '')
+            
+            # For data_view, check summary
+            if val_type == 'data_view':
+                summary = v.get('summary', {})
+                passed = summary.get('passed', 0)
+                failed = summary.get('failed', 0)
+                status = f"✅ {passed}/{summary.get('totalNodeTypes', 0)} Passed" if failed == 0 else f"❌ {failed}/{summary.get('totalNodeTypes', 0)} Failed"
+            
+            ws_summary.append([step, tab_name, val_type, status, mismatches_count, matches_count, timestamp])
+        
+        # Format summary sheet
+        ws_summary['A1'].font = Font(bold=True, size=14)
+        ws_summary['A1'].fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        ws_summary['A1'].font = Font(bold=True, color="FFFFFF", size=14)
+        ws_summary['A7'].font = Font(bold=True)
+        ws_summary['A7'].fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+        for col in range(1, 8):
+            ws_summary[f'{get_column_letter(col)}7'].fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+            ws_summary[f'{get_column_letter(col)}7'].font = Font(bold=True)
+        
+        # Auto-adjust column widths
+        for col in ws_summary.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws_summary.column_dimensions[col_letter].width = adjusted_width
+        
+        # ============================================================================
+        # Sheet 2: All Mismatches
+        # ============================================================================
+        ws_mismatches = wb.create_sheet("All Mismatches")
+        ws_mismatches.append(["Step", "Tab Name", "Row", "Column", "Expected", "Actual", "Match Type", "Node Type"])
+        
+        # Collect all mismatches
+        for v in validations:
+            step = v.get('step', '')
+            tab_name = v.get('webTabName', '') or v.get('excelTabName', '')
+            val_type = v.get('validationType', 'table')
+            
+            # Regular mismatches
+            for m in v.get('mismatches', []):
+                ws_mismatches.append([
+                    step,
+                    tab_name,
+                    m.get('row', ''),
+                    m.get('column', ''),
+                    m.get('expected', ''),
+                    m.get('actual', ''),
+                    m.get('matchType', 'exact'),
+                    ''  # Node type (only for data_view)
+                ])
+            
+            # Node results mismatches (for data_view)
+            if val_type == 'data_view':
+                node_results = v.get('nodeResults', [])
+                for nr in node_results:
+                    node_type = nr.get('nodeType', '')
+                    for m in nr.get('mismatches', []):
+                        ws_mismatches.append([
+                            step,
+                            tab_name,
+                            m.get('row', ''),
+                            m.get('column', ''),
+                            m.get('expected', ''),
+                            m.get('actual', ''),
+                            m.get('matchType', 'exact'),
+                            node_type
+                        ])
+        
+        # Format mismatches sheet header
+        for col in range(1, 9):
+            cell = ws_mismatches[f'{get_column_letter(col)}1']
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="DC3545", end_color="DC3545", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.alignment = Alignment(horizontal="center")
+        
+        # Auto-adjust column widths
+        for col in ws_mismatches.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws_mismatches.column_dimensions[col_letter].width = adjusted_width
+        
+        # ============================================================================
+        # Sheet 3: Node Results (for data_view validations)
+        # ============================================================================
+        data_view_validations = [v for v in validations if v.get('validationType') == 'data_view']
+        if data_view_validations:
+            ws_nodes = wb.create_sheet("Node Results")
+            ws_nodes.append(["Step", "Tab Name", "Node Type", "Status", "Mismatch Count", "Error"])
+            
+            for v in data_view_validations:
+                step = v.get('step', '')
+                tab_name = v.get('webTabName', '') or v.get('excelTabName', '')
+                node_results = v.get('nodeResults', [])
+                
+                for nr in node_results:
+                    node_type = nr.get('nodeType', '')
+                    success = nr.get('success', False)
+                    mismatch_count = len(nr.get('mismatches', []))
+                    error = nr.get('error', '')
+                    status = "✅ Passed" if success else "❌ Failed"
+                    
+                    ws_nodes.append([step, tab_name, node_type, status, mismatch_count, error])
+            
+            # Format node results sheet header
+            for col in range(1, 7):
+                cell = ws_nodes[f'{get_column_letter(col)}1']
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color="17A2B8", end_color="17A2B8", fill_type="solid")
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.alignment = Alignment(horizontal="center")
+            
+            # Auto-adjust column widths
+            for col in ws_nodes.columns:
+                max_length = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws_nodes.column_dimensions[col_letter].width = adjusted_width
+        
+        # ============================================================================
+        # Save to BytesIO and return
+        # ============================================================================
+        excel_buffer = BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        filename = f'{execution_id}_validation_results.xlsx'
+        return send_file(
+            excel_buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"Error generating Excel validation results: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/executions', methods=['GET'])
 def list_executions():
     project_root = current_app.config['PROJECT_ROOT']
