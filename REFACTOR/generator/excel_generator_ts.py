@@ -839,7 +839,7 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
 }}
 
 // Validation function for data view - automatically validates all node types
-async function Validate_data_view(page: any, folderPath: string, dropdownXPath: string, tableXPath?: string, sortByColumn?: string, step?: string, executionId?: string): Promise<{{ success: boolean, nodeResults?: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> }}> {{
+async function Validate_data_view(page: any, folderPath: string, dropdownXPath: string, tableXPath?: string, sortByColumn?: string, waitTime?: number, step?: string, executionId?: string): Promise<{{ success: boolean, nodeResults?: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> }}> {{
     console.log(`🔍 Validate_data_view: Validating data view for folder "${{folderPath}}"`);
     
     const nodeResults: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> = [];
@@ -929,6 +929,12 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
             
             // Wait for table to update after dropdown selection
             await waitForTableStable(page);
+            
+            // Wait for status values to update (from "New" to final status like "Warning", "Passed", "Error")
+            // Use waitTime from Excel if provided, otherwise default to 3000ms
+            const statusWaitTime = waitTime || 3000;
+            await page.waitForTimeout(statusWaitTime);
+            console.log(`⏱️  Waited ${{statusWaitTime}}ms for status values to update`);
             
             // Read table from UI
             const uiTable = await readTableFromUI(page, tableXPath);
@@ -1568,7 +1574,8 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
                     'folder_path': folder_path,
                     'dropdown_xpath': dropdown_xpath,
                     'table_xpath': table_xpath,
-                    'sort_by_column': sort_by_column
+                    'sort_by_column': sort_by_column,
+                    'wait_time': wait_time
                 }
             
             if 'file upload' in func_str.lower():
@@ -1872,22 +1879,26 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         dropdown_xpath = validate_data_view_params['dropdown_xpath']
         table_xpath = validate_data_view_params.get('table_xpath')
         sort_by_column = validate_data_view_params.get('sort_by_column')
+        wait_time_for_validation = validate_data_view_params.get('wait_time')
         
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
         sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
+        wait_time_value = int(wait_time_for_validation) if wait_time_for_validation and pd.notna(wait_time_for_validation) else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
         code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
+        # Build function call with all parameters
+        wait_param = f"{wait_time_value}" if wait_time_value else "undefined"
         if table_xpath_escaped and sort_by_column_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', {wait_param}, '{step}', executionId);\n"
         elif table_xpath_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, {wait_param}, '{step}', executionId);\n"
         elif sort_by_column_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', {wait_param}, '{step}', executionId);\n"
         else:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, {wait_param}, '{step}', executionId);\n"
         code += f"{ind}    if (!dataViewResult.success) {{\n"
         code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
@@ -2338,7 +2349,7 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
                     folder_path = validate_data_view_match.group(1).replace('\\"', '"').replace("\\'", "'")
                     dropdown_xpath = validate_data_view_match.group(2).replace('\\"', '"').replace("\\'", "'")
                     table_xpath = validate_data_view_match.group(3).replace('\\"', '"').replace("\\'", "'") if validate_data_view_match.lastindex >= 3 and validate_data_view_match.group(3) else None
-                    validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath}
+                    validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath, 'wait_time': wait_time}
             
             # Legacy table/text verification
             elif 'TABLE' in functions_upper:
@@ -2411,22 +2422,26 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         dropdown_xpath = validation_params['dropdown_xpath']
         table_xpath = validation_params.get('table_xpath')
         sort_by_column = validation_params.get('sort_by_column')
+        wait_time_for_validation = validation_params.get('wait_time')
         
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
         sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
+        wait_time_value = int(wait_time_for_validation) if wait_time_for_validation and pd.notna(wait_time_for_validation) else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
         code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
+        # Build function call with all parameters
+        wait_param = f"{wait_time_value}" if wait_time_value else "undefined"
         if table_xpath_escaped and sort_by_column_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', {wait_param}, '{step}', executionId);\n"
         elif table_xpath_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, {wait_param}, '{step}', executionId);\n"
         elif sort_by_column_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', {wait_param}, '{step}', executionId);\n"
         else:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, {wait_param}, '{step}', executionId);\n"
         code += f"{ind}    if (!dataViewResult.success) {{\n"
         code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
