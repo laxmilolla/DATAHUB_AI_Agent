@@ -1829,7 +1829,7 @@ def download_test_ts_zip(exec_id):
                 'execution_id': exec_id
             }), 404
         
-        # Create package.json content
+        # Create package.json content (with xlsx for Excel reading)
         package_json_content = '''{
   "name": "playwright-test",
   "version": "1.0.0",
@@ -1838,7 +1838,8 @@ def download_test_ts_zip(exec_id):
   },
   "dependencies": {
     "@playwright/test": "^1.40.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "xlsx": "^0.18.5"
   }
 }'''
         
@@ -1938,6 +1939,23 @@ def download_test_ts_zip(exec_id):
                         print(f"⚠️  Test file not found: {full_file_path}")
             else:
                 print("ℹ️  No file upload paths found in test file")
+            
+            # Add Excel file for Excel executions (source file for credentials and expected results)
+            if exec_data and exec_data.get('source') == 'excel':
+                excel_id = exec_data.get('excel_id')
+                if excel_id:
+                    metadata_dir = project_root / 'storage' / 'excel_files' / 'metadata'
+                    metadata_file = metadata_dir / f"{excel_id}.json"
+                    if metadata_file.exists():
+                        with open(metadata_file, 'r') as f:
+                            excel_metadata = json.load(f)
+                        excel_path = project_root / excel_metadata['file_path']
+                        excel_filename = excel_metadata.get('filename', f'{excel_id}.xlsx')
+                        if excel_path.exists():
+                            zip_file.write(excel_path, excel_filename)
+                            print(f"✅ Added Excel file to zip: {excel_filename}")
+                        else:
+                            print(f"⚠️  Excel file not found: {excel_path}")
         
         zip_buffer.seek(0)
         
