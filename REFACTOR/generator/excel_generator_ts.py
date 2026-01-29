@@ -53,6 +53,7 @@ function getExcelPath(): string {{
         path.join(testFileDir, EXCEL_FILENAME),  // Same directory as test file
         path.join(path.dirname(testFileDir), EXCEL_FILENAME),  // Parent directory
         path.join(testFileDir, '..', '..', EXCEL_FILENAME),  // Two levels up
+        path.join(testFileDir, '..', '..', 'storage', 'excel_files', EXCEL_FILENAME),  // Excel files directory
     ];
     
     for (const loc of possibleLocations) {{
