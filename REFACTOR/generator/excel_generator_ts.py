@@ -1518,7 +1518,7 @@ def generate_wait_for_code_ts(step: str, xpath: str, url: str, element_name: str
     return code
 
 
-def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None, functions: Optional[str] = None) -> str:
+def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, is_optional: bool, indent: int = 12, element_id: Optional[str] = None, next_url: Optional[str] = None, wait_time: Optional[int] = None, object_type: Optional[str] = None, is_modal: bool = False, text_value: Optional[str] = None, functions: Optional[str] = None, sort_by_column: Optional[str] = None) -> str:
     """Generate TypeScript click code - registry-aware
     
     Args:
@@ -1884,7 +1884,12 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
-        sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
+        # Escape sort_by_column for use in single-quoted TypeScript string
+        # JSON strings need their double quotes escaped, and single quotes escaped too
+        if sort_by_column:
+            sort_by_column_escaped = sort_by_column.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+        else:
+            sort_by_column_escaped = None
         wait_time_value = int(wait_time_for_validation) if wait_time_for_validation and pd.notna(wait_time_for_validation) else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
@@ -2349,7 +2354,7 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
                     folder_path = validate_data_view_match.group(1).replace('\\"', '"').replace("\\'", "'")
                     dropdown_xpath = validate_data_view_match.group(2).replace('\\"', '"').replace("\\'", "'")
                     table_xpath = validate_data_view_match.group(3).replace('\\"', '"').replace("\\'", "'") if validate_data_view_match.lastindex >= 3 and validate_data_view_match.group(3) else None
-                    validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath, 'wait_time': wait_time}
+                    validation_params = {'folder_path': folder_path, 'dropdown_xpath': dropdown_xpath, 'table_xpath': table_xpath, 'wait_time': wait_time, 'sort_by_column': sort_by_column}
             
             # Legacy table/text verification
             elif 'TABLE' in functions_upper:
@@ -2427,7 +2432,12 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
-        sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
+        # Escape sort_by_column for use in single-quoted TypeScript string
+        # JSON strings need their double quotes escaped, and single quotes escaped too
+        if sort_by_column:
+            sort_by_column_escaped = sort_by_column.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+        else:
+            sort_by_column_escaped = None
         wait_time_value = int(wait_time_for_validation) if wait_time_for_validation and pd.notna(wait_time_for_validation) else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
@@ -2758,7 +2768,9 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     click_text_value = str(text_value).strip() if pd.notna(text_value) and text_value else None
                     # Pass functions for file upload detection
                     click_functions = str(functions).strip() if pd.notna(functions) and functions else None
-                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type, text_value=click_text_value, functions=click_functions)
+                    # Pass sort_by_column for Validate_data_view
+                    click_sort_by_column = str(sort_by_column).strip() if pd.notna(sort_by_column) and sort_by_column and str(sort_by_column).strip() else None
+                    test_body += generate_click_code_ts(step, xpath, row_url, element_name, is_optional, element_id=element_id, next_url=next_url_for_wait, wait_time=wait_ms, object_type=object_type, text_value=click_text_value, functions=click_functions, sort_by_column=click_sort_by_column)
                     previous_action = 'click'
                     previous_was_totp = False  # Reset after click
                 else:
@@ -2807,12 +2819,15 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
                     row_url = url if url and url != 'N/A' else current_url or ''
                     # Pass wait_time from Excel to use before verification
                     wait_ms = int(wait_time) if pd.notna(wait_time) and wait_time else None
+                    # Pass sort_by_column for Validate_data_view
+                    verify_sort_by_column = str(sort_by_column).strip() if pd.notna(sort_by_column) and sort_by_column and str(sort_by_column).strip() else None
                     test_body += generate_verify_code_ts(
                         step, xpath, row_url, element_name, 
                         element_id=element_id,
                         functions=functions,
                         text_value=text_value,
-                        wait_time=wait_ms
+                        wait_time=wait_ms,
+                        sort_by_column=verify_sort_by_column
                     )
                     previous_action = 'verify'
             
