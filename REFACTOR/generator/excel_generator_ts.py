@@ -839,7 +839,7 @@ async function Validate_file(fileLocation: string, excelTabName: string, step?: 
 }}
 
 // Validation function for data view - automatically validates all node types
-async function Validate_data_view(page: any, folderPath: string, dropdownXPath: string, tableXPath?: string, step?: string, executionId?: string): Promise<{{ success: boolean, nodeResults?: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> }}> {{
+async function Validate_data_view(page: any, folderPath: string, dropdownXPath: string, tableXPath?: string, sortByColumn?: string, step?: string, executionId?: string): Promise<{{ success: boolean, nodeResults?: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> }}> {{
     console.log(`🔍 Validate_data_view: Validating data view for folder "${{folderPath}}"`);
     
     const nodeResults: Array<{{ nodeType: string, success: boolean, mismatches?: Array<{{ row: number, column: string, expected: string, actual: string }}>, error?: string }}> = [];
@@ -939,6 +939,69 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
             const tsvData = parseTSV(tsvContent);
             console.log(`✅ Read TSV file: ${{tsvData.headers.length}} columns, ${{tsvData.rows.length}} rows`);
             
+            // Determine sort column for this node type
+            let sortColumnForNode: string | undefined = undefined;
+            if (sortByColumn) {{
+                try {{
+                    // Try to parse as JSON object (node type mapping)
+                    const sortMapping = JSON.parse(sortByColumn);
+                    if (typeof sortMapping === 'object' && sortMapping !== null) {{
+                        // Use nodeType-specific column if available, otherwise try lowercase/underscore variations
+                        sortColumnForNode = sortMapping[nodeType] || sortMapping[nodeType.toLowerCase()] || sortMapping[nodeType.replace(/_/g, '')];
+                        if (sortColumnForNode) {{
+                            console.log(`📋 Using node-specific sort column for "${{nodeType}}": ${{sortColumnForNode}}`);
+                        }}
+                    }}
+                }} catch (e) {{
+                    // Not JSON, treat as single column name (use for all node types)
+                    sortColumnForNode = sortByColumn;
+                }}
+            }}
+            
+            // Auto-detect sort column if not provided or not found
+            if (!sortColumnForNode) {{
+                // Look for column ending in _id or ID (case-insensitive)
+                const idColumn = tsvData.headers.find(h => {{
+                    const lower = h.toLowerCase();
+                    return lower.endsWith('_id') || lower.endsWith('id') || lower === 'id';
+                }});
+                if (idColumn) {{
+                    sortColumnForNode = idColumn;
+                    console.log(`🔍 Auto-detected sort column: ${{sortColumnForNode}}`);
+                }}
+            }}
+            
+            // Sort TSV rows by sortColumnForNode if determined
+            if (sortColumnForNode) {{
+                const sortColIdx = tsvData.headers.findIndex(h => h.toLowerCase() === sortColumnForNode.toLowerCase());
+                if (sortColIdx >= 0) {{
+                    tsvData.rows.sort((a, b) => {{
+                        const valA = (a[sortColIdx] || '').trim().toLowerCase();
+                        const valB = (b[sortColIdx] || '').trim().toLowerCase();
+                        return valA.localeCompare(valB);
+                    }});
+                    console.log(`✅ Sorted TSV by column: ${{sortColumnForNode}}`);
+                }} else {{
+                    console.log(`⚠️  Sort column "${{sortColumnForNode}}" not found in TSV headers: ${{tsvData.headers.join(', ')}}`);
+                }}
+            }}
+            
+            // Sort UI rows by sortColumnForNode if determined (after TSV is sorted)
+            if (sortColumnForNode) {{
+                // Find UI column that matches sortColumnForNode (case-insensitive)
+                const uiSortColIdx = uiTable.headers.findIndex(h => h.toLowerCase() === sortColumnForNode.toLowerCase());
+                if (uiSortColIdx >= 0) {{
+                    uiTable.rows.sort((a, b) => {{
+                        const valA = (a[uiSortColIdx] || '').trim().toLowerCase();
+                        const valB = (b[uiSortColIdx] || '').trim().toLowerCase();
+                        return valA.localeCompare(valB);
+                    }});
+                    console.log(`✅ Sorted UI table by column: ${{uiTable.headers[uiSortColIdx]}}`);
+                }} else {{
+                    console.log(`⚠️  Sort column "${{sortColumnForNode}}" not found in UI headers: ${{uiTable.headers.join(', ')}}`);
+                }}
+            }}
+            
             // Compare data
             const mismatches: Array<{{ row: number, column: string, expected: string, actual: string }}> = [];
             
@@ -967,9 +1030,16 @@ async function Validate_data_view(page: any, folderPath: string, dropdownXPath: 
             // Compare data rows (only if headers and row counts match)
             if (uiTable.headers.length === tsvData.headers.length && uiTable.rows.length === tsvData.rows.length) {{
                 // Map TSV headers to UI table headers (case-insensitive)
+                // Special mapping: Automation_status → Status
                 const headerMap: number[] = [];
                 for (const tsvHeader of tsvData.headers) {{
-                    const uiIndex = uiTable.headers.findIndex(h => h.toLowerCase() === tsvHeader.toLowerCase());
+                    // Special mapping: Automation_status → Status
+                    let mappedHeader = tsvHeader;
+                    if (tsvHeader.toLowerCase() === 'automation_status') {{
+                        mappedHeader = 'Status';
+                    }}
+                    
+                    const uiIndex = uiTable.headers.findIndex(h => h.toLowerCase() === mappedHeader.toLowerCase());
                     headerMap.push(uiIndex >= 0 ? uiIndex : -1);
                 }}
                 
@@ -1497,7 +1567,8 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
                 validate_data_view_params = {
                     'folder_path': folder_path,
                     'dropdown_xpath': dropdown_xpath,
-                    'table_xpath': table_xpath
+                    'table_xpath': table_xpath,
+                    'sort_by_column': sort_by_column
                 }
             
             if 'file upload' in func_str.lower():
@@ -1800,17 +1871,23 @@ def generate_click_code_ts(step: str, xpath: str, url: str, element_name: str, i
         folder_path = validate_data_view_params['folder_path']
         dropdown_xpath = validate_data_view_params['dropdown_xpath']
         table_xpath = validate_data_view_params.get('table_xpath')
+        sort_by_column = validate_data_view_params.get('sort_by_column')
         
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
+        sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
         code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
-        if table_xpath_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{step}', executionId);\n"
+        if table_xpath_escaped and sort_by_column_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', '{step}', executionId);\n"
+        elif table_xpath_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, '{step}', executionId);\n"
+        elif sort_by_column_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', '{step}', executionId);\n"
         else:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, '{step}', executionId);\n"
         code += f"{ind}    if (!dataViewResult.success) {{\n"
         code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
@@ -2333,17 +2410,23 @@ def generate_verify_code_ts(step: str, xpath: str, url: str, element_name: str, 
         folder_path = validation_params['folder_path']
         dropdown_xpath = validation_params['dropdown_xpath']
         table_xpath = validation_params.get('table_xpath')
+        sort_by_column = validation_params.get('sort_by_column')
         
         folder_path_escaped = folder_path.replace("'", "\\'").replace('"', '\\"')
         dropdown_xpath_escaped = dropdown_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`')
         table_xpath_escaped = table_xpath.replace("'", "\\'").replace('"', '\\"').replace('`', '\\`') if table_xpath else None
+        sort_by_column_escaped = sort_by_column.replace("'", "\\'").replace('"', '\\"') if sort_by_column else None
         
         code += f"{ind}    // Call Validate_data_view function - automatically validates all node types\n"
         code += f"{ind}    const executionId = process.env.EXECUTION_ID || `independent_${{Date.now()}}`;\n"
-        if table_xpath_escaped:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{step}', executionId);\n"
+        if table_xpath_escaped and sort_by_column_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, '{sort_by_column_escaped}', '{step}', executionId);\n"
+        elif table_xpath_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, `{table_xpath_escaped}`, undefined, '{step}', executionId);\n"
+        elif sort_by_column_escaped:
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{sort_by_column_escaped}', '{step}', executionId);\n"
         else:
-            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, '{step}', executionId);\n"
+            code += f"{ind}    const dataViewResult = await Validate_data_view(page, '{folder_path_escaped}', `{dropdown_xpath_escaped}`, undefined, undefined, '{step}', executionId);\n"
         code += f"{ind}    if (!dataViewResult.success) {{\n"
         code += f"{ind}        const failedNodes = dataViewResult.nodeResults?.filter(r => !r.success).map(r => r.nodeType).join(', ') || 'unknown';\n"
         code += f"{ind}        await page.screenshot({{ path: 'storage/screenshots/pw_step{step}_{safe_name}_data_view_failed.png' }});\n"
@@ -2581,6 +2664,7 @@ def generate_playwright_ts_from_excel(excel_file: Path, output_file: Path) -> Di
             wait_time = row.get('wait_time', None)
             is_optional = str(row.get('optional', '')).strip().lower() in ['true', 'yes', '1', 'y']
             is_modal = str(row.get('modal', '')).strip().lower() in ['true', 'yes', '1', 'y']
+            sort_by_column = str(row.get('sort_by_column', '')).strip() if pd.notna(row.get('sort_by_column')) and str(row.get('sort_by_column')).strip() else None
             
             # Update current URL
             if url and url != 'N/A':
